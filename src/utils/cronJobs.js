@@ -54,8 +54,11 @@ const initCronJobs = () => {
                     // Send alerts at specific intervals
                     if (daysLeft === 30 || daysLeft === 7 || daysLeft === 1) {
                         const message = `REMAINDER: Vehicle document for ${vehicle.carNumber} (${doc.documentType}) is expiring in ${daysLeft} day(s) on ${expiry.toFormat('dd-MM-yyyy')}. Please renew it ASAP. [FleetCRM]`;
-                        await sendSMS(admin.mobile, message);
-                        logCron(`Notification sent for ${vehicle.carNumber} - ${doc.documentType} (${daysLeft} days left)`);
+
+                        // User requested to remove SMS notifications to save costs
+                        // await sendSMS(admin.mobile, message); 
+
+                        logCron(`[NOTIFICATION SUPPRESSED] Expiry alert for ${vehicle.carNumber} - ${doc.documentType} (${daysLeft} days left). SMS disabled at user request.`);
                     }
                 }
             }

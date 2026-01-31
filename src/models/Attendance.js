@@ -53,8 +53,14 @@ const attendanceSchema = new mongoose.Schema({
     // Legacy / Structured Fields (Required for detailed tracking and images)
     fuel: {
         filled: { type: Boolean, default: false },
-        amount: { type: Number, default: 0 },
-        slipPhoto: { type: String }
+        amount: { type: Number, default: 0 }, // Total sum of all entries
+        entries: [{
+            amount: { type: Number },
+            km: { type: Number },
+            slipPhoto: { type: String }
+        }],
+        km: { type: Number }, // Legacy/Single entry fallback
+        slipPhoto: { type: String } // Legacy/Single entry fallback
     },
     parking: [{
         amount: { type: Number },

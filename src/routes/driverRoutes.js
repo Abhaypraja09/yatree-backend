@@ -25,8 +25,8 @@ router.post('/punch-out', upload.fields([
     { name: 'selfie', maxCount: 1 },
     { name: 'kmPhoto', maxCount: 1 },
     { name: 'carSelfie', maxCount: 1 },
-    { name: 'fuelSlip', maxCount: 1 },
-    { name: 'parkingSlip', maxCount: 10 }
+    { name: 'fuelSlips', maxCount: 10 },
+    { name: 'parkingSlips', maxCount: 10 }
 ]), punchOut);
 
 router.post('/request-trip', requestNewTrip);

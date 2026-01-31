@@ -174,48 +174,57 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         date: targetDate
     }).populate('driver', 'name mobile').populate('vehicle', 'carNumber');
 
-    // Document Expiry Alerts
-    const now = new Date();
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(now.getDate() + 30);
+    // Document Expiry Alerts - Relative to the Selected Dashboard Date
+    const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
+    const alertThreshold = baseDate.plus({ days: 30 });
 
     const vehiclesWithExpiringDocs = await Vehicle.find({
         company: companyId,
-        'documents.expiryDate': { $lte: thirtyDaysFromNow }
+        'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
     }).select('carNumber documents');
 
     const driversWithExpiringDocs = await User.find({
         company: companyId,
         role: 'Driver',
-        'documents.expiryDate': { $lte: thirtyDaysFromNow }
+        'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
     }).select('name documents');
 
     const expiringAlerts = [];
 
     vehiclesWithExpiringDocs.forEach(v => {
         v.documents.forEach(doc => {
-            if (doc.expiryDate <= thirtyDaysFromNow) {
-                expiringAlerts.push({
-                    type: 'Vehicle',
-                    identifier: v.carNumber,
-                    documentType: doc.documentType,
-                    expiryDate: doc.expiryDate,
-                    status: doc.expiryDate < now ? 'Expired' : 'Expiring Soon'
-                });
+            if (doc.expiryDate) {
+                const expiry = DateTime.fromJSDate(doc.expiryDate).setZone('Asia/Kolkata').startOf('day');
+                if (expiry <= alertThreshold) {
+                    const diffDays = Math.ceil(expiry.diff(baseDate, 'days').days);
+                    expiringAlerts.push({
+                        type: 'Vehicle',
+                        identifier: v.carNumber,
+                        documentType: doc.documentType,
+                        expiryDate: doc.expiryDate,
+                        daysLeft: diffDays,
+                        status: diffDays < 0 ? 'Expired' : 'Expiring Soon'
+                    });
+                }
             }
         });
     });
 
     driversWithExpiringDocs.forEach(d => {
         d.documents.forEach(doc => {
-            if (doc.expiryDate && doc.expiryDate <= thirtyDaysFromNow) {
-                expiringAlerts.push({
-                    type: 'Driver',
-                    identifier: d.name,
-                    documentType: doc.documentType,
-                    expiryDate: doc.expiryDate,
-                    status: doc.expiryDate < now ? 'Expired' : 'Expiring Soon'
-                });
+            if (doc.expiryDate) {
+                const expiry = DateTime.fromJSDate(doc.expiryDate).setZone('Asia/Kolkata').startOf('day');
+                if (expiry <= alertThreshold) {
+                    const diffDays = Math.ceil(expiry.diff(baseDate, 'days').days);
+                    expiringAlerts.push({
+                        type: 'Driver',
+                        identifier: d.name,
+                        documentType: doc.documentType,
+                        expiryDate: doc.expiryDate,
+                        daysLeft: diffDays,
+                        status: diffDays < 0 ? 'Expired' : 'Expiring Soon'
+                    });
+                }
             }
         });
     });

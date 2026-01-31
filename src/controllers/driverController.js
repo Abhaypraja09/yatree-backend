@@ -134,7 +134,7 @@ const punchIn = async (req, res) => {
 const punchOut = async (req, res) => {
     const {
         km, latitude, longitude, address,
-        fuelFilled, fuelAmount,
+        fuelFilled, fuelAmounts, fuelKMs,
         remarks, // Duty
         parkingPaid,
         parkingAmounts,
@@ -146,7 +146,6 @@ const punchOut = async (req, res) => {
     const selfie = req.files?.['selfie']?.[0]?.path;
     const kmPhoto = req.files?.['kmPhoto']?.[0]?.path;
     const carSelfie = req.files?.['carSelfie']?.[0]?.path;
-    const fuelSlip = req.files?.['fuelSlip']?.[0]?.path;
 
     try {
         if (!selfie || !kmPhoto || !carSelfie) {
@@ -196,17 +195,40 @@ const punchOut = async (req, res) => {
             otherRemarks: otherRemarks || ''
         };
 
-        // Fuel logic (Legacy/Slip storage)
+        // Fuel logic (Multiple entries)
+        let fuelData = [];
+        let totalFuelAmount = 0;
+        if (fuelFilled === 'true') {
+            const fuelSlips = req.files?.['fuelSlips'] || [];
+            let amounts = fuelAmounts;
+            let kms = fuelKMs;
+
+            if (!Array.isArray(amounts)) amounts = amounts ? [amounts] : [];
+            if (!Array.isArray(kms)) kms = kms ? [kms] : [];
+
+            fuelSlips.forEach((slip, index) => {
+                const amount = Number(amounts[index]) || 0;
+                totalFuelAmount += amount;
+                fuelData.push({
+                    amount: amount,
+                    km: Number(kms[index]) || 0,
+                    slipPhoto: slip.path
+                });
+            });
+        }
+
         attendance.fuel = {
             filled: fuelFilled === 'true',
-            amount: Number(fuelAmount) || 0,
-            slipPhoto: fuelSlip || null
+            amount: totalFuelAmount,
+            entries: fuelData,
+            km: fuelData.length > 0 ? fuelData[0].km : 0, // Legacy fallback
+            slipPhoto: fuelData.length > 0 ? fuelData[0].slipPhoto : null // Legacy fallback
         };
 
         // Parking logic (Legacy/Slip storage)
         let parkingData = [];
         if (parkingPaid === 'true') {
-            const parkingSlips = req.files?.['parkingSlip'] || [];
+            const parkingSlips = req.files?.['parkingSlips'] || [];
             let amounts = parkingAmounts;
             if (!Array.isArray(amounts)) {
                 amounts = amounts ? [amounts] : [];
