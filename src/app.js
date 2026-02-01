@@ -45,29 +45,28 @@ if (mongoose.connection) {
     });
 }
 
-app.get('/api/db-check', (req, res) => {
+app.get('/api/db-check', async (req, res) => {
     const fs = require('fs');
     const path = require('path');
     const mongoose = require('mongoose');
     const status = mongoose.connection.readyState;
     const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
     const uri = process.env.MONGODB_URI;
+
+    let public_ip = 'Check disabled';
+    try {
+        const ipRes = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+        public_ip = ipRes.data.ip;
+    } catch (e) { public_ip = 'Error fetching IP'; }
+
     res.json({
         status: states[status],
         readyState: status,
         error: lastDbError,
         env_uri_exists: !!uri,
-        env_uri_preview: uri ? (uri.startsWith('mongodb+srv') ? 'Starts with mongodb+srv' : 'Looks like localhost or other') : 'NOT FOUND',
-        env_keys_count: Object.keys(process.env).length,
-        cwd: process.cwd(),
-        dirname: __dirname,
+        env_uri_preview: uri ? (uri.startsWith('mongodb+srv') ? 'Starts with mongodb+srv' : 'Standard Format (mongodb://)') : 'NOT FOUND',
         dot_env_exists: fs.existsSync(path.join(process.cwd(), '.env')),
-        public_ip: await(async () => {
-            try {
-                const ipRes = await axios.get('https://api.ipify.org?format=json');
-                return ipRes.data.ip;
-            } catch (e) { return 'Could not detect'; }
-        })()
+        public_ip
     });
 });
 
