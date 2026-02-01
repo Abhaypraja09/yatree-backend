@@ -54,9 +54,11 @@ app.use('/api/driver', driverRoutes);
 const frontendPath = path.join(process.cwd(), 'dist');
 app.use(express.static(frontendPath));
 
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(frontendPath, 'index.html'));
+    } else {
+        next();
     }
 });
 // ---------------------------------
