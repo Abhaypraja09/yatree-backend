@@ -2,15 +2,12 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
     try {
-        console.log('Attemping to connect to DB...');
-        console.log('URI Type:', typeof process.env.MONGODB_URI);
-        if (!process.env.MONGODB_URI) {
-            console.error('CRITICAL ERROR: MONGODB_URI is not defined in environment variables!');
-            throw new Error('MONGODB_URI is missing');
-        }
-        console.log('URI Value:', process.env.MONGODB_URI);
+        // --- PRODUCTION OVERRIDE ---
+        const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yatree-destination.x9f6z.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Yatree-Destination";
+        // ---------------------------
 
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        console.log('Attemping to connect to DB...');
+        const conn = await mongoose.connect(MONGODB_URI, {
             serverSelectionTimeoutMS: 5000
         });
         console.log(`MongoDB Connected: ${conn.connection.host}`);
