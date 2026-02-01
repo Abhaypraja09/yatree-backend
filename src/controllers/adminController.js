@@ -798,6 +798,19 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 
     res.json({ message: 'Duty completed and vehicle released', attendance });
 });
+// @desc    Delete Border Tax entry
+// @route   DELETE /api/admin/border-tax/:id
+// @access  Private/Admin
+const deleteBorderTax = asyncHandler(async (req, res) => {
+    const entry = await BorderTax.findById(req.params.id);
+
+    if (entry) {
+        await entry.deleteOne();
+        res.json({ message: 'Border tax entry removed successfully' });
+    } else {
+        res.status(404).json({ message: 'Entry not found' });
+    }
+});
 
 module.exports = {
     createDriver,
@@ -820,5 +833,6 @@ module.exports = {
     getBorderTaxEntries,
     rechargeFastag,
     freelancerPunchIn,
-    freelancerPunchOut
+    freelancerPunchOut,
+    deleteBorderTax
 };

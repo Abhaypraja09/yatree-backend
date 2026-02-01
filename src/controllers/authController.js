@@ -13,8 +13,8 @@ const path = require('path');
 
 const logError = (msg) => {
     try {
-        // Hardcoded absolute path to be sure
-        const logPath = 'c:\\Users\\ABHAY\\OneDrive\\Desktop\\TEXI\\taxi-fleet-crm\\server_debug.log';
+        // Use process.cwd() for cross-platform compatibility
+        const logPath = path.join(process.cwd(), 'server_debug.log');
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
     } catch (e) {
         console.error('Logging failed:', e);

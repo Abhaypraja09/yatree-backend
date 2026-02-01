@@ -19,6 +19,7 @@ const {
     approveNewTrip,
     addBorderTax,
     getBorderTaxEntries,
+    deleteBorderTax,
     rechargeFastag,
     freelancerPunchIn,
     freelancerPunchOut
@@ -69,6 +70,7 @@ router.patch('/drivers/:driverId/approve-trip', approveNewTrip);
 // Border Tax
 router.post('/border-tax', upload.single('receiptPhoto'), addBorderTax);
 router.get('/border-tax/:companyId', getBorderTaxEntries);
+router.delete('/border-tax/:id', deleteBorderTax);
 
 // Fastag
 router.post('/vehicles/:id/fastag-recharge', rechargeFastag);
