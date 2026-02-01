@@ -440,7 +440,8 @@ const uploadVehicleDocument = asyncHandler(async (req, res) => {
 
     await vehicle.save();
 
-    // Immediate Alert if expiring soon (within 30 days)
+    // Immediate Alert if expiring soon (within 30 days) disabled at user request
+    /*
     try {
         const { DateTime } = require('luxon');
         const { sendSMS } = require('../utils/smsService');
@@ -460,6 +461,8 @@ const uploadVehicleDocument = asyncHandler(async (req, res) => {
     } catch (smsErr) {
         console.error('Immediate SMS Error:', smsErr.message);
     }
+    */
+
 
     res.json({ message: 'Document uploaded successfully', vehicle });
 });
