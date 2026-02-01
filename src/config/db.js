@@ -4,6 +4,10 @@ const connectDB = async () => {
     try {
         console.log('Attemping to connect to DB...');
         console.log('URI Type:', typeof process.env.MONGODB_URI);
+        if (!process.env.MONGODB_URI) {
+            console.error('CRITICAL ERROR: MONGODB_URI is not defined in environment variables!');
+            throw new Error('MONGODB_URI is missing');
+        }
         console.log('URI Value:', process.env.MONGODB_URI);
 
         const conn = await mongoose.connect(process.env.MONGODB_URI, {

@@ -1,17 +1,34 @@
 /**
  * Hostinger Entry Point
+ * Force loads environment variables and starts the server
  */
 const path = require('path');
+const fs = require('fs');
 const dotenv = require('dotenv');
 
-// Try loading from current directory and parent directory to be safe
-dotenv.config({ path: path.join(__dirname, '.env') });
-dotenv.config(); // Fallback to default behavior
+// 1. Force load .env from multiple possible locations on Hostinger
+const envPaths = [
+    path.join(process.cwd(), '.env'),
+    path.join(__dirname, '.env'),
+    path.join(process.cwd(), 'backend', '.env')
+];
 
-console.log('--- ROOT ENTRY ENV CHECK ---');
-console.log('CWD:', process.cwd());
-console.log('__dirname:', __dirname);
-console.log('Available Env Keys:', Object.keys(process.env).filter(k => !k.includes('SECRET') && !k.includes('KEY') && !k.includes('PASSWORD')));
-console.log('--- ROOT ENTRY ENV CHECK END ---');
+envPaths.forEach(p => {
+    if (fs.existsSync(p)) {
+        dotenv.config({ path: p });
+        console.log(`Loaded .env from: ${p}`);
+    }
+});
+
+// 2. Fallback for JWT_SECRET if missing in Hostinger Dashboard
+if (!process.env.JWT_SECRET) {
+    process.env.JWT_SECRET = 'yatree_secure_fallback_key_2024';
+}
+
+console.log('--- DEPLOYMENT DIAGNOSTICS ---');
+console.log('Current Work Dir (CWD):', process.cwd());
+console.log('Script Dir (__dirname):', __dirname);
+console.log('MONGODB_URI Detected:', !!process.env.MONGODB_URI);
+console.log('--- END DIAGNOSTICS ---');
 
 require('./src/server.js');
