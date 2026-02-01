@@ -14,15 +14,14 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // PRIORITY: If env.MONGODB_URI exists and is NOT localhost, use it.
-        // Otherwise, use the production Atlas URI to ensure it never fails on Hostinger.
+        // Updated URI based on your latest screenshot
+        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
+
         let MONGODB_URI = process.env.MONGODB_URI;
 
-        const atlasURI = "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yatree-destination.x9f6z.mongodb.net/taxi-fleet?retryWrites=true&w=majority";
-
         if (!MONGODB_URI || MONGODB_URI.includes('localhost') || MONGODB_URI.includes('127.0.0.1')) {
-            MONGODB_URI = atlasURI;
-            logToFile('Using Production Atlas URI (Localhost detected or URI missing)');
+            MONGODB_URI = latestAtlasURI;
+            logToFile('Using Latest Production Atlas URI (yattridb)');
         }
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
@@ -30,7 +29,7 @@ const connectDB = async (retryCount = 0) => {
         const conn = await mongoose.connect(MONGODB_URI, {
             serverSelectionTimeoutMS: 20000,
             socketTimeoutMS: 45000,
-            family: 4, // Force IPv4 (Crucial for Hostinger)
+            family: 4, // Force IPv4
             connectTimeoutMS: 20000,
             heartbeatFrequencyMS: 10000,
             retryWrites: true
@@ -54,15 +53,15 @@ const connectDB = async (retryCount = 0) => {
         console.error(`DB Connection Error: ${error.message}`);
 
         if (error.message.includes('ENOTFOUND')) {
-            logToFile('CRITICAL: DNS Resolution failed. This is common on Hostinger with +srv. If this persists, replace Atlas SRV with Standard Connection String.');
+            logToFile('CRITICAL: DNS Resolution failed on Hostinger. Trying to reconnect...');
         }
 
         if (retryCount < maxRetries) {
-            const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000); // Exponential backoff
+            const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000);
             logToFile(`Retrying DB connection in ${delay / 1000}s...`);
             setTimeout(() => connectDB(retryCount + 1), delay);
         } else {
-            logToFile('CRITICAL: Max retries reached. Database unavailable.');
+            logToFile('CRITICAL: Max retries reached.');
         }
     }
 };
