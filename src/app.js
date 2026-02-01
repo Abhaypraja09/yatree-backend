@@ -61,7 +61,13 @@ app.get('/api/db-check', (req, res) => {
         env_keys_count: Object.keys(process.env).length,
         cwd: process.cwd(),
         dirname: __dirname,
-        dot_env_exists: fs.existsSync(path.join(process.cwd(), '.env'))
+        dot_env_exists: fs.existsSync(path.join(process.cwd(), '.env')),
+        public_ip: await(async () => {
+            try {
+                const ipRes = await axios.get('https://api.ipify.org?format=json');
+                return ipRes.data.ip;
+            } catch (e) { return 'Could not detect'; }
+        })()
     });
 });
 
