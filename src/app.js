@@ -37,10 +37,13 @@ app.get('/api/utils/geocode', async (req, res) => {
     }
 });
 
+const mongoose = require('mongoose');
 let lastDbError = null;
-mongoose.connection.on('error', (err) => {
-    lastDbError = err.message;
-});
+if (mongoose.connection) {
+    mongoose.connection.on('error', (err) => {
+        lastDbError = err.message;
+    });
+}
 
 app.get('/api/db-check', (req, res) => {
     const fs = require('fs');
