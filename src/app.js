@@ -43,6 +43,9 @@ mongoose.connection.on('error', (err) => {
 });
 
 app.get('/api/db-check', (req, res) => {
+    const fs = require('fs');
+    const path = require('path');
+    const mongoose = require('mongoose');
     const status = mongoose.connection.readyState;
     const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
     const uri = process.env.MONGODB_URI;
@@ -52,7 +55,10 @@ app.get('/api/db-check', (req, res) => {
         error: lastDbError,
         env_uri_exists: !!uri,
         env_uri_preview: uri ? (uri.startsWith('mongodb+srv') ? 'Starts with mongodb+srv' : 'Looks like localhost or other') : 'NOT FOUND',
-        env_keys_count: Object.keys(process.env).length
+        env_keys_count: Object.keys(process.env).length,
+        cwd: process.cwd(),
+        dirname: __dirname,
+        dot_env_exists: fs.existsSync(path.join(process.cwd(), '.env'))
     });
 });
 
