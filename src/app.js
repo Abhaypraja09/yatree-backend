@@ -36,6 +36,16 @@ app.get('/api/utils/geocode', async (req, res) => {
     }
 });
 
+app.get('/api/db-check', (req, res) => {
+    const mongoose = require('mongoose');
+    const status = mongoose.connection.readyState;
+    const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
+    res.json({
+        status: states[status],
+        readyState: status,
+        uri: process.env.MONGODB_URI ? 'URI set (Hidden)' : 'URI MISSING'
+    });
+});
 
 // Import Routes
 const authRoutes = require('./routes/authRoutes');

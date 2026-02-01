@@ -36,6 +36,13 @@ const loginUser = async (req, res) => {
             logError('WARNING: JWT_SECRET environment variable is missing! Using fallback for now.');
         }
 
+        // Check if DB is connected
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) {
+            logError('Login aborted: Database not connected');
+            return res.status(503).json({ message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again, or check IP whitelisting in MongoDB Atlas.' });
+        }
+
         const user = await User.findOne({ mobile }).populate('company');
 
         if (!user) {
