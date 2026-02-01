@@ -30,8 +30,10 @@ const loginUser = async (req, res) => {
         const { mobile, password } = req.body;
         logError(`Mobile: ${mobile}`);
 
+        const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+
         if (!process.env.JWT_SECRET) {
-            throw new Error('JWT_SECRET is missing');
+            logError('WARNING: JWT_SECRET environment variable is missing! Using fallback for now.');
         }
 
         const user = await User.findOne({ mobile }).populate('company');

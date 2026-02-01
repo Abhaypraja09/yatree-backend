@@ -7,6 +7,11 @@ const initCronJobs = require('./utils/cronJobs');
 
 const PORT = process.env.PORT || 5000;
 
+console.log('--- Environment Check ---');
+console.log('JWT_SECRET present:', !!process.env.JWT_SECRET);
+console.log('MONGODB_URI present:', !!process.env.MONGODB_URI);
+console.log('------------------------');
+
 // Start listening immediately to prevent 503 errors during slow DB connection
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[${new Date().toISOString()}] Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
