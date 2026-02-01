@@ -14,14 +14,15 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // Updated URI based on your latest screenshot
-        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
+        // Updated URI with NEW password (Mayank@123 -> URL encoded as Mayank%40123)
+        // Note: Special characters in passwords must be URL encoded.
+        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:Mayank%40123@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
 
         let MONGODB_URI = process.env.MONGODB_URI;
 
         if (!MONGODB_URI || MONGODB_URI.includes('localhost') || MONGODB_URI.includes('127.0.0.1')) {
             MONGODB_URI = latestAtlasURI;
-            logToFile('Using Latest Production Atlas URI (yattridb)');
+            logToFile('Using Latest Production Atlas URI (yattridb) with updated credentials');
         }
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
@@ -52,8 +53,8 @@ const connectDB = async (retryCount = 0) => {
         logToFile(`DB Connection Error: ${error.message}`);
         console.error(`DB Connection Error: ${error.message}`);
 
-        if (error.message.includes('ENOTFOUND')) {
-            logToFile('CRITICAL: DNS Resolution failed on Hostinger. Trying to reconnect...');
+        if (error.message.includes('auth failed')) {
+            logToFile('CRITICAL: Authentication failed. Check password and username in Atlas.');
         }
 
         if (retryCount < maxRetries) {
