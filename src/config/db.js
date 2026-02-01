@@ -14,27 +14,24 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // PRIORITY 1: Environment Variable (Recommended)
-        // PRIORITY 2: Hardcoded Standard Fallback (More reliable on Hostinger than +srv)
-        // PRIORITY 3: Hardcoded +srv Fallback (Might fail on some Hostinger servers)
-
+        // PRIORITY: If env.MONGODB_URI exists and is NOT localhost, use it.
+        // Otherwise, use the production Atlas URI to ensure it never fails on Hostinger.
         let MONGODB_URI = process.env.MONGODB_URI;
 
-        if (!MONGODB_URI) {
-            // If you get "ENOTFOUND" on Hostinger, use the "Standard Connection String" from Atlas
-            // It looks like mongodb://user:pass@node1:27017,node2:27017...
-            MONGODB_URI = "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yatree-destination.x9f6z.mongodb.net/taxi-fleet?retryWrites=true&w=majority";
+        const atlasURI = "mongodb+srv://prajapatmayank174_db_user:zR8eLMgAaiY9Aoyn@yatree-destination.x9f6z.mongodb.net/taxi-fleet?retryWrites=true&w=majority";
+
+        if (!MONGODB_URI || MONGODB_URI.includes('localhost') || MONGODB_URI.includes('127.0.0.1')) {
+            MONGODB_URI = atlasURI;
+            logToFile('Using Production Atlas URI (Localhost detected or URI missing)');
         }
 
-        logToFile(`Attempting to connect to DB (Retry: ${retryCount})...`);
-        console.log(`Attemping to connect to DB... (Attempt ${retryCount + 1})`);
+        logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
         const conn = await mongoose.connect(MONGODB_URI, {
             serverSelectionTimeoutMS: 20000,
             socketTimeoutMS: 45000,
             family: 4, // Force IPv4 (Crucial for Hostinger)
             connectTimeoutMS: 20000,
-            // These options help with stability
             heartbeatFrequencyMS: 10000,
             retryWrites: true
         });
@@ -57,11 +54,11 @@ const connectDB = async (retryCount = 0) => {
         console.error(`DB Connection Error: ${error.message}`);
 
         if (error.message.includes('ENOTFOUND')) {
-            logToFile('CRITICAL: DNS Resolution failed. This is common on Hostinger with mongodb+srv. PLEASE use the Standard Connection String in your .env file.');
+            logToFile('CRITICAL: DNS Resolution failed. This is common on Hostinger with +srv. If this persists, replace Atlas SRV with Standard Connection String.');
         }
 
         if (retryCount < maxRetries) {
-            const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000); // Max delay 30s
+            const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000); // Exponential backoff
             logToFile(`Retrying DB connection in ${delay / 1000}s...`);
             setTimeout(() => connectDB(retryCount + 1), delay);
         } else {
