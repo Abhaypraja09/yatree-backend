@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
-const { seed } = require('./scripts/seedAdmin');
+
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 
 dotenv.config();
@@ -60,9 +60,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 
-app.get("/admin", (req, res) => {
-    seed();
-})
+
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
 const frontendPath = path.join(process.cwd(), 'dist');

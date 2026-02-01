@@ -22,10 +22,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     } catch (e) { }
 });
 
+const { seed } = require('../scripts/seedAdmin');
+
 // Connect to Database asynchronously
-connectDB().then(() => {
+connectDB().then(async () => {
     initCronJobs();
-    console.log('Cron jobs and DB connection initialized.');
+    await seed();
+    console.log('Cron jobs, DB connection, and Seeding initialized.');
 }).catch(err => {
     console.error('CRITICAL: DB Connection failed, but server is still listening:', err.message);
 });
