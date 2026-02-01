@@ -39,8 +39,16 @@ const loginUser = async (req, res) => {
         // Check if DB is connected
         const mongoose = require('mongoose');
         if (mongoose.connection.readyState !== 1) {
-            logError('Login aborted: Database not connected');
-            return res.status(503).json({ message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again, or check IP whitelisting in MongoDB Atlas.' });
+            const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
+            const currentState = states[mongoose.connection.readyState] || 'Unknown';
+            logError(`Login aborted: Database not connected (Current State: ${currentState})`);
+            return res.status(503).json({
+                message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again, or check IP whitelisting in MongoDB Atlas.',
+                debug_info: {
+                    db_status: currentState,
+                    check_url: '/api/db-check'
+                }
+            });
         }
 
         const user = await User.findOne({ mobile }).populate('company');
