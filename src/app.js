@@ -36,10 +36,6 @@ app.get('/api/utils/geocode', async (req, res) => {
     }
 });
 
-// Basic Route
-app.get('/', (req, res) => {
-    res.json({ message: 'Taxi Fleet CRM API is running...' });
-});
 
 // Import Routes
 const authRoutes = require('./routes/authRoutes');
