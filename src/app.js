@@ -50,6 +50,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 
+// --- FRONTEND DEPLOYMENT LOGIC ---
+const frontendPath = path.join(process.cwd(), 'dist');
+app.use(express.static(frontendPath));
+
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+        res.sendFile(path.join(frontendPath, 'index.html'));
+    }
+});
+// ---------------------------------
+
 // Error Handling Middleware
 app.use(notFound);
 app.use(errorHandler);
