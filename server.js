@@ -1,5 +1,11 @@
 /**
  * Hostinger Entry Point
- * This file redirects to the actual server file in the src directory.
  */
+const dotenv = require('dotenv');
+dotenv.config();
+
+console.log('--- ROOT ENTRY ENV CHECK ---');
+console.log('Available Env Keys:', Object.keys(process.env).filter(k => !k.includes('SECRET') && !k.includes('KEY') && !k.includes('PASSWORD')));
+console.log('--- ROOT ENTRY ENV CHECK END ---');
+
 require('./src/server.js');

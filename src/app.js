@@ -40,10 +40,13 @@ app.get('/api/db-check', (req, res) => {
     const mongoose = require('mongoose');
     const status = mongoose.connection.readyState;
     const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
+    const uri = process.env.MONGODB_URI;
     res.json({
         status: states[status],
         readyState: status,
-        uri: process.env.MONGODB_URI ? 'URI set (Hidden)' : 'URI MISSING'
+        env_uri_exists: !!uri,
+        env_uri_preview: uri ? (uri.startsWith('mongodb+srv') ? 'Starts with mongodb+srv' : 'Looks like localhost or other') : 'NOT FOUND',
+        env_keys: Object.keys(process.env).filter(k => !k.includes('SECRET') && !k.includes('KEY') && !k.includes('PASSWORD'))
     });
 });
 
