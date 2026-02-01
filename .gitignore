@@ -21,7 +21,7 @@ yarn-error.log
 # -----------------------------
 # Build / Dist folders
 # -----------------------------
-dist/
+# dist/
 build/
 .next/
 out/
