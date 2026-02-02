@@ -14,16 +14,14 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // Updated URI with NEW password (Mayank@123 -> URL encoded as Mayank%40123)
-        // Note: Special characters in passwords must be URL encoded.
-        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:Mayank%40123@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
+        // Legacy URI is more robust for some networks (like Hostinger) and bypasses DNS SRV issues
+        const latestAtlasURI = "mongodb://prajapatmayank174_db_user:Mayank12345@yattridb-shard-00-00.ojuesoz.mongodb.net:27017,yattridb-shard-00-01.ojuesoz.mongodb.net:27017,yattridb-shard-00-02.ojuesoz.mongodb.net:27017/taxi-fleet?ssl=true&replicaSet=atlas-z0yck0-shard-0&authSource=admin&retryWrites=true&w=majority";
 
-        let MONGODB_URI = process.env.MONGODB_URI;
-
-        if (!MONGODB_URI || MONGODB_URI.includes('localhost') || MONGODB_URI.includes('127.0.0.1')) {
-            MONGODB_URI = latestAtlasURI;
-            logToFile('Using Latest Production Atlas URI (yattridb) with updated credentials');
-        }
+        // ALWAYS use the latest URI to ensure we are using the new password,
+        // unless you explicitly want to use an environment variable.
+        // For now, we force this to fix the "bad auth" issue.
+        const MONGODB_URI = latestAtlasURI;
+        logToFile('Using Forced Legacy Production Atlas URI to ensure new credentials');
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
@@ -53,13 +51,26 @@ const connectDB = async (retryCount = 0) => {
         logToFile(`DB Connection Error: ${error.message}`);
         console.error(`DB Connection Error: ${error.message}`);
 
+        let public_ip = 'unknown';
+        try {
+            const axios = require('axios');
+            const ipRes = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+            public_ip = ipRes.data.ip;
+        } catch (e) { }
+
+        logToFile(`Current Server Public IP: ${public_ip}`);
+
         if (error.message.includes('auth failed')) {
             logToFile('CRITICAL: Authentication failed. Check password and username in Atlas.');
         }
 
+        if (error.message.includes('whitelist') || error.message.includes('ECONNREFUSED')) {
+            logToFile(`HINT: Ensure IP ${public_ip} is whitelisted in MongoDB Atlas.`);
+        }
+
         if (retryCount < maxRetries) {
             const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000);
-            logToFile(`Retrying DB connection in ${delay / 1000}s...`);
+            logToFile(`Retrying DB connection in ${delay / 1000}s... (Attempt ${retryCount + 1}/${maxRetries})`);
             setTimeout(() => connectDB(retryCount + 1), delay);
         } else {
             logToFile('CRITICAL: Max retries reached.');
