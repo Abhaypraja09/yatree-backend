@@ -13,16 +13,17 @@ const asyncHandler = require('express-async-handler');
 // @access  Private/Admin
 const createDriver = async (req, res, next) => {
     try {
-        const { name, mobile, password, companyId, isFreelancer, licenseNumber } = req.body;
+        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username } = req.body;
         const freelancer = isFreelancer === 'true' || isFreelancer === true;
 
         if (!name || !mobile || (!freelancer && !password) || !companyId || companyId === 'undefined') {
             return res.status(400).json({ message: 'Please provide all required fields: name, mobile, password (for regular drivers), companyId' });
         }
 
-        const userExists = await User.findOne({ mobile });
+        const userExists = await User.findOne({ $or: [{ mobile }, { username: username || null }] });
         if (userExists) {
-            return res.status(400).json({ message: 'Driver already exists with this mobile number' });
+            const field = userExists.mobile === mobile ? 'mobile number' : 'username';
+            return res.status(400).json({ message: `Driver already exists with this ${field}` });
         }
 
         const company = await Company.findById(companyId);
@@ -33,6 +34,7 @@ const createDriver = async (req, res, next) => {
         const driver = new User({
             name,
             mobile,
+            username,
             password,
             role: 'Driver',
             company: companyId,
@@ -340,6 +342,7 @@ const updateDriver = asyncHandler(async (req, res) => {
     if (driver) {
         driver.name = req.body.name || driver.name;
         driver.mobile = req.body.mobile || driver.mobile;
+        driver.username = req.body.username || driver.username;
         if (req.body.password) {
             driver.password = req.body.password;
         }

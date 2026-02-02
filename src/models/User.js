@@ -11,6 +11,12 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    username: {
+        type: String,
+        required: false, // Optional for admin, but we'll enforce for new drivers
+        unique: true,
+        sparse: true // Allows null/missing values for old records while enforcing uniqueness for others
+    },
     licenseNumber: {
         type: String,
         required: false

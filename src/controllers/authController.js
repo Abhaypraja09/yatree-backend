@@ -28,7 +28,7 @@ const loginUser = async (req, res) => {
     try {
         logError('Login attempt started');
         const { mobile, password } = req.body;
-        logError(`Mobile: ${mobile}`);
+        logError(`Login request for: ${mobile}`);
 
         const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
 
@@ -51,7 +51,13 @@ const loginUser = async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ mobile }).populate('company');
+        // Try to find user by mobile OR username
+        const user = await User.findOne({
+            $or: [
+                { mobile: mobile },
+                { username: mobile } // Assuming frontend sends either in the 'mobile' field
+            ]
+        }).populate('company');
 
         if (!user) {
             logError('User not found');
