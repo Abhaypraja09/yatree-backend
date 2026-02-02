@@ -20,7 +20,12 @@ const createDriver = async (req, res, next) => {
             return res.status(400).json({ message: 'Please provide all required fields: name, mobile, password (for regular drivers), companyId' });
         }
 
-        const userExists = await User.findOne({ $or: [{ mobile }, { username: username || null }] });
+        const userExists = await User.findOne({
+            $or: [
+                { mobile },
+                ...(username ? [{ username }] : [])
+            ]
+        });
         if (userExists) {
             const field = userExists.mobile === mobile ? 'mobile number' : 'username';
             return res.status(400).json({ message: `Driver already exists with this ${field}` });
