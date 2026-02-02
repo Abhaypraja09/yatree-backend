@@ -14,14 +14,12 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // Legacy URI is more robust for some networks (like Hostinger) and bypasses DNS SRV issues
-        const latestAtlasURI = "mongodb://prajapatmayank174_db_user:Mayank12345@yattridb-shard-00-00.ojuesoz.mongodb.net:27017,yattridb-shard-00-01.ojuesoz.mongodb.net:27017,yattridb-shard-00-02.ojuesoz.mongodb.net:27017/taxi-fleet?ssl=true&replicaSet=atlas-z0yck0-shard-0&authSource=admin&retryWrites=true&w=majority";
+        // NEW Cluster for info@yatreedestination.com
+        const latestAtlasURI = "mongodb+srv://info_db_user:vIbU7VvaJ55fK7I3@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
 
-        // ALWAYS use the latest URI to ensure we are using the new password,
-        // unless you explicitly want to use an environment variable.
-        // For now, we force this to fix the "bad auth" issue.
+        // Force use of the new cluster URI
         const MONGODB_URI = latestAtlasURI;
-        logToFile('Using Forced Legacy Production Atlas URI to ensure new credentials');
+        logToFile('Using Fresh MongoDB Atlas Cluster (Cluster0)');
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
