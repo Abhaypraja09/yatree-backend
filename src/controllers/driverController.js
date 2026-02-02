@@ -8,6 +8,15 @@ const getTodayIST = () => {
     return DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 };
 
+const fs = require('fs');
+const path = require('path');
+const logToFile = (msg) => {
+    try {
+        const logPath = path.join(process.cwd(), 'server_debug.log');
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] DRIVER_CTRL: ${msg}\n`);
+    } catch (e) { }
+};
+
 // @desc    Get driver dashboard / assigned vehicle
 // @route   GET /api/driver/dashboard
 // @access  Private/Driver
@@ -62,70 +71,77 @@ const getDriverDashboard = async (req, res) => {
 // @route   POST /api/driver/punch-in
 // @access  Private/Driver
 const punchIn = async (req, res) => {
-    const { km, latitude, longitude, address, vehicleId } = req.body;
+    try {
+        const { km, latitude, longitude, address, vehicleId } = req.body;
+        logToFile(`PunchIn - Start - KM: ${km}, Vehicle: ${vehicleId}`);
 
-    const selfie = req.files?.['selfie']?.[0]?.path;
-    const kmPhoto = req.files?.['kmPhoto']?.[0]?.path;
-    const carSelfie = req.files?.['carSelfie']?.[0]?.path;
+        const selfie = req.files?.['selfie']?.[0]?.path;
+        const kmPhoto = req.files?.['kmPhoto']?.[0]?.path;
+        const carSelfie = req.files?.['carSelfie']?.[0]?.path;
 
-    if (!selfie || !kmPhoto || !carSelfie) {
-        return res.status(400).json({ message: 'Selfie, KM photo, and Car selfie are mandatory' });
-    }
-
-    const today = getTodayIST();
-    const driver = await User.findById(req.user._id);
-
-    // Use vehicleId from body OR fallback to assignedVehicle
-    const targetVehicleId = vehicleId || driver.assignedVehicle;
-
-    if (!targetVehicleId) {
-        return res.status(400).json({ message: 'Please select a vehicle to start your duty' });
-    }
-
-    // Check if vehicle is available
-    const vehicle = await Vehicle.findById(targetVehicleId);
-    if (!vehicle) {
-        return res.status(404).json({ message: 'Vehicle not found' });
-    }
-
-    if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driver._id.toString()) {
-        return res.status(400).json({ message: 'This vehicle is already in use by another driver' });
-    }
-
-    if (driver.tripStatus === 'pending_approval') {
-        return res.status(400).json({ message: 'Waiting for Admin approval to start new trip' });
-    }
-
-    // Check if already an active punch in
-    const existingPunch = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
-    if (existingPunch) {
-        return res.status(400).json({ message: 'You have an active shift. Please punch out first.' });
-    }
-
-    const attendance = await Attendance.create({
-        driver: req.user._id,
-        company: driver.company,
-        vehicle: targetVehicleId,
-        date: today,
-        punchIn: {
-            km: Number(km),
-            selfie: selfie,
-            kmPhoto: kmPhoto,
-            carSelfie: carSelfie,
-            time: new Date(),
-            location: { latitude, longitude, address }
+        if (!selfie || !kmPhoto || !carSelfie) {
+            return res.status(400).json({ message: 'Selfie, KM photo, and Car selfie are mandatory' });
         }
-    });
 
-    // Update vehicle status
-    vehicle.currentDriver = driver._id;
-    await vehicle.save();
+        const today = getTodayIST();
+        const driver = await User.findById(req.user._id);
 
-    // Update driver trip status
-    driver.tripStatus = 'active';
-    await driver.save();
+        // Use vehicleId from body OR fallback to assignedVehicle
+        const targetVehicleId = vehicleId || driver.assignedVehicle;
 
-    res.status(201).json({ message: 'Punched in successfully', attendance });
+        if (!targetVehicleId) {
+            return res.status(400).json({ message: 'Please select a vehicle to start your duty' });
+        }
+
+        // Check if vehicle is available
+        const vehicle = await Vehicle.findById(targetVehicleId);
+        if (!vehicle) {
+            return res.status(404).json({ message: 'Vehicle not found' });
+        }
+
+        if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driver._id.toString()) {
+            return res.status(400).json({ message: 'This vehicle is already in use by another driver' });
+        }
+
+        if (driver.tripStatus === 'pending_approval') {
+            return res.status(400).json({ message: 'Waiting for Admin approval to start new trip' });
+        }
+
+        // Check if already an active punch in
+        const existingPunch = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
+        if (existingPunch) {
+            return res.status(400).json({ message: 'You have an active shift. Please punch out first.' });
+        }
+
+        const attendance = await Attendance.create({
+            driver: req.user._id,
+            company: driver.company,
+            vehicle: targetVehicleId,
+            date: today,
+            punchIn: {
+                km: Number(km),
+                selfie: selfie,
+                kmPhoto: kmPhoto,
+                carSelfie: carSelfie,
+                time: new Date(),
+                location: { latitude, longitude, address }
+            }
+        });
+
+        // Update vehicle status
+        vehicle.currentDriver = driver._id;
+        await vehicle.save();
+
+        // Update driver trip status
+        driver.tripStatus = 'active';
+        await driver.save();
+
+        res.status(201).json({ message: 'Punched in successfully', attendance });
+    } catch (error) {
+        logToFile(`PunchIn Error: ${error.message}`);
+        console.error('PunchIn Error:', error);
+        res.status(500).json({ message: 'Server error during punch in', error: error.message });
+    }
 };
 
 // @desc    Night Punch-Out
