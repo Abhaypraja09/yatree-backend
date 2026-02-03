@@ -25,10 +25,18 @@ if (!process.env.JWT_SECRET) {
     process.env.JWT_SECRET = 'yatree_secure_fallback_key_2024';
 }
 
-console.log('--- DEPLOYMENT DIAGNOSTICS ---');
-console.log('Current Work Dir (CWD):', process.cwd());
-console.log('Script Dir (__dirname):', __dirname);
-console.log('MONGODB_URI Detected:', !!process.env.MONGODB_URI);
-console.log('--- END DIAGNOSTICS ---');
+const diag = `--- DEPLOYMENT DIAGNOSTICS ---
+Time: ${new Date().toISOString()}
+CWD: ${process.cwd()}
+__dirname: ${__dirname}
+MONGODB_URI: ${!!process.env.MONGODB_URI}
+PORT: ${process.env.PORT || 'Not specified (5000)'}
+NODE_ENV: ${process.env.NODE_ENV}
+-------------------------`;
+
+console.log(diag);
+try {
+    fs.appendFileSync(path.join(__dirname, 'server_debug.log'), diag + '\n');
+} catch (e) { }
 
 require('./src/server.js');

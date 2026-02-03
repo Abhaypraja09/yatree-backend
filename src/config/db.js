@@ -4,7 +4,7 @@ const path = require('path');
 
 const logToFile = (msg) => {
     try {
-        const logPath = path.join(process.cwd(), 'server_debug.log');
+        const logPath = path.join(__dirname, '../../server_debug.log');
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] DB_DEBUG: ${msg}\n`);
     } catch (e) {
         console.error('Logging to file failed:', e);
@@ -16,10 +16,8 @@ const connectDB = async (retryCount = 0) => {
     try {
         // NEW Cluster for info@yatreedestination.com
         const latestAtlasURI = "mongodb+srv://info_db_user:vIbU7VvaJ55fK7I3@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
-
-        // Force use of the new cluster URI
-        const MONGODB_URI = latestAtlasURI;
-        logToFile('Using Fresh MongoDB Atlas Cluster (Cluster0)');
+        const MONGODB_URI = process.env.MONGODB_URI || latestAtlasURI;
+        logToFile(`Using URI from ${process.env.MONGODB_URI ? 'Environment Variable' : 'Hardcoded Fallback'}`);
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 

@@ -13,12 +13,22 @@ console.log('MONGODB_URI present:', !!process.env.MONGODB_URI);
 console.log('------------------------');
 
 // Start listening immediately to prevent 503 errors during slow DB connection
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, () => {
     console.log(`[${new Date().toISOString()}] Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    try {
+        const logPath = path.join(__dirname, '../server_debug.log');
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] SERVER RESTARTED ON PORT ${PORT}\n`);
+    } catch (e) {
+        console.error('Failed to write to log file:', e.message);
+    }
+});
+
+server.on('error', (err) => {
+    console.error('SERVER ERROR:', err.message);
     const fs = require('fs');
     const path = require('path');
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'server_debug.log'), `[${new Date().toISOString()}] SERVER RESTARTED ON PORT ${PORT}\n`);
+        fs.appendFileSync(path.join(__dirname, '../server_debug.log'), `[${new Date().toISOString()}] SERVER ERROR: ${err.message}\n`);
     } catch (e) { }
 });
 

@@ -82,7 +82,7 @@ app.use('/api/driver', driverRoutes);
 
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
-const frontendPath = path.join(process.cwd(), 'dist');
+const frontendPath = path.join(__dirname, '../dist');
 app.use(express.static(frontendPath));
 
 app.get('*', (req, res, next) => {
