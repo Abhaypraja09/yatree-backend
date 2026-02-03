@@ -80,6 +80,10 @@ const attendanceSchema = new mongoose.Schema({
         type: String,
         enum: ['incomplete', 'completed'],
         default: 'incomplete'
+    },
+    dailyWage: {
+        type: Number,
+        default: 0
     }
 }, { timestamps: true });
 

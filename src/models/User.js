@@ -78,6 +78,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['approved', 'active', 'completed', 'pending_approval'],
         default: 'approved'
+    },
+    dailyWage: {
+        type: Number,
+        default: 500
     }
 }, {
     timestamps: true,

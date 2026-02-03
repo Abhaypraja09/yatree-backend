@@ -13,7 +13,7 @@ const asyncHandler = require('express-async-handler');
 // @access  Private/Admin
 const createDriver = async (req, res, next) => {
     try {
-        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username } = req.body;
+        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username, dailyWage } = req.body;
         const freelancer = isFreelancer === 'true' || isFreelancer === true;
 
         if (!name || !mobile || (!freelancer && !password) || !companyId || companyId === 'undefined') {
@@ -44,7 +44,8 @@ const createDriver = async (req, res, next) => {
             role: 'Driver',
             company: companyId,
             isFreelancer: isFreelancer === 'true' || isFreelancer === true,
-            licenseNumber
+            licenseNumber,
+            dailyWage: Number(dailyWage) || 500
         });
 
         const createdDriver = await driver.save();
@@ -350,6 +351,9 @@ const updateDriver = asyncHandler(async (req, res) => {
         driver.username = req.body.username || driver.username;
         if (req.body.password) {
             driver.password = req.body.password;
+        }
+        if (req.body.dailyWage !== undefined) {
+            driver.dailyWage = Number(req.body.dailyWage);
         }
 
         const updatedDriver = await driver.save();
@@ -730,6 +734,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
         company: driver.company,
         vehicle: vehicleId,
         date: today,
+        dailyWage: driver.dailyWage || 500,
         punchIn: {
             km: km || 0,
             time: time ? new Date(time) : new Date(),

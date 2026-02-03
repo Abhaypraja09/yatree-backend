@@ -118,6 +118,7 @@ const punchIn = async (req, res) => {
             company: driver.company,
             vehicle: targetVehicleId,
             date: today,
+            dailyWage: driver.dailyWage || 500, // Capture current wage
             punchIn: {
                 km: Number(km),
                 selfie: selfie,
