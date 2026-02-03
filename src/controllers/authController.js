@@ -38,14 +38,35 @@ const loginUser = async (req, res) => {
 
         // Check if DB is connected
         const mongoose = require('mongoose');
+        const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
+
+        // If connecting, wait for up to 5 seconds
+        if (mongoose.connection.readyState === 2) { // Connecting
+            logError('Database is connecting... waiting for ready state.');
+            for (let i = 0; i < 5; i++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (mongoose.connection.readyState === 1) break;
+            }
+        }
+
         if (mongoose.connection.readyState !== 1) {
-            const states = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
             const currentState = states[mongoose.connection.readyState] || 'Unknown';
             logError(`Login aborted: Database not connected (Current State: ${currentState})`);
+
+            // Try to get public IP for debugging
+            let public_ip = 'unknown';
+            try {
+                const axios = require('axios');
+                const ipRes = await axios.get('https://api.ipify.org?format=json', { timeout: 3000 });
+                public_ip = ipRes.data.ip;
+            } catch (e) { }
+
             return res.status(503).json({
-                message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again, or check IP whitelisting in MongoDB Atlas.',
+                message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again.',
+                error: `Database is ${currentState}. Ensure IP ${public_ip} is whitelisted in MongoDB Atlas.`,
                 debug_info: {
                     db_status: currentState,
+                    public_ip,
                     check_url: '/api/db-check'
                 }
             });

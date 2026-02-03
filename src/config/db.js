@@ -47,7 +47,8 @@ const connectDB = async (retryCount = 0) => {
         });
 
     } catch (error) {
-        logToFile(`DB Connection Error: ${error.message}`);
+        const timestamp = new Date().toISOString();
+        logToFile(`DB Connection Error [${timestamp}]: ${error.message}`);
         console.error(`DB Connection Error: ${error.message}`);
 
         let public_ip = 'unknown';
@@ -59,12 +60,9 @@ const connectDB = async (retryCount = 0) => {
 
         logToFile(`Current Server Public IP: ${public_ip}`);
 
-        if (error.message.includes('auth failed')) {
-            logToFile('CRITICAL: Authentication failed. Check password and username in Atlas.');
-        }
-
-        if (error.message.includes('whitelist') || error.message.includes('ECONNREFUSED')) {
-            logToFile(`HINT: Ensure IP ${public_ip} is whitelisted in MongoDB Atlas.`);
+        // Add specific advice for the user in the logs
+        if (error.message.includes('MongooseServerSelectionError') || error.message.includes('ECONNREFUSED')) {
+            logToFile(`CRITICAL: Possible IP Whitelist issue. Please add ${public_ip} to MongoDB Atlas.`);
         }
 
         if (retryCount < maxRetries) {
@@ -72,7 +70,7 @@ const connectDB = async (retryCount = 0) => {
             logToFile(`Retrying DB connection in ${delay / 1000}s... (Attempt ${retryCount + 1}/${maxRetries})`);
             setTimeout(() => connectDB(retryCount + 1), delay);
         } else {
-            logToFile('CRITICAL: Max retries reached.');
+            logToFile('CRITICAL: Max retries reached. Database connection failed repeatedly.');
         }
     }
 };
