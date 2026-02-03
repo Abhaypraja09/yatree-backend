@@ -1,4 +1,6 @@
 const dotenv = require('dotenv');
+const path = require('path');
+const fs = require('fs');
 dotenv.config();
 
 const app = require('./app');

@@ -16,8 +16,13 @@ const connectDB = async (retryCount = 0) => {
     try {
         // NEW Cluster for info@yatreedestination.com
         const latestAtlasURI = "mongodb+srv://info_db_user:vIbU7VvaJ55fK7I3@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
-        const MONGODB_URI = process.env.MONGODB_URI || latestAtlasURI;
+        let rawURI = process.env.MONGODB_URI || latestAtlasURI;
+
+        // Clean URI: removes whitespace and anything after a '#' or space (common in copy-paste errors)
+        const MONGODB_URI = rawURI.trim().split('#')[0].trim().split(' ')[0];
+
         logToFile(`Using URI from ${process.env.MONGODB_URI ? 'Environment Variable' : 'Hardcoded Fallback'}`);
+        logToFile(`URI Preview: ${MONGODB_URI.substring(0, 20)}...[len: ${MONGODB_URI.length}]`);
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
