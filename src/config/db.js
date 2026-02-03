@@ -14,8 +14,8 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // NEW Cluster for info@yatreedestination.com
-        const latestAtlasURI = "mongodb+srv://info_db_user:vIbU7VvaJ55fK7I3@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
+        // Corrected Cluster for yattridb.ojuesoz.mongodb.net
+        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:Mayank12345@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
         let rawURI = process.env.MONGODB_URI || latestAtlasURI;
 
         // Clean URI: removes whitespace and anything after a '#' or space (common in copy-paste errors)
