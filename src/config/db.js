@@ -14,10 +14,22 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // NEW Fresh Cluster with yatree_admin
+        // Fresh Cluster with yatree_admin
         // Password: Mayank8025 (Simple and stable)
         const latestAtlasURI = "mongodb+srv://yatree_admin:Mayank8025@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
         let MONGODB_URI = (process.env.MONGODB_URI || latestAtlasURI).trim();
+
+        // FIX: Handle cases where # is present in password but not encoded (causing querySrv EBADNAME)
+        // If # exists and %23 doesn't, it's likely unencoded
+        if (MONGODB_URI.includes('#') && !MONGODB_URI.includes('%23')) {
+            logToFile('WARNING: Unencoded # detected in URI. Attempting to encode for safety.');
+            // Only encode # if it's before the @ (in the password section)
+            const parts = MONGODB_URI.split('@');
+            if (parts.length > 1) {
+                parts[0] = parts[0].replace(/#/g, '%23');
+                MONGODB_URI = parts.join('@');
+            }
+        }
 
         logToFile(`Using URI from ${process.env.MONGODB_URI ? 'Environment Variable' : 'Hardcoded Fallback'}`);
         logToFile(`URI Preview: ${MONGODB_URI.substring(0, 30)}... [Length: ${MONGODB_URI.length}]`);

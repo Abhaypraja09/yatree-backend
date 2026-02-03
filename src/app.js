@@ -59,12 +59,14 @@ app.get('/api/db-check', async (req, res) => {
         public_ip = ipRes.data.ip;
     } catch (e) { public_ip = 'Error fetching IP'; }
 
+    const maskedUri = uri ? uri.replace(/:([^@]+)@/, ':****@') : 'NOT FOUND';
+
     res.json({
         status: states[status],
         readyState: status,
         error: lastDbError,
         env_uri_exists: !!uri,
-        env_uri_preview: uri ? (uri.startsWith('mongodb+srv') ? 'Starts with mongodb+srv' : 'Standard Format (mongodb://)') : 'NOT FOUND',
+        env_uri_masked: maskedUri,
         dot_env_exists: fs.existsSync(path.join(process.cwd(), '.env')),
         public_ip
     });
