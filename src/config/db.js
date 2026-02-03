@@ -14,15 +14,16 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // Corrected Cluster for yattridb.ojuesoz.mongodb.net
-        const latestAtlasURI = "mongodb+srv://prajapatmayank174_db_user:Mayank12345@yattridb.ojuesoz.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=YattriDB";
+        // Cluster for info_db_user with encoded password (Mayank@8025#)
+        // Correct encoding: @ = %40, # = %23
+        const latestAtlasURI = "mongodb+srv://info_db_user:Mayank%408025%23@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
         let rawURI = process.env.MONGODB_URI || latestAtlasURI;
 
-        // Clean URI: removes whitespace and anything after a '#' or space (common in copy-paste errors)
-        const MONGODB_URI = rawURI.trim().split('#')[0].trim().split(' ')[0];
+        // Use the raw URI but trimmed. No splitting as passwords can contain special chars.
+        const MONGODB_URI = rawURI.trim();
 
         logToFile(`Using URI from ${process.env.MONGODB_URI ? 'Environment Variable' : 'Hardcoded Fallback'}`);
-        logToFile(`URI Preview: ${MONGODB_URI.substring(0, 20)}...[len: ${MONGODB_URI.length}]`);
+        logToFile(`URI Preview: ${MONGODB_URI.substring(0, 30)}...[len: ${MONGODB_URI.length}]`);
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
