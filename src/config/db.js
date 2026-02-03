@@ -14,16 +14,35 @@ const logToFile = (msg) => {
 const connectDB = async (retryCount = 0) => {
     const maxRetries = 10;
     try {
-        // Cluster for info_db_user with encoded password (Mayank@8025#)
-        // Correct encoding: @ = %40, # = %23
         const latestAtlasURI = "mongodb+srv://info_db_user:Mayank%408025%23@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority&appName=Cluster0";
-        let rawURI = process.env.MONGODB_URI || latestAtlasURI;
+        let MONGODB_URI = (process.env.MONGODB_URI || latestAtlasURI).trim();
 
-        // Use the raw URI but trimmed. No splitting as passwords can contain special chars.
-        const MONGODB_URI = rawURI.trim();
+        // Smart Encoding: If password contains unencoded '@' or '#', fix it.
+        // A valid SRV URI should only have one '@' (separator between auth and host)
+        if (MONGODB_URI.includes('://') && (MONGODB_URI.match(/@/g) || []).length > 1) {
+            try {
+                const protocol = MONGODB_URI.split('://')[0];
+                const rest = MONGODB_URI.split('://')[1];
+                const auth = rest.substring(0, rest.lastIndexOf('@'));
+                const host = rest.substring(rest.lastIndexOf('@') + 1);
+
+                if (auth.includes(':')) {
+                    const user = auth.split(':')[0];
+                    const pass = auth.substring(auth.indexOf(':') + 1);
+                    // Encode ONLY if it looks unencoded (contains @ or #)
+                    if (pass.includes('@') || pass.includes('#')) {
+                        const encodedPass = encodeURIComponent(pass);
+                        MONGODB_URI = `${protocol}://${user}:${encodedPass}@${host}`;
+                        logToFile('Smarter Encoding Applied to URI password');
+                    }
+                }
+            } catch (e) {
+                logToFile(`Smarter Encoding Failed: ${e.message}`);
+            }
+        }
 
         logToFile(`Using URI from ${process.env.MONGODB_URI ? 'Environment Variable' : 'Hardcoded Fallback'}`);
-        logToFile(`URI Preview: ${MONGODB_URI.substring(0, 30)}...[len: ${MONGODB_URI.length}]`);
+        logToFile(`URI Preview: ${MONGODB_URI.substring(0, 30)}... [Length: ${MONGODB_URI.length}]`);
 
         logToFile(`Attempting to connect to DB... (Attempt: ${retryCount + 1})`);
 
