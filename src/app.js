@@ -85,15 +85,27 @@ app.use('/api/driver', driverRoutes);
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
 const frontendPath = path.join(__dirname, '../dist');
-app.use(express.static(frontendPath));
+const fs = require('fs');
 
-app.get('*', (req, res, next) => {
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(frontendPath, 'index.html'));
-    } else {
-        next();
-    }
-});
+if (fs.existsSync(frontendPath)) {
+    app.use(express.static(frontendPath));
+    app.get('*', (req, res, next) => {
+        if (!req.path.startsWith('/api')) {
+            const indexPath = path.join(frontendPath, 'index.html');
+            if (fs.existsSync(indexPath)) {
+                res.sendFile(indexPath);
+            } else {
+                res.send('Backend is running. Frontend build (index.html) is missing.');
+            }
+        } else {
+            next();
+        }
+    });
+} else {
+    app.get('/', (req, res) => {
+        res.send('<h1>Fleet CRM Backend is Live</h1><p>Database status: ' + (mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected') + '</p>');
+    });
+}
 // ---------------------------------
 
 // Error Handling Middleware
