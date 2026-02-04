@@ -61,6 +61,17 @@ const loginUser = async (req, res) => {
                 public_ip = ipRes.data.ip;
             } catch (e) { }
 
+            // Check for DB readiness with a small wait if necessary
+            if (mongoose.connection.readyState !== 1) {
+                console.log('DB not ready, waiting 2 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                if (mongoose.connection.readyState !== 1) {
+                    return res.status(503).json({
+                        message: "Database is warming up. Please try again in 5 seconds. If this persists, check MongoDB Atlas Network Access (0.0.0.0/0)."
+                    });
+                }
+            }
+
             return res.status(503).json({
                 message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again.',
                 error: `Database is ${currentState}. Ensure IP ${public_ip} is whitelisted. If already whitelisted, this is a Hostinger DNS issue - please use the Standard Connection String.`,
