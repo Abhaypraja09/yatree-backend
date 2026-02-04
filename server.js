@@ -1,42 +1,43 @@
-/**
- * Hostinger Entry Point
- * Force loads environment variables and starts the server
- */
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
 
-// 1. Force load .env from multiple possible locations on Hostinger
-const envPaths = [
-    path.join(process.cwd(), '.env'),
-    path.join(__dirname, '.env'),
-    path.join(process.cwd(), 'backend', '.env')
-];
-
-envPaths.forEach(p => {
-    if (fs.existsSync(p)) {
-        dotenv.config({ path: p });
-        console.log(`Loaded .env from: ${p}`);
+// 1. Force load .env
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        dotenv.config({ path: envPath });
+        console.log(`Loaded .env from: ${envPath}`);
     }
-});
+} catch (e) {
+    console.error('Failed to load .env:', e.message);
+}
 
-// 2. Fallback for JWT_SECRET if missing in Hostinger Dashboard
+// 2. Fallback for JWT_SECRET
 if (!process.env.JWT_SECRET) {
     process.env.JWT_SECRET = 'yatree_secure_fallback_key_2024';
 }
 
-const diag = `--- DEPLOYMENT DIAGNOSTICS ---
-Time: ${new Date().toISOString()}
-CWD: ${process.cwd()}
-__dirname: ${__dirname}
-MONGODB_URI: ${!!process.env.MONGODB_URI}
-PORT: ${process.env.PORT || 'Not specified (5000)'}
-NODE_ENV: ${process.env.NODE_ENV}
--------------------------`;
+console.log('--- DEPLOYMENT DIAGNOSTICS ---');
+console.log('Time:', new Date().toISOString());
+console.log('PORT:', process.env.PORT || 'Not specified (5000)');
+console.log('MONGODB_URI present:', !!process.env.MONGODB_URI);
+console.log('-------------------------');
 
-console.log(diag);
+// 3. Robust Startup
 try {
-    fs.appendFileSync(path.join(__dirname, 'server_debug.log'), diag + '\n');
-} catch (e) { }
-
-require('./src/server.js');
+    require('./src/server.js');
+} catch (error) {
+    console.error('CRITICAL STARTUP ERROR:', error);
+    // Create an emergency server if the main one fails to load
+    // This prevents 503 and shows the error instead
+    const express = require('express');
+    const emergencyApp = express();
+    emergencyApp.get('*', (req, res) => {
+        res.status(500).send(`<h1>Server Startup Error</h1><pre>${error.stack}</pre>`);
+    });
+    const port = process.env.PORT || 5000;
+    emergencyApp.listen(port, () => {
+        console.log('Emergency error-display server running on port', port);
+    });
+}

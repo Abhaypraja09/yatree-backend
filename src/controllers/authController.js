@@ -63,7 +63,7 @@ const loginUser = async (req, res) => {
 
             return res.status(503).json({
                 message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again.',
-                error: `Database is ${currentState}. Ensure IP ${public_ip} is whitelisted in MongoDB Atlas.`,
+                error: `Database is ${currentState}. Ensure IP ${public_ip} is whitelisted. If already whitelisted, this is a Hostinger DNS issue - please use the Standard Connection String.`,
                 debug_info: {
                     db_status: currentState,
                     public_ip,
