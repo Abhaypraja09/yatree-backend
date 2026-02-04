@@ -103,7 +103,7 @@ if (fs.existsSync(frontendPath)) {
     });
 } else {
     app.get('/', (req, res) => {
-        res.send('<h1>Fleet CRM Backend is Live</h1><p>Database status: ' + (mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected') + '</p>');
+        res.send('<h1>Fleet CRM Backend is Live</h1><p>Status: Running</p>');
     });
 }
 // ---------------------------------
