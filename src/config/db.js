@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
     try {
-        const latestAtlasURI = "mongodb+srv://yatree_admin:Mayank123@cluster0.nj0snum.mongodb.net/taxi-fleet?retryWrites=true&w=majority";
+        const latestAtlasURI = "mongodb+srv://yatree_admin:Mayank123@cluster0.iuq9w0n.mongodb.net/taxi-fleet?retryWrites=true&w=majority";
         const MONGODB_URI = (process.env.MONGODB_URI || latestAtlasURI).trim();
 
         console.log('Attempting to connect to MongoDB...');
