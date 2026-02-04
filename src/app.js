@@ -37,22 +37,30 @@ app.get('/api/db-check', async (req, res) => {
 });
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
-const frontendPath = path.join(__dirname, '../dist');
+const frontendPath = path.resolve(__dirname, '../../client/dist');
+const backupPath = path.resolve(__dirname, '../dist');
 
-// Serve static files with caching
-app.use(express.static(frontendPath, {
-    maxAge: '1d', // Cache files for 1 day in the browser
+// Determine which path exists (Local vs Hostinger)
+const finalPath = fs.existsSync(frontendPath) ? frontendPath : backupPath;
+
+console.log('Serving frontend from:', finalPath);
+
+// Serve static files
+app.use(express.static(finalPath, {
+    maxAge: '1d',
     etag: true
 }));
 
 // Catch-all for React/Vite routing
 app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api')) {
+    // If it's an API call or looks like a file (has a dot), don't serve index.html
+    if (req.path.startsWith('/api') || req.path.includes('.')) {
         return next();
     }
-    res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
+
+    res.sendFile(path.join(finalPath, 'index.html'), (err) => {
         if (err) {
-            res.status(500).send('<h1>Server is Live</h1><p>Frontend files are loading, please wait 1 minute and refresh.</p>');
+            res.status(500).send('<h1>Server is Live</h1><p>Frontend files are not found in the dist folder. Please check deployment.</p>');
         }
     });
 });
