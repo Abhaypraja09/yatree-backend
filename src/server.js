@@ -7,8 +7,14 @@ const connectDB = require('./config/db');
 
 const PORT = process.env.PORT || 5000;
 
-// Connect to Database in the background
-connectDB().catch(err => console.error('DB Background Error:', err.message));
+const { seed } = require('../scripts/seedAdmin');
+
+// Connect to Database
+connectDB().then(async () => {
+    // Initial Seed
+    await seed();
+    console.log('Database connected and seeding completed.');
+}).catch(err => console.error('DB Initial Error:', err.message));
 
 // Start listening immediately
 const server = app.listen(PORT, () => {
