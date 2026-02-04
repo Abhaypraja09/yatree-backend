@@ -6,10 +6,14 @@ const mongoose = require('mongoose');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 
+const compression = require('compression');
+
 dotenv.config();
 
 const app = express();
 
+// 1. Performance Middlewares
+app.use(compression()); // Compresses JS/CSS to load much faster
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -35,8 +39,11 @@ app.get('/api/db-check', async (req, res) => {
 // --- FRONTEND DEPLOYMENT LOGIC ---
 const frontendPath = path.join(__dirname, '../dist');
 
-// Serve static files FIRST
-app.use(express.static(frontendPath));
+// Serve static files with caching
+app.use(express.static(frontendPath, {
+    maxAge: '1d', // Cache files for 1 day in the browser
+    etag: true
+}));
 
 // Catch-all for React/Vite routing
 app.get('*', (req, res, next) => {
