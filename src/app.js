@@ -39,15 +39,17 @@ app.get('/api/db-check', async (req, res) => {
 // --- FRONTEND DEPLOYMENT LOGIC ---
 const frontendPath = path.resolve(__dirname, '../../client/dist');
 const backupPath = path.resolve(__dirname, '../dist');
+const rootDistPath = path.resolve(__dirname, '../../dist');
 
-// Determine which path exists (Local vs Hostinger)
-const finalPath = fs.existsSync(frontendPath) ? frontendPath : backupPath;
+// Find the first path that actually exists
+const finalPath = fs.existsSync(frontendPath) ? frontendPath :
+    (fs.existsSync(backupPath) ? backupPath : rootDistPath);
 
-console.log('Serving frontend from:', finalPath);
+console.log('Final Selected Path:', finalPath);
 
 // Serve static files
 app.use(express.static(finalPath, {
-    maxAge: '1d',
+    maxAge: 0, // Disable cache to force fresh files
     etag: true
 }));
 
