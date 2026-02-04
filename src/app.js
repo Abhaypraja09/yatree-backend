@@ -38,15 +38,15 @@ app.get('/api/db-check', async (req, res) => {
 });
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
-const frontendPath = path.resolve(__dirname, '../../client/dist');
-const backupPath = path.resolve(__dirname, '../dist');
-const rootDistPath = path.resolve(__dirname, '../../dist');
+const frontendPath = path.resolve(__dirname, '../'); // Looking at public_html root
+const distPath = path.resolve(__dirname, '../dist'); // Fallback if dist exists
 
-// Find the first path that actually exists
-const finalPath = fs.existsSync(frontendPath) ? frontendPath :
-    (fs.existsSync(backupPath) ? backupPath : rootDistPath);
+const finalPath = fs.existsSync(path.join(frontendPath, 'index.html')) ? frontendPath : distPath;
 
-console.log('Final Selected Path:', finalPath);
+console.log('--- SERVER DEPLOYMENT INFO ---');
+console.log('Current Dir:', __dirname);
+console.log('Serving Frontend From:', finalPath);
+console.log('------------------------------');
 
 // Serve static files
 app.use(express.static(finalPath, {
