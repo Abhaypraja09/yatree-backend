@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
+const fs = require('fs');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 
