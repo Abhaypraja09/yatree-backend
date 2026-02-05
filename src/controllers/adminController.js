@@ -764,7 +764,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/freelancers/punch-out
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
-    const { driverId, km, time, fuelAmount, parkingAmount, review } = req.body;
+    const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage } = req.body;
 
     const driver = await User.findById(driverId);
     if (!driver) {
@@ -779,6 +779,10 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 
     if (!attendance) {
         return res.status(400).json({ message: 'No active punch-in found for this driver' });
+    }
+
+    if (dailyWage) {
+        attendance.dailyWage = Number(dailyWage);
     }
 
     attendance.punchOut = {
