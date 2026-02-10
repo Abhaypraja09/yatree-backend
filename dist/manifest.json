@@ -3,20 +3,20 @@
     "name": "Yatree Destination Fleet CRM",
     "icons": [
         {
-            "src": "/logos/pwa-icon.svg",
-            "type": "image/svg+xml",
+            "src": "/logos/logo.png",
+            "type": "image/png",
             "sizes": "512x512",
             "purpose": "any"
         },
         {
-            "src": "/logos/pwa-icon.svg",
-            "type": "image/svg+xml",
+            "src": "/logos/logo.png",
+            "type": "image/png",
             "sizes": "192x192",
             "purpose": "any"
         },
         {
-            "src": "/logos/pwa-icon.svg",
-            "type": "image/svg+xml",
+            "src": "/logos/logo.png",
+            "type": "image/png",
             "sizes": "any maskable",
             "purpose": "maskable"
         }
