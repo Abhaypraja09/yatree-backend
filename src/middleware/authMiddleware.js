@@ -43,4 +43,12 @@ const driver = (req, res, next) => {
     }
 };
 
-module.exports = { protect, admin, driver };
+const adminOrExecutive = (req, res, next) => {
+    if (req.user && (req.user.role === 'Admin' || req.user.role === 'Executive')) {
+        next();
+    } else {
+        res.status(401).json({ message: 'Not authorized' });
+    }
+};
+
+module.exports = { protect, admin, driver, adminOrExecutive };

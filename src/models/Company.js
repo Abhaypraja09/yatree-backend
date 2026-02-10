@@ -4,8 +4,7 @@ const companySchema = new mongoose.Schema({
     name: {
         type: String,
         required: true,
-        unique: true,
-        enum: ['YatreeDestination', 'GoGetGo']
+        unique: true
     },
     status: {
         type: String,

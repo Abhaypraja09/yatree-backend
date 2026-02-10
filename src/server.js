@@ -1,6 +1,19 @@
 const dotenv = require('dotenv');
-// Version: 1.0.4 - Force Push for 503 Fix
-dotenv.config();
+// Version: 1.0.5 - Enhanced Logging
+const path = require('path');
+// Try loading from default CWD first, then fallback to explicit path
+const result = dotenv.config();
+if (result.error) {
+    console.log('Default .env load failed, trying explicit path...');
+    dotenv.config({ path: path.join(__dirname, '../.env') });
+}
+
+console.log('--- SERVER STARTUP ---');
+console.log('Time:', new Date().toISOString());
+console.log('JWT_SECRET present:', !!process.env.JWT_SECRET);
+console.log('MONGODB_URI present:', !!process.env.MONGODB_URI);
+console.log('PORT:', process.env.PORT);
+
 
 const app = require('./app');
 const connectDB = require('./config/db');
@@ -13,7 +26,12 @@ const { seed } = require('../scripts/seedAdmin');
 connectDB().then(async () => {
     // Initial Seed
     await seed();
-    console.log('Database connected and seeding completed.');
+
+    // Initialize Cron Jobs
+    const initCronJobs = require('./utils/cronJobs');
+    initCronJobs();
+
+    console.log('Database connected, seeding completed, and Cron Jobs initialized.');
 }).catch(err => console.error('DB Initial Error:', err.message));
 
 // Start listening immediately

@@ -19,18 +19,37 @@ const {
     approveNewTrip,
     addBorderTax,
     getBorderTaxEntries,
-    deleteBorderTax,
     rechargeFastag,
     freelancerPunchIn,
-    freelancerPunchOut
+    freelancerPunchOut,
+    deleteBorderTax,
+    addMaintenanceRecord,
+    getMaintenanceRecords,
+    deleteMaintenanceRecord,
+    addFuelEntry,
+    getFuelEntries,
+    deleteFuelEntry,
+    updateFuelEntry,
+    approveRejectExpense,
+    getPendingFuelExpenses,
+    addAdvance,
+    getAdvances,
+    deleteAdvance,
+    getDriverSalarySummary,
+    getAllExecutives,
+    createExecutive,
+    deleteExecutive,
+    addParkingEntry,
+    getParkingEntries,
+    deleteParkingEntry,
+    getPendingParkingExpenses
 } = require('../controllers/adminController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
 const multer = require('multer');
 const upload = multer({ storage });
 
 router.use(protect);
-router.use(admin);
 
 const driverUpload = upload.fields([
     { name: 'aadharFront', maxCount: 1 },
@@ -48,35 +67,60 @@ const vehicleUpload = upload.fields([
     { name: 'permit', maxCount: 1 }
 ]);
 
-router.post('/drivers', driverUpload, createDriver);
-router.get('/drivers/:companyId', getAllDrivers);
-router.put('/drivers/:id', updateDriver);
-router.patch('/drivers/:id/status', toggleDriverStatus);
-router.delete('/drivers/:id', deleteDriver);
-router.post('/drivers/:id/documents', upload.single('document'), uploadDriverDocument);
-router.patch('/drivers/:id/documents/:docId/verify', verifyDriverDocument);
+// Shared Routes (Admin & Executive)
+router.get('/dashboard/:companyId', adminOrExecutive, getDashboardStats);
+router.get('/reports/:companyId', adminOrExecutive, getDailyReports);
+router.get('/vehicles/:companyId', adminOrExecutive, getAllVehicles);
+router.get('/drivers/:companyId', adminOrExecutive, getAllDrivers);
+router.post('/drivers', adminOrExecutive, driverUpload, createDriver);
+router.put('/drivers/:id', adminOrExecutive, updateDriver);
+router.post('/vehicles', adminOrExecutive, vehicleUpload, createVehicle);
+router.put('/vehicles/:id', adminOrExecutive, updateVehicle);
+router.post('/freelancers/punch-in', adminOrExecutive, freelancerPunchIn);
+router.post('/freelancers/punch-out', adminOrExecutive, freelancerPunchOut);
+router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);
+router.post('/maintenance', adminOrExecutive, upload.single('billPhoto'), addMaintenanceRecord);
+router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);
 
-router.post('/vehicles', vehicleUpload, createVehicle);
-router.get('/vehicles/:companyId', getAllVehicles);
-router.put('/vehicles/:id', updateVehicle);
-router.delete('/vehicles/:id', deleteVehicle);
-router.post('/vehicles/:id/documents', upload.single('document'), uploadVehicleDocument);
+// Admin Only Operations (Sensitive)
+// Operational Routes (Shared Admin & Executive)
+router.patch('/drivers/:id/status', adminOrExecutive, toggleDriverStatus);
+router.post('/drivers/:id/documents', adminOrExecutive, upload.single('document'), uploadDriverDocument);
+router.patch('/drivers/:id/documents/:docId/verify', adminOrExecutive, verifyDriverDocument);
+router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, approveNewTrip);
+router.post('/assign', adminOrExecutive, assignVehicle);
+router.post('/vehicles/:id/documents', adminOrExecutive, upload.single('document'), uploadVehicleDocument);
+router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
 
-router.post('/assign', assignVehicle);
-router.get('/dashboard/:companyId', getDashboardStats);
-router.get('/reports/:companyId', getDailyReports);
-router.patch('/drivers/:driverId/approve-trip', approveNewTrip);
+// Operational Routes (Shared Admin & Executive)
+router.delete('/drivers/:id', adminOrExecutive, deleteDriver);
+router.delete('/vehicles/:id', adminOrExecutive, deleteVehicle);
+router.patch('/attendance/:attendanceId/expense/:expenseId', adminOrExecutive, approveRejectExpense);
 
-// Border Tax
-router.post('/border-tax', upload.single('receiptPhoto'), addBorderTax);
-router.get('/border-tax/:companyId', getBorderTaxEntries);
-router.delete('/border-tax/:id', deleteBorderTax);
+router.post('/border-tax', adminOrExecutive, upload.single('receiptPhoto'), addBorderTax);
+router.get('/border-tax/:companyId', adminOrExecutive, getBorderTaxEntries);
+router.delete('/border-tax/:id', adminOrExecutive, deleteBorderTax);
 
-// Fastag
-router.post('/vehicles/:id/fastag-recharge', rechargeFastag);
+router.post('/fuel', adminOrExecutive, addFuelEntry);
+router.get('/fuel/:companyId', adminOrExecutive, getFuelEntries);
+router.put('/fuel/:id', adminOrExecutive, updateFuelEntry);
+router.delete('/fuel/:id', adminOrExecutive, deleteFuelEntry);
+router.get('/fuel/pending/:companyId', adminOrExecutive, getPendingFuelExpenses);
 
-// Freelancer
-router.post('/freelancers/punch-in', freelancerPunchIn);
-router.post('/freelancers/punch-out', freelancerPunchOut);
+router.post('/parking', adminOrExecutive, addParkingEntry);
+router.get('/parking/:companyId', adminOrExecutive, getParkingEntries);
+router.delete('/parking/:id', adminOrExecutive, deleteParkingEntry);
+router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExpenses);
+
+// Financials (Admin Only)
+router.post('/advances', admin, addAdvance);
+router.get('/advances/:companyId', admin, getAdvances);
+router.delete('/advances/:id', admin, deleteAdvance);
+router.get('/salary-summary/:companyId', admin, getDriverSalarySummary);
+
+// Executive Management (Super Admin only)
+router.get('/executives', admin, getAllExecutives);
+router.post('/executives', admin, createExecutive);
+router.delete('/executives/:id', admin, deleteExecutive);
 
 module.exports = router;

@@ -3,7 +3,8 @@ const User = require('../models/User');
 const Company = require('../models/Company');
 
 const generateToken = (id) => {
-    return jwt.sign({ id: id.toString() }, process.env.JWT_SECRET, {
+    const secret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+    return jwt.sign({ id: id.toString() }, secret, {
         expiresIn: '30d',
     });
 };
@@ -13,9 +14,9 @@ const path = require('path');
 
 const logError = (msg) => {
     try {
-        // Use process.cwd() for cross-platform compatibility
-        const logPath = path.join(process.cwd(), 'server_debug.log');
+        const logPath = path.join(__dirname, '../../server_debug.log');
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
+        console.log(msg); // Also log to console
     } catch (e) {
         console.error('Logging failed:', e);
     }
@@ -83,21 +84,28 @@ const loginUser = async (req, res) => {
             });
         }
 
-        // Try to find user by mobile OR username
+        // Try to find user by mobile OR username (case-insensitive)
         const user = await User.findOne({
             $or: [
                 { mobile: mobile },
-                { username: mobile } // Assuming frontend sends either in the 'mobile' field
+                { username: { $regex: new RegExp(`^${mobile.trim()}$`, 'i') } }
             ]
         }).populate('company');
 
         if (!user) {
-            logError('User not found');
+            logError(`Login failed: User [${mobile}] not found. Tried finding by mobile or username (regex).`);
+            // Let's also try a direct match just in case regex is buggy
+            const fallback = await User.findOne({ username: mobile });
+            if (fallback) {
+                logError(`CRITICAL: Regex check failed but direct match found for [${mobile}]. Role: ${fallback.role}`);
+            }
             return res.status(401).json({ message: 'Invalid mobile or password' });
         }
 
+        logError(`User found: ${user.name} (Role: ${user.role})`);
+
         if (user.isFreelancer) {
-            logError('Freelancer attempted login');
+            logError(`Access denied: User ${user.mobile} is marked as Freelancer.`);
             return res.status(401).json({ message: 'Freelancers cannot log in to the portal. Please contact admin.' });
         }
 
@@ -152,7 +160,7 @@ const getUserProfile = async (req, res) => {
 
 // Helper to seed companies (Optional, but useful for setup)
 const seedCompanies = async (req, res) => {
-    const companies = ['YatreeDestination', 'GoGetGo'];
+    const companies = ['YatreeDestination'];
     for (let name of companies) {
         await Company.findOneAndUpdate({ name }, { name }, { upsert: true });
     }

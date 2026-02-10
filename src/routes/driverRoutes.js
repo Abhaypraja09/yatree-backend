@@ -4,7 +4,9 @@ const {
     getDriverDashboard,
     punchIn,
     punchOut,
-    requestNewTrip
+    requestNewTrip,
+    addExpense,
+    getDriverLedger
 } = require('../controllers/driverController');
 const { protect, driver } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -30,5 +32,7 @@ router.post('/punch-out', upload.fields([
 ]), punchOut);
 
 router.post('/request-trip', requestNewTrip);
+router.post('/add-expense', upload.any(), addExpense);
+router.get('/ledger', getDriverLedger);
 
 module.exports = router;

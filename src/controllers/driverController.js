@@ -1,6 +1,7 @@
 const Attendance = require('../models/Attendance');
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
+const Advance = require('../models/Advance');
 const { DateTime } = require('luxon');
 
 // Helper to get current date in IST (format: YYYY-MM-DD)
@@ -28,7 +29,8 @@ const getDriverDashboard = async (req, res) => {
     const availableVehicles = await Vehicle.find({
         company: driver.company._id,
         currentDriver: null,
-        status: 'active'
+        status: 'active',
+        isOutsideCar: { $ne: true }
     }).select('carNumber model carType');
 
     // Fetch latest attendance
@@ -151,7 +153,7 @@ const punchIn = async (req, res) => {
 const punchOut = async (req, res) => {
     const {
         km, latitude, longitude, address,
-        fuelFilled, fuelAmounts, fuelKMs,
+        fuelFilled, fuelAmounts, fuelKMs, fuelTypes,
         remarks, // Duty
         parkingPaid,
         parkingAmounts,
@@ -213,15 +215,19 @@ const punchOut = async (req, res) => {
         };
 
         // Fuel logic (Multiple entries)
-        let fuelData = [];
-        let totalFuelAmount = 0;
+        let fuelData = attendance.fuel?.entries || [];
+        // totalFuelAmount should be the sum of previously approved entries
+        let totalFuelAmount = fuelData.reduce((sum, e) => sum + (e.amount || 0), 0);
+
         if (fuelFilled === 'true') {
             const fuelSlips = req.files?.['fuelSlips'] || [];
             let amounts = fuelAmounts;
             let kms = fuelKMs;
+            let fTypes = fuelTypes;
 
             if (!Array.isArray(amounts)) amounts = amounts ? [amounts] : [];
             if (!Array.isArray(kms)) kms = kms ? [kms] : [];
+            if (!Array.isArray(fTypes)) fTypes = fTypes ? [fTypes] : [];
 
             fuelSlips.forEach((slip, index) => {
                 const amount = Number(amounts[index]) || 0;
@@ -229,13 +235,14 @@ const punchOut = async (req, res) => {
                 fuelData.push({
                     amount: amount,
                     km: Number(kms[index]) || 0,
-                    slipPhoto: slip.path
+                    slipPhoto: slip.path,
+                    fuelType: fTypes[index] || 'Diesel'
                 });
             });
         }
 
         attendance.fuel = {
-            filled: fuelFilled === 'true',
+            filled: fuelData.length > 0,
             amount: totalFuelAmount,
             entries: fuelData,
             km: fuelData.length > 0 ? fuelData[0].km : 0, // Legacy fallback
@@ -243,7 +250,10 @@ const punchOut = async (req, res) => {
         };
 
         // Parking logic (Legacy/Slip storage)
-        let parkingData = [];
+        let parkingData = attendance.parking || [];
+        // Start with previously approved sums
+        let totalParkingAmount = parkingData.reduce((sum, e) => sum + (e.amount || 0), 0);
+
         if (parkingPaid === 'true') {
             const parkingSlips = req.files?.['parkingSlips'] || [];
             let amounts = parkingAmounts;
@@ -252,14 +262,16 @@ const punchOut = async (req, res) => {
             }
 
             parkingSlips.forEach((slip, index) => {
-                const path = slip.path;
+                const amount = Number(amounts[index]) || 0;
+                totalParkingAmount += amount;
                 parkingData.push({
-                    amount: Number(amounts[index]) || 0,
-                    slipPhoto: path
+                    amount: amount,
+                    slipPhoto: slip.path
                 });
             });
         }
         attendance.parking = parkingData;
+        attendance.punchOut.tollParkingAmount = totalParkingAmount;
 
         attendance.outsideTrip = {
             occurred: outsideTripOccurred === 'true',
@@ -306,9 +318,128 @@ const requestNewTrip = async (req, res) => {
     }
 };
 
+// @desc    Add expense (Fuel/Parking) during shift
+// @route   POST /api/driver/add-expense
+// @access  Private/Driver
+const addExpense = async (req, res) => {
+    try {
+        const { types, amounts, kms, fuelTypes, fuelQuantities, fuelRates } = req.body;
+        const files = req.files || [];
+
+        const attendance = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
+        if (!attendance) {
+            return res.status(400).json({ message: 'No active shift found to add expense' });
+        }
+
+        let typesArr = types;
+        let amountsArr = amounts;
+        let kmsArr = kms;
+        let fuelsT = fuelTypes;
+        let quantitiesArr = fuelQuantities;
+        let ratesArr = fuelRates;
+
+        if (!Array.isArray(typesArr)) typesArr = typesArr ? [typesArr] : [];
+        if (!Array.isArray(amountsArr)) amountsArr = amountsArr ? [amountsArr] : [];
+        if (!Array.isArray(kmsArr)) kmsArr = kmsArr ? [kmsArr] : [];
+        if (!Array.isArray(fuelsT)) fuelsT = fuelsT ? [fuelsT] : [];
+        if (!Array.isArray(quantitiesArr)) quantitiesArr = quantitiesArr ? [quantitiesArr] : [];
+        if (!Array.isArray(ratesArr)) ratesArr = ratesArr ? [ratesArr] : [];
+
+        typesArr.forEach((type, index) => {
+            const fieldName = `slip_${index}`;
+            const file = files.find(f => f.fieldname === fieldName);
+
+            attendance.pendingExpenses.push({
+                type,
+                fuelType: (type === 'fuel' || type === 'other') ? (fuelsT[index] || (type === 'fuel' ? 'Diesel' : 'Other')) : null,
+                amount: Number(amountsArr[index]),
+                quantity: type === 'fuel' ? (Number(quantitiesArr[index]) || 0) : 0,
+                rate: type === 'fuel' ? (Number(ratesArr[index]) || 0) : 0,
+                km: Number(kmsArr[index]) || 0,
+                slipPhoto: file ? file.path : null, // Slip is now optional
+                status: 'pending'
+            });
+        });
+
+        await attendance.save();
+        res.status(201).json({ message: 'Expenses submitted for approval', attendance });
+    } catch (error) {
+        console.error("AddExpense Error:", error);
+        res.status(500).json({ message: 'Server error processing expense', error: error.message });
+    }
+};
+
+// @desc    Get driver duty history, salary and advances
+// @route   GET /api/driver/ledger
+// @access  Private/Driver
+const getDriverLedger = async (req, res) => {
+    try {
+        const driverId = req.user._id;
+
+        // 1. Fetch all completed attendance
+        const attendance = await Attendance.find({
+            driver: driverId,
+            status: 'completed'
+        }).populate('vehicle', 'carNumber').sort({ date: -1 });
+
+        // 2. Fetch all advances
+        const advances = await Advance.find({
+            driver: driverId
+        }).sort({ date: -1 });
+
+        // Calculate Summary
+        const summary = attendance.reduce((acc, att) => {
+            const wage = att.dailyWage || 500;
+            const bonuses = (att.punchOut?.allowanceTA || 0) +
+                (att.punchOut?.nightStayAmount || 0) +
+                (att.outsideTrip?.bonusAmount || 0);
+
+            acc.totalEarned += (wage + bonuses);
+            acc.workingDays += 1;
+            return acc;
+        }, { totalEarned: 0, workingDays: 0 });
+
+        const totalAdvances = advances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
+        const totalRecovered = advances.reduce((sum, adv) => sum + (adv.recoveredAmount || 0), 0);
+        const pendingAdvance = totalAdvances - totalRecovered;
+
+        res.json({
+            summary: {
+                ...summary,
+                totalAdvances,
+                totalRecovered,
+                pendingAdvance,
+                netPayable: summary.totalEarned - pendingAdvance
+            },
+            history: attendance.map(att => ({
+                _id: att._id,
+                date: att.date,
+                vehicle: att.vehicle?.carNumber || 'N/A',
+                dailyWage: att.dailyWage || 500,
+                bonuses: (att.punchOut?.allowanceTA || 0) + (att.punchOut?.nightStayAmount || 0) + (att.outsideTrip?.bonusAmount || 0),
+                totalKM: att.totalKM || 0,
+                status: att.status
+            })),
+            advances: advances.map(adv => ({
+                _id: adv._id,
+                amount: adv.amount,
+                date: adv.date,
+                recovered: adv.recoveredAmount,
+                status: adv.status,
+                remark: adv.remark
+            }))
+        });
+    } catch (error) {
+        console.error("Ledger Error:", error);
+        res.status(500).json({ message: 'Server error fetching ledger', error: error.message });
+    }
+};
+
 module.exports = {
     getDriverDashboard,
     punchIn,
     punchOut,
-    requestNewTrip
+    requestNewTrip,
+    addExpense,
+    getDriverLedger
 };

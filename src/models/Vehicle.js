@@ -52,6 +52,12 @@ const vehicleSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    property: {
+        type: String // For outside cars: Client/Property name (e.g. Hotel Taj)
+    },
+    dropLocation: {
+        type: String // For outside cars
+    },
     fastagNumber: {
         type: String
     },
@@ -88,6 +94,11 @@ const vehicleSchema = new mongoose.Schema({
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
+
+// Indexes for faster dashboard queries
+vehicleSchema.index({ company: 1 });
+vehicleSchema.index({ carNumber: 1 }, { unique: true });
+vehicleSchema.index({ isOutsideCar: 1 });
 
 // Virtual for document statuses
 vehicleSchema.virtual('documentStatuses').get(function () {

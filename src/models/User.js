@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['Admin', 'Driver'],
+        enum: ['Admin', 'Driver', 'Executive'],
         required: true
     },
     company: {
@@ -88,6 +88,12 @@ const userSchema = new mongoose.Schema({
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
+
+// Indexes for faster dashboard and listing queries
+userSchema.index({ company: 1, role: 1 });
+userSchema.index({ mobile: 1 }, { unique: true });
+userSchema.index({ username: 1 }, { sparse: true });
+userSchema.index({ tripStatus: 1 });
 
 // Virtual for document statuses (for DL)
 userSchema.virtual('documentStatuses').get(function () {

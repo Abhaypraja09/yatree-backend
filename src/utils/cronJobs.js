@@ -14,15 +14,23 @@ const logCron = (msg) => {
 };
 
 const initCronJobs = () => {
-    // Monthly Fastag Balance Reset (1st of month at 00:00)
+    // Monthly Fastag Balance Reset (1st of month at 00:00 IST)
     cron.schedule('0 0 1 * *', async () => {
         logCron('Starting Monthly Fastag Balance Reset (1st of month)');
         try {
-            const result = await Vehicle.updateMany({}, { $set: { fastagBalance: 0 } });
-            logCron(`Successfully reset Fastag balance for ${result.modifiedCount} vehicles.`);
+            const result = await Vehicle.updateMany({}, {
+                $set: {
+                    fastagBalance: 0,
+                    fastagHistory: [] // Also clearing history at start of month if they want a clean slate
+                }
+            });
+            logCron(`Successfully reset Fastag balance and history for ${result.modifiedCount} vehicles.`);
         } catch (error) {
             logCron(`ERROR resetting Fastag balance: ${error.message}`);
         }
+    }, {
+        scheduled: true,
+        timezone: "Asia/Kolkata"
     });
 
     // Daily Document Expiry Check (Every day at 10:00 AM)

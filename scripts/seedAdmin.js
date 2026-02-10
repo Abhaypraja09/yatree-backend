@@ -4,7 +4,7 @@ const Company = require('../src/models/Company');
 const seed = async () => {
     try {
         // Create Companies
-        const companies = ['YatreeDestination', 'GoGetGo'];
+        const companies = ['YatreeDestination'];
         for (let name of companies) {
             await Company.findOneAndUpdate(
                 { name },
