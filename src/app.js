@@ -38,10 +38,8 @@ app.get('/api/db-check', async (req, res) => {
 });
 
 // --- FRONTEND DEPLOYMENT LOGIC ---
-const frontendPath = path.resolve(__dirname, '../'); // Looking at public_html root
-const distPath = path.resolve(__dirname, '../dist'); // Fallback if dist exists
-
-const finalPath = fs.existsSync(path.join(frontendPath, 'index.html')) ? frontendPath : distPath;
+const distPath = path.resolve(__dirname, '../dist');
+const finalPath = distPath;
 
 console.log('--- SERVER DEPLOYMENT INFO ---');
 console.log('Current Dir:', __dirname);
