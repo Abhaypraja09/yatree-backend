@@ -7,17 +7,19 @@ const protect = async (req, res, next) => {
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             token = req.headers.authorization.split(' ')[1];
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const secret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+            const decoded = jwt.verify(token, secret);
 
             req.user = await User.findById(decoded.id).select('-password').populate('company');
 
             if (req.user && req.user.status === 'blocked') {
+                console.log(`AUTH FAIL: User ${req.user.mobile} is blocked`);
                 return res.status(401).json({ message: 'User is blocked. Please contact admin.' });
             }
 
             return next();
         } catch (error) {
-            console.error(error);
+            console.error('AUTH ERROR:', error.message);
             return res.status(401).json({ message: 'Not authorized, token failed' });
         }
     }

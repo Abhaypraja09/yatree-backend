@@ -199,7 +199,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         advanceData,
         monthlyFuelData,
         monthlyMaintenanceData,
-        upcomingServices
+        upcomingServices,
+        totalStaff,
+        staffAttendanceToday
     ] = await Promise.all([
         Vehicle.countDocuments({ company: companyId, isOutsideCar: { $ne: true } }),
         User.countDocuments({
@@ -277,7 +279,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         Maintenance.find({
             company: companyId,
             nextServiceDate: { $lte: alertThreshold.toJSDate(), $gte: baseDate.minus({ days: 7 }).toJSDate() }
-        }).populate('vehicle', 'carNumber')
+        }).populate('vehicle', 'carNumber'),
+        User.countDocuments({ company: companyId, role: 'Staff' }),
+        StaffAttendance.find({ company: companyId, date: targetDate }).populate('staff', 'name mobile')
     ]);
 
     // Filter out attendance records where driver didn't match (i.e. was a freelancer)
@@ -376,6 +380,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         totalAdvancePending,
         monthlyFuelAmount,
         monthlyMaintenanceAmount,
+        totalStaff,
+        countStaffPresent: staffAttendanceToday.length,
+        staffAttendanceToday,
         attendanceDetails: attendanceWithAdvanceInfo,
         expiringAlerts
     });
