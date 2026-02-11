@@ -23,10 +23,12 @@ app.use(express.urlencoded({ extended: true }));
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const driverRoutes = require('./routes/driverRoutes');
+const staffRoutes = require('./routes/staffRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
+app.use('/api/staff', staffRoutes);
 
 app.get('/api/db-check', async (req, res) => {
     const status = mongoose.connection.readyState;

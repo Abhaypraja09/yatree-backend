@@ -8,6 +8,7 @@ const Maintenance = require('../models/Maintenance');
 const Fuel = require('../models/Fuel');
 const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
+const StaffAttendance = require('../models/StaffAttendance');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -732,14 +733,15 @@ const getDailyReports = asyncHandler(async (req, res) => {
         outsideVehicles = await Vehicle.find({
             company: companyId,
             isOutsideCar: true,
-            carNumber: { $regex: `#${date}$` }
+            carNumber: { $regex: `#${date}(#|$)` }
         });
     } else if (from && to) {
         // For range, we might need a more complex regex or multiple queries
         // Simplest: fetch all outside cars of company and filter in memory
         const allOutside = await Vehicle.find({ company: companyId, isOutsideCar: true });
         outsideVehicles = allOutside.filter(v => {
-            const d = v.carNumber?.split('#')[1];
+            const parts = v.carNumber?.split('#');
+            const d = parts ? parts[1] : null;
             return d >= from && d <= to;
         });
     }
@@ -1753,6 +1755,61 @@ const deleteParkingEntry = asyncHandler(async (req, res) => {
     res.json({ message: 'Parking record removed' });
 });
 
+// --- STAFF MANAGEMENT ---
+
+// @desc    Get all staff for a company
+// @route   GET /api/admin/staff/:companyId
+// @access  Private/Admin
+const getAllStaff = asyncHandler(async (req, res) => {
+    const staff = await User.find({ company: req.params.companyId, role: 'Staff' })
+        .select('-password')
+        .sort({ name: 1 });
+    res.json(staff);
+});
+
+// @desc    Create a new staff member
+// @route   POST /api/admin/staff
+// @access  Private/Admin
+const createStaff = asyncHandler(async (req, res) => {
+    const { name, mobile, password, companyId, salary, username } = req.body;
+
+    const userExists = await User.findOne({ $or: [{ mobile }, { username }] });
+    if (userExists) {
+        return res.status(400).json({ message: 'Staff with this mobile or username already exists' });
+    }
+
+    const staff = await User.create({
+        name,
+        mobile,
+        password,
+        company: companyId,
+        salary: Number(salary),
+        username,
+        role: 'Staff'
+    });
+
+    res.status(201).json(staff);
+});
+
+// @desc    Get Staff Attendance Reports
+// @route   GET /api/admin/staff-attendance/:companyId
+// @access  Private/Admin
+const getStaffAttendanceReports = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const { from, to } = req.query;
+
+    const query = { company: companyId };
+    if (from && to) {
+        query.date = { $gte: from, $lte: to };
+    }
+
+    const attendance = await StaffAttendance.find(query)
+        .populate('staff', 'name mobile salary')
+        .sort({ date: -1 });
+
+    res.json(attendance);
+});
+
 module.exports = {
     createDriver,
     createVehicle,
@@ -1795,5 +1852,8 @@ module.exports = {
     addParkingEntry,
     getParkingEntries,
     deleteParkingEntry,
-    getPendingParkingExpenses
+    getPendingParkingExpenses,
+    getAllStaff,
+    createStaff,
+    getStaffAttendanceReports
 };

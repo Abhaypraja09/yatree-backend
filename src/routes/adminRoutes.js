@@ -42,7 +42,10 @@ const {
     addParkingEntry,
     getParkingEntries,
     deleteParkingEntry,
-    getPendingParkingExpenses
+    getPendingParkingExpenses,
+    getAllStaff,
+    createStaff,
+    getStaffAttendanceReports
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -122,5 +125,10 @@ router.get('/salary-summary/:companyId', admin, getDriverSalarySummary);
 router.get('/executives', admin, getAllExecutives);
 router.post('/executives', admin, createExecutive);
 router.delete('/executives/:id', admin, deleteExecutive);
+
+// Staff Management
+router.get('/staff/:companyId', admin, getAllStaff);
+router.post('/staff', admin, createStaff);
+router.get('/staff-attendance/:companyId', admin, getStaffAttendanceReports);
 
 module.exports = router;

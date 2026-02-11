@@ -30,8 +30,12 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['Admin', 'Driver', 'Executive'],
+        enum: ['Admin', 'Driver', 'Executive', 'Staff'],
         required: true
+    },
+    salary: {
+        type: Number,
+        default: 0
     },
     company: {
         type: mongoose.Schema.Types.ObjectId,
