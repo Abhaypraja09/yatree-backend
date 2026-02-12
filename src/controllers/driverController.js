@@ -120,7 +120,7 @@ const punchIn = async (req, res) => {
             company: driver.company,
             vehicle: targetVehicleId,
             date: today,
-            dailyWage: driver.dailyWage || 500, // Capture current wage
+            dailyWage: driver.dailyWage || 0, // Capture current wage
             punchIn: {
                 km: Number(km),
                 selfie: selfie,
@@ -389,7 +389,7 @@ const getDriverLedger = async (req, res) => {
 
         // Calculate Summary
         const summary = attendance.reduce((acc, att) => {
-            const wage = att.dailyWage || 500;
+            const wage = att.dailyWage || 0;
             const bonuses = (att.punchOut?.allowanceTA || 0) +
                 (att.punchOut?.nightStayAmount || 0) +
                 (att.outsideTrip?.bonusAmount || 0);
@@ -415,7 +415,7 @@ const getDriverLedger = async (req, res) => {
                 _id: att._id,
                 date: att.date,
                 vehicle: att.vehicle?.carNumber || 'N/A',
-                dailyWage: att.dailyWage || 500,
+                dailyWage: att.dailyWage || 0,
                 bonuses: (att.punchOut?.allowanceTA || 0) + (att.punchOut?.nightStayAmount || 0) + (att.outsideTrip?.bonusAmount || 0),
                 totalKM: att.totalKM || 0,
                 status: att.status

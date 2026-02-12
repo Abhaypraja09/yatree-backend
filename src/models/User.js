@@ -85,7 +85,7 @@ const userSchema = new mongoose.Schema({
     },
     dailyWage: {
         type: Number,
-        default: 500
+        default: 0
     }
 }, {
     timestamps: true,

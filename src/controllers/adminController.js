@@ -50,7 +50,7 @@ const createDriver = async (req, res, next) => {
             company: companyId,
             isFreelancer: isFreelancer === 'true' || isFreelancer === true,
             licenseNumber,
-            dailyWage: Number(dailyWage) || 500
+            dailyWage: Number(dailyWage) || 0
         });
 
         const createdDriver = await driver.save();
@@ -504,21 +504,57 @@ const updateDriver = asyncHandler(async (req, res) => {
     const driver = await User.findById(req.params.id);
 
     if (driver) {
-        driver.name = req.body.name || driver.name;
-        driver.mobile = req.body.mobile || driver.mobile;
-        driver.username = req.body.username || driver.username;
+        // Explicitly handle all fields
+        if (req.body.name) driver.name = req.body.name;
+
+        if (req.body.mobile && req.body.mobile !== driver.mobile) {
+            const mobileExists = await User.findOne({ mobile: req.body.mobile });
+            if (mobileExists) return res.status(400).json({ message: 'Mobile number already in use' });
+            driver.mobile = req.body.mobile;
+        }
+
+        if (req.body.username !== undefined && req.body.username !== driver.username) {
+            if (req.body.username === "") {
+                driver.username = undefined;
+            } else {
+                const usernameExists = await User.findOne({ username: req.body.username });
+                if (usernameExists) return res.status(400).json({ message: 'Username already in use' });
+                driver.username = req.body.username;
+            }
+        }
+
         if (req.body.password) {
             driver.password = req.body.password;
         }
+
         if (req.body.dailyWage !== undefined) {
             driver.dailyWage = Number(req.body.dailyWage);
         }
+
+        if (req.body.isFreelancer !== undefined) {
+            driver.isFreelancer = req.body.isFreelancer === 'true' || req.body.isFreelancer === true;
+        }
+
+        if (req.body.licenseNumber !== undefined) {
+            driver.licenseNumber = req.body.licenseNumber;
+        }
+
+        console.log('UPDATING DRIVER:', {
+            id: req.params.id,
+            updates: {
+                name: driver.name,
+                mobile: driver.mobile,
+                license: driver.licenseNumber,
+                freelancer: driver.isFreelancer
+            }
+        });
 
         const updatedDriver = await driver.save();
         res.json({
             _id: updatedDriver._id,
             name: updatedDriver.name,
             mobile: updatedDriver.mobile,
+            licenseNumber: updatedDriver.licenseNumber,
             company: updatedDriver.company
         });
     } else {
@@ -984,7 +1020,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
         company: driver.company,
         vehicle: vehicleId,
         date: dutyDate,
-        dailyWage: driver.dailyWage || 500,
+        dailyWage: driver.dailyWage || 0,
         punchIn: {
             km: km || 0,
             time: time ? new Date(time) : new Date(),
