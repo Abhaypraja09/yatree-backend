@@ -94,8 +94,8 @@ const createVehicle = asyncHandler(async (req, res) => {
 
     const vehicle = await Vehicle.create({
         carNumber,
-        model,
-        permitType,
+        model: model || (isOutsideCar ? 'Outside Car' : undefined),
+        permitType: permitType || (isOutsideCar ? 'None/Outside' : undefined),
         company: companyId,
         carType: carType || 'SUV',
         isOutsideCar: isOutsideCar === 'true' || isOutsideCar === true,
