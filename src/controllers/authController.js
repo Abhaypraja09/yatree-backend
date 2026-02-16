@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Company = require('../models/Company');
 
 const generateToken = (id) => {
-    const secret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+    const secret = process.env.JWT_SECRET || 'yatree_secure_fallback_key_2024';
     return jwt.sign({ id: id.toString() }, secret, {
         expiresIn: '30d',
     });
@@ -31,7 +31,7 @@ const loginUser = async (req, res) => {
         const { mobile, password } = req.body;
         logError(`Login request for: ${mobile}`);
 
-        const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+        const jwtSecret = process.env.JWT_SECRET || 'yatree_secure_fallback_key_2024';
 
         if (!process.env.JWT_SECRET) {
             logError('WARNING: JWT_SECRET environment variable is missing! Using fallback for now.');

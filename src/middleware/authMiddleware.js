@@ -7,7 +7,7 @@ const protect = async (req, res, next) => {
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             token = req.headers.authorization.split(' ')[1];
-            const secret = process.env.JWT_SECRET || 'fallback_secret_for_emergency_123';
+            const secret = process.env.JWT_SECRET || 'yatree_secure_fallback_key_2024';
             const decoded = jwt.verify(token, secret);
 
             req.user = await User.findById(decoded.id).select('-password').populate('company');
@@ -19,8 +19,20 @@ const protect = async (req, res, next) => {
 
             return next();
         } catch (error) {
-            console.error('AUTH ERROR:', error.message);
-            return res.status(401).json({ message: 'Not authorized, token failed' });
+            console.error('AUTH ERROR DETAILS:', {
+                message: error.message,
+                name: error.name,
+                token_prefix: token ? token.substring(0, 10) : 'none'
+            });
+
+            let errorMessage = 'Not authorized, token failed';
+            if (error.name === 'TokenExpiredError') {
+                errorMessage = 'Session expired. Please log in again.';
+            } else if (error.name === 'JsonWebTokenError') {
+                errorMessage = 'Invalid session. Please log out and log in again.';
+            }
+
+            return res.status(401).json({ message: errorMessage });
         }
     }
 
