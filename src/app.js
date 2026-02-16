@@ -48,6 +48,13 @@ console.log('Current Dir:', __dirname);
 console.log('Serving Frontend From:', finalPath);
 console.log('------------------------------');
 
+// Serve uploads folder
+const uploadsPath = path.resolve(__dirname, '../uploads');
+if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(uploadsPath, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsPath));
+
 // Serve static files
 app.use(express.static(finalPath, {
     maxAge: 0, // Disable cache to force fresh files

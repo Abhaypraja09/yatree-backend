@@ -92,7 +92,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         }
     });
 
-    const vehicle = await Vehicle.create({
+    const vehicle = new Vehicle({
         carNumber,
         model: model || (isOutsideCar ? 'Outside Car' : undefined),
         permitType: permitType || (isOutsideCar ? 'None/Outside' : undefined),
@@ -110,6 +110,14 @@ const createVehicle = asyncHandler(async (req, res) => {
         property,
         documents
     });
+
+    if (req.body.createdAt) {
+        // If it's a date string like YYYY-MM-DD, add time to prevent shift
+        const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
+        vehicle.createdAt = new Date(dateStr);
+    }
+
+    await vehicle.save();
 
     if (vehicle) {
         res.status(201).json(vehicle);
@@ -586,6 +594,10 @@ const updateVehicle = asyncHandler(async (req, res) => {
         if (req.body.dutyType !== undefined) vehicle.dutyType = req.body.dutyType;
         if (req.body.dropLocation !== undefined) vehicle.dropLocation = req.body.dropLocation;
         if (req.body.property !== undefined) vehicle.property = req.body.property;
+        if (req.body.createdAt) {
+            const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
+            vehicle.createdAt = new Date(dateStr);
+        }
 
         const updatedVehicle = await vehicle.save();
         res.json(updatedVehicle);
@@ -1023,14 +1035,17 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
         dailyWage: driver.dailyWage || 0,
         punchIn: {
             km: km || 0,
-            time: time ? new Date(time) : new Date(),
+            time: time ? new Date(time) : new Date(dutyDate + 'T12:00:00Z'),
         },
         pickUpLocation: pickUpLocation,
         status: 'incomplete'
     });
 
-    await attendance.save();
+    // Sync createdAt with duty date for history
+    attendance.createdAt = new Date(dutyDate + 'T12:00:00Z');
 
+
+    await attendance.save();
     // 4. Update Driver
     driver.tripStatus = 'active';
     driver.assignedVehicle = vehicleId;
@@ -1216,7 +1231,9 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         odometer,
         stationName,
         paymentMode,
-        driver
+        paymentSource,
+        driver,
+        slipPhoto
     } = req.body;
 
     if (!vehicleId || !companyId || !fuelType || !amount || !quantity || !odometer) {
@@ -1250,7 +1267,9 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         odometer: Number(odometer),
         stationName,
         paymentMode,
+        paymentSource: paymentSource || 'Yatree Office',
         driver,
+        slipPhoto,
         distance,
         mileage: Number(mileage.toFixed(2)),
         costPerKm: Number(costPerKm.toFixed(2)),
@@ -1302,7 +1321,9 @@ const updateFuelEntry = asyncHandler(async (req, res) => {
         odometer,
         stationName,
         paymentMode,
-        driver
+        paymentSource,
+        driver,
+        slipPhoto
     } = req.body;
 
     const entry = await Fuel.findById(req.params.id);
@@ -1320,7 +1341,14 @@ const updateFuelEntry = asyncHandler(async (req, res) => {
     entry.odometer = Number(odometer) || entry.odometer;
     entry.stationName = stationName || entry.stationName;
     entry.paymentMode = paymentMode || entry.paymentMode;
+    entry.paymentSource = paymentSource || entry.paymentSource;
     entry.driver = driver || entry.driver;
+    // Allow replacing the photo even if one exists, or setting it new
+    // If slipPhoto is explicitly sent (even empty string), update it? No, keep it simple.
+    // If sent as 'undefined' string or empty, ignore. If real URL, update.
+    if (slipPhoto && slipPhoto.trim() !== '') {
+        entry.slipPhoto = slipPhoto;
+    }
 
     // Recalculate if odometer or quantity changed
     const prevEntry = await Fuel.findOne({
@@ -1375,6 +1403,7 @@ const getPendingFuelExpenses = asyncHandler(async (req, res) => {
                         rate: exp.rate, // Pass Rate if available
                         km: exp.km,
                         fuelType: exp.fuelType || 'Diesel',
+                        paymentSource: exp.paymentSource || 'Yatree Office',
                         slipPhoto: exp.slipPhoto,
                         status: 'pending'
                     });
@@ -1477,12 +1506,15 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
     if (status === 'approved') {
         if (expense.type === 'fuel') {
             // Optional overrides from Admin
-            const { quantity, rate } = req.body;
+            const { quantity, rate, slipPhoto } = req.body;
             let finalOdometer = req.body.odometer || expense.km || 0;
             let finalAmount = expense.amount;
             // Use admin override OR driver's submitted quantity OR 0
             let finalQuantity = quantity ? Number(quantity) : (expense.quantity ? Number(expense.quantity) : 0);
             let finalRate = rate ? Number(rate) : (expense.rate ? Number(expense.rate) : (finalQuantity && finalAmount ? Number((finalAmount / finalQuantity).toFixed(2)) : 0));
+
+            // Use Admin provided slipPhoto if available, otherwise fallback to driver's
+            const finalSlipPhoto = slipPhoto || expense.slipPhoto;
 
             // Calculate Distance
             const prevEntry = await Fuel.findOne({
@@ -1517,11 +1549,12 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 distance: distance,
                 mileage: mileage,
                 costPerKm: costPerKm,
+                paymentSource: expense.paymentSource || 'Yatree Office',
                 driver: attendance.driver.name,
                 createdBy: req.user._id,
                 source: 'Driver',
                 stationName: req.body.stationName || '',
-                slipPhoto: expense.slipPhoto
+                slipPhoto: finalSlipPhoto
             });
 
             // 2. Add to verified fuel entries in Attendance
@@ -1530,10 +1563,13 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 amount: finalAmount,
                 km: finalOdometer,
                 fuelType: expense.fuelType || 'Diesel',
-                slipPhoto: expense.slipPhoto
+                slipPhoto: finalSlipPhoto
             });
             attendance.fuel.amount = (attendance.fuel.amount || 0) + finalAmount;
         } else if (expense.type === 'parking') {
+            const { slipPhoto } = req.body;
+            const finalSlipPhoto = slipPhoto || expense.slipPhoto;
+
             // 1. Add to Parking Collection
             await Parking.create({
                 vehicle: attendance.vehicle._id,
@@ -1542,14 +1578,14 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 date: expense.createdAt,
                 amount: expense.amount,
                 source: 'Driver',
-                receiptPhoto: expense.slipPhoto,
+                receiptPhoto: finalSlipPhoto,
                 createdBy: req.user._id
             });
 
             // 2. Add to verified parking entries in Attendance
             attendance.parking.push({
                 amount: expense.amount,
-                slipPhoto: expense.slipPhoto
+                receiptPhoto: finalSlipPhoto
             });
             attendance.punchOut.tollParkingAmount = (attendance.punchOut.tollParkingAmount || 0) + expense.amount;
         }
@@ -1763,7 +1799,7 @@ const deleteExecutive = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/parking
 // @access  Private/AdminOrExecutive
 const addParkingEntry = asyncHandler(async (req, res) => {
-    const { vehicleId, companyId, driver, date, amount, location, remark } = req.body;
+    const { vehicleId, companyId, driver, date, amount, location, remark, receiptPhoto } = req.body;
 
     const parking = await Parking.create({
         vehicle: vehicleId,
@@ -1774,6 +1810,7 @@ const addParkingEntry = asyncHandler(async (req, res) => {
         location: location || 'Not Specified',
         remark,
         source: 'Admin',
+        receiptPhoto,
         createdBy: req.user._id
     });
 
@@ -1812,7 +1849,7 @@ const getAllStaff = asyncHandler(async (req, res) => {
 
 // @desc    Create a new staff member
 // @route   POST /api/admin/staff
-// @access  Private/Admin
+// @access  Private/AdminOrExecutive
 const createStaff = asyncHandler(async (req, res) => {
     const { name, mobile, password, companyId, salary, username } = req.body;
 
@@ -1834,9 +1871,23 @@ const createStaff = asyncHandler(async (req, res) => {
     res.status(201).json(staff);
 });
 
+// @desc    Delete a staff member
+// @route   DELETE /api/admin/staff/:id
+// @access  Private/Admin
+const deleteStaff = asyncHandler(async (req, res) => {
+    const staff = await User.findById(req.params.id);
+
+    if (staff && staff.role === 'Staff') {
+        await staff.deleteOne();
+        res.json({ message: 'Staff member removed' });
+    } else {
+        res.status(404).json({ message: 'Staff member not found' });
+    }
+});
+
 // @desc    Get Staff Attendance Reports
 // @route   GET /api/admin/staff-attendance/:companyId
-// @access  Private/Admin
+// @access  Private/AdminOrExecutive
 const getStaffAttendanceReports = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { from, to } = req.query;
@@ -1898,5 +1949,6 @@ module.exports = {
     getPendingParkingExpenses,
     getAllStaff,
     createStaff,
+    deleteStaff,
     getStaffAttendanceReports
 };

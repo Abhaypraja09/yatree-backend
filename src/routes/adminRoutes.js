@@ -45,6 +45,7 @@ const {
     getPendingParkingExpenses,
     getAllStaff,
     createStaff,
+    deleteStaff,
     getStaffAttendanceReports
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
@@ -127,8 +128,17 @@ router.post('/executives', admin, createExecutive);
 router.delete('/executives/:id', admin, deleteExecutive);
 
 // Staff Management
-router.get('/staff/:companyId', admin, getAllStaff);
-router.post('/staff', admin, createStaff);
-router.get('/staff-attendance/:companyId', admin, getStaffAttendanceReports);
+router.get('/staff/:companyId', adminOrExecutive, getAllStaff);
+router.post('/staff', adminOrExecutive, createStaff);
+router.delete('/staff/:id', adminOrExecutive, deleteStaff);
+router.get('/staff-attendance/:companyId', adminOrExecutive, getStaffAttendanceReports);
+
+// Generic Upload Route
+router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
+    }
+    res.json({ url: req.file.path });
+});
 
 module.exports = router;

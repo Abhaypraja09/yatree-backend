@@ -42,8 +42,13 @@ const fuelSchema = new mongoose.Schema({
     },
     paymentMode: {
         type: String,
-        enum: ['Cash', 'UPI', 'Bank Transfer', 'Credit Card', 'FASTag', 'Other'],
+        enum: ['Cash', 'UPI', 'Bank Transfer', 'Credit Card', 'FASTag', 'Other', 'Yatree Office', 'Guest / Client'],
         default: 'Cash'
+    },
+    paymentSource: {
+        type: String,
+        enum: ['Yatree Office', 'Guest / Client'],
+        default: 'Yatree Office'
     },
     driver: {
         type: String, // Can store Name or Driver ID
@@ -70,6 +75,9 @@ const fuelSchema = new mongoose.Schema({
         type: String,
         enum: ['Admin', 'Driver'],
         default: 'Admin'
+    },
+    slipPhoto: {
+        type: String
     }
 }, {
     timestamps: true

@@ -58,7 +58,8 @@ const attendanceSchema = new mongoose.Schema({
             amount: { type: Number },
             km: { type: Number },
             slipPhoto: { type: String },
-            fuelType: { type: String, enum: ['Petrol', 'Diesel', 'CNG', 'Other'], default: 'Diesel' }
+            fuelType: { type: String, enum: ['Petrol', 'Diesel', 'CNG', 'Other'], default: 'Diesel' },
+            paymentSource: { type: String, enum: ['Yatree Office', 'Guest'], default: 'Yatree Office' }
         }],
         km: { type: Number }, // Legacy/Single entry fallback
         slipPhoto: { type: String } // Legacy/Single entry fallback
@@ -96,6 +97,7 @@ const attendanceSchema = new mongoose.Schema({
         rate: { type: Number, default: 0 }, // ₹/L
         km: { type: Number },
         slipPhoto: { type: String },
+        paymentSource: { type: String, enum: ['Yatree Office', 'Guest'], default: 'Yatree Office' },
         status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
         createdAt: { type: Date, default: Date.now }
     }]

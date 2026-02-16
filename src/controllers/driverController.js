@@ -153,7 +153,7 @@ const punchIn = async (req, res) => {
 const punchOut = async (req, res) => {
     const {
         km, latitude, longitude, address,
-        fuelFilled, fuelAmounts, fuelKMs, fuelTypes,
+        fuelFilled, fuelAmounts, fuelKMs, fuelTypes, fuelPaymentSources,
         remarks, // Duty
         parkingPaid,
         parkingAmounts,
@@ -224,19 +224,28 @@ const punchOut = async (req, res) => {
             let amounts = fuelAmounts;
             let kms = fuelKMs;
             let fTypes = fuelTypes;
+            let fSources = fuelPaymentSources;
 
             if (!Array.isArray(amounts)) amounts = amounts ? [amounts] : [];
             if (!Array.isArray(kms)) kms = kms ? [kms] : [];
             if (!Array.isArray(fTypes)) fTypes = fTypes ? [fTypes] : [];
+            if (!Array.isArray(fSources)) fSources = fSources ? [fSources] : [];
 
-            fuelSlips.forEach((slip, index) => {
-                const amount = Number(amounts[index]) || 0;
+            // Loop over amounts instead of slips to ensure data is captured
+            amounts.forEach((amt, index) => {
+                const amount = Number(amt) || 0;
                 totalFuelAmount += amount;
+
+                // Try to find matching slip, if any
+                const slip = fuelSlips[index];
+
                 fuelData.push({
                     amount: amount,
                     km: Number(kms[index]) || 0,
-                    slipPhoto: slip.path,
-                    fuelType: fTypes[index] || 'Diesel'
+                    slipPhoto: slip ? slip.path : null,
+                    slipPhoto: slip ? slip.path : null,
+                    fuelType: fTypes[index] || 'Diesel',
+                    paymentSource: fSources[index] || 'Yatree Office'
                 });
             });
         }
@@ -323,7 +332,7 @@ const requestNewTrip = async (req, res) => {
 // @access  Private/Driver
 const addExpense = async (req, res) => {
     try {
-        const { types, amounts, kms, fuelTypes, fuelQuantities, fuelRates } = req.body;
+        const { types, amounts, kms, fuelTypes, fuelQuantities, fuelRates, paymentSources } = req.body;
         const files = req.files || [];
 
         const attendance = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
@@ -337,17 +346,42 @@ const addExpense = async (req, res) => {
         let fuelsT = fuelTypes;
         let quantitiesArr = fuelQuantities;
         let ratesArr = fuelRates;
+        let sourcesArr = paymentSources;
 
         if (!Array.isArray(typesArr)) typesArr = typesArr ? [typesArr] : [];
+
+        console.log('--- Add Expense Debug ---');
+        console.log('Files:', files.map(f => ({ field: f.fieldname, name: f.originalname, path: f.path })));
+        console.log('Body:', { types: typesArr, amounts: amountsArr });
         if (!Array.isArray(amountsArr)) amountsArr = amountsArr ? [amountsArr] : [];
         if (!Array.isArray(kmsArr)) kmsArr = kmsArr ? [kmsArr] : [];
         if (!Array.isArray(fuelsT)) fuelsT = fuelsT ? [fuelsT] : [];
         if (!Array.isArray(quantitiesArr)) quantitiesArr = quantitiesArr ? [quantitiesArr] : [];
         if (!Array.isArray(ratesArr)) ratesArr = ratesArr ? [ratesArr] : [];
+        if (!Array.isArray(sourcesArr)) sourcesArr = sourcesArr ? [sourcesArr] : [];
 
         typesArr.forEach((type, index) => {
             const fieldName = `slip_${index}`;
-            const file = files.find(f => f.fieldname === fieldName);
+            let file = files.find(f => f.fieldname === fieldName);
+
+            // Fallback 1: Check for 'slip' or 'image' if single entry
+            if (!file && typesArr.length === 1 && files.length > 0) {
+                file = files.find(f => f.fieldname === 'slip' || f.fieldname === 'image' || f.fieldname === 'file' || f.fieldname === 'photo');
+                if (!file && files.length === 1) file = files[0];
+            }
+
+            // Fallback 2: Check for array uploads (fuelSlips / parkingSlips)
+            if (!file) {
+                if (type === 'fuel') {
+                    const fuelFiles = files.filter(f => f.fieldname === 'fuelSlips');
+                    const fuelIndex = typesArr.slice(0, index).filter(t => t === 'fuel').length;
+                    file = fuelFiles[fuelIndex];
+                } else if (type === 'parking') {
+                    const parkingFiles = files.filter(f => f.fieldname === 'parkingSlips');
+                    const parkingIndex = typesArr.slice(0, index).filter(t => t === 'parking').length;
+                    file = parkingFiles[parkingIndex];
+                }
+            }
 
             attendance.pendingExpenses.push({
                 type,
@@ -357,6 +391,7 @@ const addExpense = async (req, res) => {
                 rate: type === 'fuel' ? (Number(ratesArr[index]) || 0) : 0,
                 km: Number(kmsArr[index]) || 0,
                 slipPhoto: file ? file.path : null, // Slip is now optional
+                paymentSource: sourcesArr[index] || 'Yatree Office',
                 status: 'pending'
             });
         });
