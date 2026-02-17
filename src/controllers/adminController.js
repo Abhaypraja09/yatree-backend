@@ -1345,6 +1345,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
         punchOut: {
             km: Number(punchOutKM) || 0,
             time: new Date(date + 'T20:00:00Z'),
+            remarks: 'Manual Entry',
             otherRemarks: review || '',
             allowanceTA: allowanceTA ? 100 : 0,
             nightStayAmount: nightStayAmount ? 500 : 0
