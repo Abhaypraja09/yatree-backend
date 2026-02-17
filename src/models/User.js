@@ -95,8 +95,6 @@ const userSchema = new mongoose.Schema({
 
 // Indexes for faster dashboard and listing queries
 userSchema.index({ company: 1, role: 1 });
-userSchema.index({ mobile: 1 }, { unique: true });
-userSchema.index({ username: 1 }, { sparse: true });
 userSchema.index({ tripStatus: 1 });
 
 // Virtual for document statuses (for DL)

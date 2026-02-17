@@ -35,6 +35,15 @@ const advanceSchema = new mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    advanceType: {
+        type: String,
+        enum: ['Office', 'Staff', 'Other'],
+        default: 'Office'
+    },
+    givenBy: {
+        type: String,
+        default: 'Office'
     }
 }, { timestamps: true });
 

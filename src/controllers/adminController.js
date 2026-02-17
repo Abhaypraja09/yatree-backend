@@ -194,6 +194,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const alertThreshold = baseDate.plus({ days: 30 });
     const monthStart = baseDate.startOf('month').toJSDate();
     const monthEnd = baseDate.endOf('month').toJSDate();
+    const monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
+    const monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
 
     // Run independent heavy queries concurrently
     const [
@@ -209,11 +211,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         monthlyMaintenanceData,
         upcomingServices,
         totalStaff,
-        staffAttendanceToday
+        staffAttendanceToday,
+        freelancerAdvanceData,
+        monthlyParkingData,
+        allAttendanceThisMonth,
+        monthlyBorderTaxData
     ] = await Promise.all([
-        Vehicle.countDocuments({ company: companyId, isOutsideCar: { $ne: true } }),
+        Vehicle.countDocuments({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            isOutsideCar: { $ne: true }
+        }),
         User.countDocuments({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             role: 'Driver',
             isFreelancer: { $ne: true }
         }),
@@ -223,14 +238,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         })
             .populate({
                 path: 'driver',
-                match: { isFreelancer: { $ne: true } },
                 select: 'name mobile isFreelancer'
             })
             .populate('vehicle', 'carNumber'),
         User.countDocuments({
             company: companyId,
             role: 'Driver',
-            isFreelancer: { $ne: true },
             tripStatus: 'pending_approval'
         }),
         Vehicle.find({
@@ -241,11 +254,17 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         User.find({
             company: companyId,
             role: 'Driver',
-            isFreelancer: { $ne: true },
             'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
         }).select('name documents'),
         Vehicle.aggregate([
-            { $match: { company: new mongoose.Types.ObjectId(companyId) } },
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ]
+                }
+            },
             { $group: { _id: null, total: { $sum: '$fastagBalance' } } }
         ]),
         Advance.aggregate([
@@ -260,7 +279,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             { $unwind: { path: '$driverInfo', preserveNullAndEmptyArrays: false } },
             {
                 $match: {
-                    company: new mongoose.Types.ObjectId(companyId),
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
                     'driverInfo.isFreelancer': { $ne: true }
                 }
             },
@@ -269,7 +291,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         Fuel.aggregate([
             {
                 $match: {
-                    company: new mongoose.Types.ObjectId(companyId),
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
                     date: { $gte: monthStart, $lte: monthEnd }
                 }
             },
@@ -278,19 +303,100 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         Maintenance.aggregate([
             {
                 $match: {
-                    company: new mongoose.Types.ObjectId(companyId),
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
                     billDate: { $gte: monthStart, $lte: monthEnd }
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
         ]),
         Maintenance.find({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             nextServiceDate: { $lte: alertThreshold.toJSDate(), $gte: baseDate.minus({ days: 7 }).toJSDate() }
         }).populate('vehicle', 'carNumber'),
-        User.countDocuments({ company: companyId, role: 'Staff' }),
-        StaffAttendance.find({ company: companyId, date: targetDate }).populate('staff', 'name mobile')
+        User.countDocuments({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            role: 'Staff'
+        }),
+        StaffAttendance.find({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            date: targetDate
+        }).populate('staff', 'name mobile'),
+        Advance.aggregate([
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'driver',
+                    foreignField: '_id',
+                    as: 'driverInfo'
+                }
+            },
+            { $unwind: { path: '$driverInfo', preserveNullAndEmptyArrays: false } },
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
+                    'driverInfo.isFreelancer': true
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]),
+        Parking.aggregate([
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
+                    date: { $gte: monthStart, $lte: monthEnd }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        Attendance.find({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            date: { $gte: monthStartStr, $lte: monthEndStr }
+        }),
+        BorderTax.aggregate([
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
+                    date: { $gte: monthStart, $lte: monthEnd }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ])
     ]);
+
+    // Calculate Driver Expenses from Attendance (Safer than aggregate for mixed field types)
+    let driverFuelTotal = 0;
+    let driverParkingTotal = 0;
+    let driverExtraTotal = 0;
+
+    // Dashboard totals now only reflect the Approved/Main Collections to match the 'Verified' logs.
+    // Driver submitted expenses are added only after they are approved and appear in the collections.
+    allAttendanceThisMonth.forEach(att => {
+        // No additional summation here to ensure dashboard = logs total
+    });
 
     // Filter out attendance records where driver didn't match (i.e. was a freelancer)
     const filteredAttendance = attendanceToday.filter(a => a.driver);
@@ -374,8 +480,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         };
     });
 
-    const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
+    const monthlyFuelAmount = (monthlyFuelData[0]?.total || 0);
     const monthlyMaintenanceAmount = monthlyMaintenanceData[0]?.total || 0;
+    const monthlyParkingAmount = (monthlyParkingData[0]?.total || 0);
+    const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
+
+    const totalExpenseAmount = monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount;
 
     res.json({
         date: targetDate,
@@ -388,11 +498,18 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         totalAdvancePending,
         monthlyFuelAmount,
         monthlyMaintenanceAmount,
+        monthlyParkingAmount,
+        monthlyBorderTaxAmount,
+        totalExpenseAmount,
         totalStaff,
         countStaffPresent: staffAttendanceToday.length,
         staffAttendanceToday,
         attendanceDetails: attendanceWithAdvanceInfo,
-        expiringAlerts
+        expiringAlerts,
+        freelancerAdvances: {
+            total: freelancerAdvanceData[0]?.total || 0,
+            count: freelancerAdvanceData[0]?.count || 0
+        }
     });
 });
 
@@ -409,7 +526,13 @@ const getAllDrivers = asyncHandler(async (req, res) => {
     const page = Number(req.query.pageNumber) || 1;
 
     try {
-        const query = { company: companyId, role: 'Driver' };
+        const query = {
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            role: 'Driver'
+        };
         if (req.query.isFreelancer !== undefined) {
             query.isFreelancer = isFreelancerQuery;
         } else {
@@ -467,7 +590,14 @@ const getAllVehicles = asyncHandler(async (req, res) => {
             .sort({ carNumber: 1 });
 
         // Sync orphans: find freelance drivers who are 'active' but their vehicle is not linked
-        const onDutyFreelancers = await User.find({ company: companyId, isFreelancer: true, tripStatus: 'active' });
+        const onDutyFreelancers = await User.find({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            isFreelancer: true,
+            tripStatus: 'active'
+        });
         for (const drv of onDutyFreelancers) {
             const vIndex = vehicles.findIndex(v => v._id.toString() === drv.assignedVehicle?.toString());
             if (vIndex !== -1 && !vehicles[vIndex].currentDriver) {
@@ -481,7 +611,12 @@ const getAllVehicles = asyncHandler(async (req, res) => {
         return vehicles;
     };
 
-    let query = { company: companyId };
+    let query = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (type === 'outside') {
         query.isOutsideCar = true;
     } else if (type === 'fleet') {
@@ -758,7 +893,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { date, from, to } = req.query; // format: YYYY-MM-DD
 
-    const query = { company: companyId };
+    const query = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     let startDate, endDate;
 
     if (from && to) {
@@ -786,14 +926,23 @@ const getDailyReports = asyncHandler(async (req, res) => {
     let outsideVehicles = [];
     if (date) {
         outsideVehicles = await Vehicle.find({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             isOutsideCar: true,
             carNumber: { $regex: `#${date}(#|$)` }
         });
     } else if (from && to) {
         // For range, we might need a more complex regex or multiple queries
         // Simplest: fetch all outside cars of company and filter in memory
-        const allOutside = await Vehicle.find({ company: companyId, isOutsideCar: true });
+        const allOutside = await Vehicle.find({
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            isOutsideCar: true
+        });
         outsideVehicles = allOutside.filter(v => {
             const parts = v.carNumber?.split('#');
             const d = parts ? parts[1] : null;
@@ -822,7 +971,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
     let fastagRecharges = [];
     if (startDate && endDate) {
         fastagRecharges = await Vehicle.aggregate([
-            { $match: { company: new mongoose.Types.ObjectId(companyId) } },
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ]
+                }
+            },
             { $unwind: '$fastagHistory' },
             {
                 $match: {
@@ -846,7 +1002,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
     }
 
     // 3. Fetch Border Tax
-    const borderTaxQuery = { company: companyId };
+    const borderTaxQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (from && to) {
         borderTaxQuery.date = { $gte: from, $lte: to };
     } else if (date) {
@@ -859,7 +1020,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .sort({ date: -1 });
 
     // 4. Fetch Fuel Entries (using Date objects)
-    const fuelQuery = { company: companyId };
+    const fuelQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (startDate && endDate) {
         fuelQuery.date = { $gte: startDate, $lte: endDate };
     }
@@ -868,7 +1034,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .sort({ date: -1 });
 
     // 5. Fetch Maintenance Records
-    const maintenanceQuery = { company: companyId };
+    const maintenanceQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (startDate && endDate) {
         maintenanceQuery.billDate = { $gte: startDate, $lte: endDate };
     }
@@ -877,7 +1048,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .sort({ billDate: -1 });
 
     // 6. Fetch Advances
-    const advancesQuery = { company: companyId };
+    const advancesQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (startDate && endDate) {
         advancesQuery.date = { $gte: startDate, $lte: endDate };
     }
@@ -886,7 +1062,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .sort({ date: -1 });
 
     // 7. Fetch Parking Records
-    const parkingQuery = { company: companyId };
+    const parkingQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (startDate && endDate) {
         parkingQuery.date = { $gte: startDate, $lte: endDate };
     }
@@ -953,7 +1134,12 @@ const getBorderTaxEntries = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { from, to } = req.query;
 
-    let query = { company: companyId };
+    let query = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
     if (from && to) {
         query.date = { $gte: from, $lte: to };
     }
@@ -1188,7 +1374,12 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { month, year } = req.query;
 
-    let query = { company: companyId };
+    let query = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
 
     if (month && year) {
         const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
@@ -1286,7 +1477,12 @@ const getFuelEntries = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { from, to, vehicleId } = req.query;
 
-    let query = { company: companyId };
+    let query = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
 
     // Date Range filtering
     if (from && to) {
@@ -1377,7 +1573,10 @@ const getPendingFuelExpenses = asyncHandler(async (req, res) => {
     try {
         const { companyId } = req.params;
         const pendingDocs = await Attendance.find({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             'pendingExpenses.type': 'fuel',
             'pendingExpenses.status': 'pending'
         })
@@ -1599,11 +1798,11 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/advances
 // @access  Private/Admin
 const addAdvance = asyncHandler(async (req, res) => {
-    const { driverId, companyId, amount, remark, date } = req.body;
+    const { driverId, companyId, amount, remark, date, advanceType, givenBy } = req.body;
 
     const driver = await User.findById(driverId);
-    if (driver && driver.isFreelancer) {
-        return res.status(400).json({ message: 'Advances cannot be recorded for freelancer drivers' });
+    if (!driver) {
+        return res.status(404).json({ message: 'Driver not found' });
     }
 
     const advance = await Advance.create({
@@ -1613,7 +1812,9 @@ const addAdvance = asyncHandler(async (req, res) => {
         remark: remark || 'Advance Payment',
         date: date || new Date(),
         status: 'Pending',
-        createdBy: req.user._id
+        createdBy: req.user._id,
+        advanceType: advanceType || 'Office',
+        givenBy: givenBy || 'Office'
     });
 
     if (advance) {
@@ -1643,13 +1844,17 @@ const getAdvances = asyncHandler(async (req, res) => {
     const advances = await Advance.find(query)
         .populate({
             path: 'driver',
-            match: { isFreelancer: { $ne: true } },
             select: 'name mobile isFreelancer'
         })
         .sort({ date: -1 });
 
-    // Filter out results where driver did not match (is a freelancer)
-    const filteredAdvances = advances.filter(adv => adv.driver);
+    // Filter by isFreelancer if requested
+    let filteredAdvances = advances.filter(adv => adv.driver);
+
+    if (req.query.isFreelancer !== undefined) {
+        const isFreelancer = req.query.isFreelancer === 'true';
+        filteredAdvances = filteredAdvances.filter(adv => adv.driver.isFreelancer === isFreelancer);
+    }
 
     res.json(filteredAdvances);
 });

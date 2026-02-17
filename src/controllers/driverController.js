@@ -270,12 +270,15 @@ const punchOut = async (req, res) => {
                 amounts = amounts ? [amounts] : [];
             }
 
-            parkingSlips.forEach((slip, index) => {
-                const amount = Number(amounts[index]) || 0;
+            // Loop over amounts instead of slips to ensure data is captured even without photos
+            amounts.forEach((amt, index) => {
+                const amount = Number(amt) || 0;
                 totalParkingAmount += amount;
+
+                const slip = parkingSlips[index];
                 parkingData.push({
                     amount: amount,
-                    slipPhoto: slip.path
+                    slipPhoto: slip ? slip.path : null
                 });
             });
         }

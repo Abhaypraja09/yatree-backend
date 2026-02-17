@@ -116,11 +116,11 @@ router.get('/parking/:companyId', adminOrExecutive, getParkingEntries);
 router.delete('/parking/:id', adminOrExecutive, deleteParkingEntry);
 router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExpenses);
 
-// Financials (Admin Only)
-router.post('/advances', admin, addAdvance);
-router.get('/advances/:companyId', admin, getAdvances);
-router.delete('/advances/:id', admin, deleteAdvance);
-router.get('/salary-summary/:companyId', admin, getDriverSalarySummary);
+// Financials (Shared Admin & Executive)
+router.post('/advances', adminOrExecutive, addAdvance);
+router.get('/advances/:companyId', adminOrExecutive, getAdvances);
+router.delete('/advances/:id', adminOrExecutive, deleteAdvance);
+router.get('/salary-summary/:companyId', adminOrExecutive, getDriverSalarySummary);
 
 // Executive Management (Super Admin only)
 router.get('/executives', admin, getAllExecutives);
