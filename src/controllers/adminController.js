@@ -1316,18 +1316,19 @@ const addManualDuty = asyncHandler(async (req, res) => {
         date,
         punchInKM,
         punchOutKM,
-        punchInTime,
-        punchOutTime,
-        fuelAmount,
         parkingAmount,
-        pickUpLocation,
-        dropLocation,
-        dailyWage,
+        allowanceTA,
+        nightStayAmount,
         review
     } = req.body;
 
     if (!driverId || !vehicleId || !companyId || !date) {
         return res.status(400).json({ message: 'Please provide required fields: driver, vehicle, company, and date' });
+    }
+
+    const driver = await User.findById(driverId);
+    if (!driver) {
+        return res.status(404).json({ message: 'Driver not found' });
     }
 
     const attendance = new Attendance({
@@ -1336,22 +1337,24 @@ const addManualDuty = asyncHandler(async (req, res) => {
         vehicle: vehicleId,
         date,
         status: 'completed',
-        dailyWage: Number(dailyWage) || 0,
+        dailyWage: driver.dailyWage || 0,
         punchIn: {
             km: Number(punchInKM) || 0,
-            time: punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z'),
+            time: new Date(date + 'T08:00:00Z'),
         },
         punchOut: {
             km: Number(punchOutKM) || 0,
-            time: punchOutTime ? new Date(punchOutTime) : new Date(date + 'T20:00:00Z'),
-            otherRemarks: review || ''
+            time: new Date(date + 'T20:00:00Z'),
+            otherRemarks: review || '',
+            allowanceTA: allowanceTA ? 100 : 0,
+            nightStayAmount: nightStayAmount ? 500 : 0
         },
         totalKM: (Number(punchOutKM) || 0) - (Number(punchInKM) || 0),
-        pickUpLocation: pickUpLocation || 'Office',
-        dropLocation: dropLocation || 'Office',
+        pickUpLocation: 'Office',
+        dropLocation: 'Office',
         fuel: {
-            filled: Number(fuelAmount) > 0,
-            amount: Number(fuelAmount) || 0
+            filled: false,
+            amount: 0
         },
         parking: [{ amount: Number(parkingAmount) || 0 }]
     });
