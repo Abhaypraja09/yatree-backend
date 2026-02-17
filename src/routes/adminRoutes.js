@@ -47,7 +47,8 @@ const {
     createStaff,
     deleteStaff,
     getStaffAttendanceReports,
-    addManualDuty
+    addManualDuty,
+    deleteAttendance
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -100,6 +101,7 @@ router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
 // Operational Routes (Shared Admin & Executive)
 router.delete('/drivers/:id', adminOrExecutive, deleteDriver);
 router.delete('/vehicles/:id', adminOrExecutive, deleteVehicle);
+router.delete('/attendance/:id', adminOrExecutive, deleteAttendance);
 router.patch('/attendance/:attendanceId/expense/:expenseId', adminOrExecutive, approveRejectExpense);
 
 router.post('/border-tax', adminOrExecutive, upload.single('receiptPhoto'), addBorderTax);

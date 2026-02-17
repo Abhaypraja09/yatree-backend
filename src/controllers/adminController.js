@@ -229,8 +229,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 { company: new mongoose.Types.ObjectId(companyId) },
                 { company: companyId }
             ],
-            role: 'Driver',
-            isFreelancer: { $ne: true }
+            role: 'Driver'
         }),
         Attendance.find({
             company: companyId,
@@ -535,8 +534,6 @@ const getAllDrivers = asyncHandler(async (req, res) => {
         };
         if (req.query.isFreelancer !== undefined) {
             query.isFreelancer = isFreelancerQuery;
-        } else {
-            query.isFreelancer = { $ne: true };
         }
 
         const fetchDriversList = async (q, paginated = true) => {
@@ -764,6 +761,23 @@ const deleteDriver = asyncHandler(async (req, res) => {
 // @route   DELETE /api/admin/vehicles/:id
 // @access  Private/Admin
 // @access  Private/Admin
+const deleteAttendance = asyncHandler(async (req, res) => {
+    const attendance = await Attendance.findById(req.params.id);
+
+    if (attendance) {
+        // Release vehicle if it was active
+        if (attendance.status === 'incomplete' && attendance.vehicle) {
+            await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
+            await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved' });
+        }
+
+        await Attendance.deleteOne({ _id: attendance._id });
+        res.json({ message: 'Attendance record deleted successfully' });
+    } else {
+        res.status(404).json({ message: 'Attendance record not found' });
+    }
+});
+
 const deleteVehicle = asyncHandler(async (req, res) => {
     const vehicle = await Vehicle.findById(req.params.id);
 
@@ -914,10 +928,17 @@ const getDailyReports = asyncHandler(async (req, res) => {
     }
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
-    const attendance = await Attendance.find(query)
+    const rawAttendance = await Attendance.find(query)
         .populate('driver', 'name mobile isFreelancer')
         .populate('vehicle', 'carNumber model isOutsideCar carType dutyAmount fastagNumber fastagBalance')
-        .sort({ date: -1, createdAt: -1 });
+        .sort({ date: -1, createdAt: -1 })
+        .lean();
+
+    const attendance = rawAttendance.map(a => ({
+        ...a,
+        isFreelancer: a.isFreelancer || a.driver?.isFreelancer || false,
+        entryType: 'attendance'
+    }));
 
     // 2. Fetch Outside Cars (Freelancer vehicles logged as vehicles)
     // We filter by date using the #date tag in carNumber
@@ -2216,5 +2237,6 @@ module.exports = {
     createStaff,
     deleteStaff,
     getStaffAttendanceReports,
-    addManualDuty
+    addManualDuty,
+    deleteAttendance
 };
