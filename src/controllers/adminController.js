@@ -206,16 +206,20 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         vehiclesWithExpiringDocs,
         driversWithExpiringDocs,
         fastagData,
-        advanceData,
+        advanceData, // For non-freelancer advances (total pending)
         monthlyFuelData,
         monthlyMaintenanceData,
         upcomingServices,
         totalStaff,
-        staffAttendanceToday,
-        freelancerAdvanceData,
+        staffAttendanceToday, // Staff attendance for today
+        freelancerAdvanceData, // For freelancer advances (total and count)
+        dailyAdvanceData, // For advances given today
         monthlyParkingData,
-        allAttendanceThisMonth,
-        monthlyBorderTaxData
+        allAttendanceThisMonth, // All attendance for the month
+        monthlyBorderTaxData,
+        regularAdvancesList, // Specific pending advances for regular drivers
+        reportedIssuesList, // Reported issues from attendance
+        outsideCarsToday // Outside cars logged as vehicles for today
     ] = await Promise.all([
         Vehicle.countDocuments({
             $or: [
@@ -229,19 +233,26 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 { company: new mongoose.Types.ObjectId(companyId) },
                 { company: companyId }
             ],
-            role: 'Driver'
+            role: 'Driver',
+            isFreelancer: { $ne: true }
         }),
         Attendance.find({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             date: targetDate
         })
             .populate({
                 path: 'driver',
-                select: 'name mobile isFreelancer'
+                select: 'name mobile isFreelancer salary dailyWage'
             })
             .populate('vehicle', 'carNumber'),
         User.countDocuments({
-            company: companyId,
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
             role: 'Driver',
             tripStatus: 'pending_approval'
         }),
@@ -266,7 +277,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             },
             { $group: { _id: null, total: { $sum: '$fastagBalance' } } }
         ]),
-        Advance.aggregate([
+        Advance.aggregate([ // advanceData (for non-freelancer total pending)
             {
                 $lookup: {
                     from: 'users',
@@ -282,7 +293,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                         { company: new mongoose.Types.ObjectId(companyId) },
                         { company: companyId }
                     ],
-                    'driverInfo.isFreelancer': { $ne: true }
+                    'driverInfo.isFreelancer': { $ne: true },
+                    status: 'Pending'
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -325,14 +337,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             ],
             role: 'Staff'
         }),
-        StaffAttendance.find({
+        StaffAttendance.find({ // staffAttendanceToday
             $or: [
                 { company: new mongoose.Types.ObjectId(companyId) },
                 { company: companyId }
             ],
             date: targetDate
         }).populate('staff', 'name mobile'),
-        Advance.aggregate([
+        Advance.aggregate([ // freelancerAdvanceData
             {
                 $lookup: {
                     from: 'users',
@@ -348,12 +360,28 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                         { company: new mongoose.Types.ObjectId(companyId) },
                         { company: companyId }
                     ],
-                    'driverInfo.isFreelancer': true
+                    'driverInfo.isFreelancer': true,
+                    status: 'Pending'
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
         ]),
-        Parking.aggregate([
+        Advance.aggregate([ // dailyAdvanceData
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ],
+                    date: {
+                        $gte: baseDate.toJSDate(),
+                        $lte: baseDate.endOf('day').toJSDate()
+                    }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        Parking.aggregate([ // monthlyParkingData
             {
                 $match: {
                     $or: [
@@ -365,14 +393,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
         ]),
-        Attendance.find({
+        Attendance.find({ // allAttendanceThisMonth
             $or: [
                 { company: new mongoose.Types.ObjectId(companyId) },
                 { company: companyId }
             ],
             date: { $gte: monthStartStr, $lte: monthEndStr }
         }),
-        BorderTax.aggregate([
+        BorderTax.aggregate([ // monthlyBorderTaxData
             {
                 $match: {
                     $or: [
@@ -383,25 +411,39 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
-        ])
+        ]),
+        Advance.find({ // regularAdvancesList
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            status: 'Pending'
+        }).populate({
+            path: 'driver',
+            match: { isFreelancer: { $ne: true } },
+            select: 'name mobile'
+        }).sort({ date: -1 }),
+        Attendance.find({ // reportedIssuesList
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            'punchOut.otherRemarks': { $exists: true, $ne: '' }
+        }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(10),
+        Vehicle.find({ // outsideCarsToday
+            $or: [
+                { company: new mongoose.Types.ObjectId(companyId) },
+                { company: companyId }
+            ],
+            isOutsideCar: true,
+            carNumber: { $regex: `#${targetDate}(#|$)` }
+        })
     ]);
 
-    // Calculate Driver Expenses from Attendance (Safer than aggregate for mixed field types)
-    let driverFuelTotal = 0;
-    let driverParkingTotal = 0;
-    let driverExtraTotal = 0;
-
-    // Dashboard totals now only reflect the Approved/Main Collections to match the 'Verified' logs.
-    // Driver submitted expenses are added only after they are approved and appear in the collections.
-    allAttendanceThisMonth.forEach(att => {
-        // No additional summation here to ensure dashboard = logs total
-    });
-
-    // Filter out attendance records where driver didn't match (i.e. was a freelancer)
-    const filteredAttendance = attendanceToday.filter(a => a.driver);
+    // Dashboard totals now reflect the Approved collections to match the logs.
+    const filteredAttendance = attendanceToday.filter(a => a.driver && !a.driver.isFreelancer);
 
     const expiringAlerts = [];
-
     vehiclesWithExpiringDocs.forEach(v => {
         v.documents.forEach(doc => {
             if (doc.expiryDate) {
@@ -458,8 +500,25 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const uniqueDriversToday = new Set(filteredAttendance.filter(a => a.punchIn && a.punchIn.time).map(a => a.driver?._id?.toString()));
     const punchOutCount = filteredAttendance.filter(a => a.punchOut && a.punchOut.time).length;
 
+    // Calculate total daily salary for all unique drivers on duty today
+    const workedDriversMap = new Map();
+    attendanceToday.forEach(att => {
+        if (att.driver) {
+            const driverId = att.driver._id.toString();
+            if (!workedDriversMap.has(driverId)) {
+                const salarySum = (att.dailyWage) ||
+                    (att.driver.isFreelancer ? (att.driver.dailyWage || 0) : (att.driver.salary || att.driver.dailyWage || 0));
+                workedDriversMap.set(driverId, salarySum);
+            }
+        }
+    });
+    const dailySalaryFromAttendance = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
+    const dailySalaryFromOutsideCars = outsideCarsToday.reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
+    const dailySalaryTotal = dailySalaryFromAttendance + dailySalaryFromOutsideCars;
+
     const totalFastagBalance = fastagData[0]?.total || 0;
     const totalAdvancePending = advanceData[0]?.total || 0;
+    const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
 
     // Get individual advances for drivers on duty to show alerts
     const driverIdsOnDuty = [...new Set(filteredAttendance.map(a => a.driver._id))];
@@ -505,8 +564,13 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         staffAttendanceToday,
         attendanceDetails: attendanceWithAdvanceInfo,
         expiringAlerts,
+        reportedIssues: reportedIssuesList,
+        regularAdvances: regularAdvancesList.filter(adv => adv.driver),
+        totalAdvancesSum: totalAdvancePending + totalFreelancerAdvancePending,
+        dailyAdvancesSum: dailyAdvanceData[0]?.total || 0,
+        dailySalaryTotal,
         freelancerAdvances: {
-            total: freelancerAdvanceData[0]?.total || 0,
+            total: totalFreelancerAdvancePending,
             count: freelancerAdvanceData[0]?.count || 0
         }
     });
@@ -1011,11 +1075,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
             },
             {
                 $project: {
+                    _id: '$fastagHistory._id',
                     carNumber: 1,
+                    vehicle: { carNumber: '$carNumber', _id: '$_id' },
                     date: '$fastagHistory.date',
                     amount: '$fastagHistory.amount',
                     method: '$fastagHistory.method',
-                    remarks: '$fastagHistory.remarks'
+                    remarks: '$fastagHistory.remarks',
+                    driver: { name: 'System / Fastag' }
                 }
             },
             { $sort: { date: -1 } }
