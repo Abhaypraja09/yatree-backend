@@ -1304,6 +1304,62 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 
     res.json({ message: 'Duty completed and vehicle released', attendance });
 });
+
+// @desc    Add manual duty entry for a driver
+// @route   POST /api/admin/manual-duty
+// @access  Private/Admin
+const addManualDuty = asyncHandler(async (req, res) => {
+    const {
+        driverId,
+        vehicleId,
+        companyId,
+        date,
+        punchInKM,
+        punchOutKM,
+        punchInTime,
+        punchOutTime,
+        fuelAmount,
+        parkingAmount,
+        pickUpLocation,
+        dropLocation,
+        dailyWage,
+        review
+    } = req.body;
+
+    if (!driverId || !vehicleId || !companyId || !date) {
+        return res.status(400).json({ message: 'Please provide required fields: driver, vehicle, company, and date' });
+    }
+
+    const attendance = new Attendance({
+        driver: driverId,
+        company: companyId,
+        vehicle: vehicleId,
+        date,
+        status: 'completed',
+        dailyWage: Number(dailyWage) || 0,
+        punchIn: {
+            km: Number(punchInKM) || 0,
+            time: punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z'),
+        },
+        punchOut: {
+            km: Number(punchOutKM) || 0,
+            time: punchOutTime ? new Date(punchOutTime) : new Date(date + 'T20:00:00Z'),
+            otherRemarks: review || ''
+        },
+        totalKM: (Number(punchOutKM) || 0) - (Number(punchInKM) || 0),
+        pickUpLocation: pickUpLocation || 'Office',
+        dropLocation: dropLocation || 'Office',
+        fuel: {
+            filled: Number(fuelAmount) > 0,
+            amount: Number(fuelAmount) || 0
+        },
+        parking: [{ amount: Number(parkingAmount) || 0 }]
+    });
+
+    await attendance.save();
+    res.status(201).json({ message: 'Manual duty entry created successfully', attendance });
+});
+
 // @desc    Delete Border Tax entry
 // @route   DELETE /api/admin/border-tax/:id
 // @access  Private/Admin
@@ -2155,5 +2211,6 @@ module.exports = {
     getAllStaff,
     createStaff,
     deleteStaff,
-    getStaffAttendanceReports
+    getStaffAttendanceReports,
+    addManualDuty
 };

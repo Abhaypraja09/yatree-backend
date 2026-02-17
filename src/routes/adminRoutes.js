@@ -46,7 +46,8 @@ const {
     getAllStaff,
     createStaff,
     deleteStaff,
-    getStaffAttendanceReports
+    getStaffAttendanceReports,
+    addManualDuty
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -140,5 +141,7 @@ router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {
     }
     res.json({ url: req.file.path });
 });
+
+router.post('/manual-duty', adminOrExecutive, addManualDuty);
 
 module.exports = router;
