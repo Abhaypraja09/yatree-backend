@@ -1,0 +1,9 @@
+﻿VEHICLE_INFO
+Car: RJ-27-TA-6168
+LastOdometer: 0
+MAINTENANCE_LOGS
+---
+Date: 2026-01-01T00:00:00.000Z
+CurrentKM: 108904
+NextServiceKM: 118905
+Status: Completed

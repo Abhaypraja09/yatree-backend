@@ -1,0 +1,5 @@
+﻿Searching attendance for vehicle: new ObjectId('6982f3b2508a22188c61892e')
+Latest Attendance:
+Date: 2026-02-16
+PunchIn KM: 0
+PunchOut KM: 0
