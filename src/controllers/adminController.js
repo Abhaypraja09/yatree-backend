@@ -648,6 +648,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         };
     });
 
+    const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
+    const monthlyMaintenanceAmount = monthlyMaintenanceData[0]?.total || 0;
+    const monthlyParkingAmount = monthlyParkingData[0]?.total || 0;
+    const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
     const totalExpenseAmount = monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount;
 
