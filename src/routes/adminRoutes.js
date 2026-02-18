@@ -48,7 +48,10 @@ const {
     deleteStaff,
     getStaffAttendanceReports,
     addManualDuty,
-    deleteAttendance
+    deleteAttendance,
+    addAccidentLog,
+    getAccidentLogs,
+    deleteAccidentLog
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -145,5 +148,8 @@ router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {
 });
 
 router.post('/manual-duty', adminOrExecutive, addManualDuty);
+router.get('/accident-logs/:companyId', adminOrExecutive, getAccidentLogs);
+router.post('/accident-logs', adminOrExecutive, upload.array('photos', 5), addAccidentLog);
+router.delete('/accident-logs/:id', adminOrExecutive, deleteAccidentLog);
 
 module.exports = router;

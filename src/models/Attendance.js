@@ -89,6 +89,10 @@ const attendanceSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    dutyCount: {
+        type: Number,
+        default: 1
+    },
     pendingExpenses: [{
         type: { type: String, enum: ['fuel', 'parking', 'other'] },
         fuelType: { type: String }, // NEW: Petrol, Diesel, CNG

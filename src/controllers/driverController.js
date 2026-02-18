@@ -133,6 +133,9 @@ const punchIn = async (req, res) => {
 
         // Update vehicle status
         vehicle.currentDriver = driver._id;
+        if (Number(km) > (vehicle.lastOdometer || 0)) {
+            vehicle.lastOdometer = Number(km);
+        }
         await vehicle.save();
 
         // Update driver trip status
@@ -159,7 +162,8 @@ const punchOut = async (req, res) => {
         parkingAmounts,
         outsideTripOccurred,
         outsideTripType,
-        otherRemarks
+        otherRemarks,
+        dutyCount
     } = req.body;
 
     const selfie = req.files?.['selfie']?.[0]?.path;
@@ -299,8 +303,33 @@ const punchOut = async (req, res) => {
 
         attendance.totalKM = totalKM;
         attendance.status = 'completed';
+        attendance.dutyCount = Number(dutyCount) || 1;
 
         await attendance.save();
+
+        // --- NEW: Automatically create an Advance record for the daily wage ---
+        try {
+            const wageAmount = attendance.dailyWage || 0;
+            const finalDutyCount = attendance.dutyCount || 1;
+
+            if (wageAmount > 0) {
+                await Advance.create({
+                    driver: req.user._id,
+                    company: attendance.company,
+                    amount: wageAmount,
+                    date: new Date(),
+                    remark: `Daily Salary - Auto Generated (${attendance.date}) - ${finalDutyCount} Duties`,
+                    status: 'Pending',
+                    createdBy: req.user._id,
+                    advanceType: 'Office',
+                    givenBy: 'Office'
+                });
+            }
+        } catch (advError) {
+            console.error("Error creating auto-advance on punch-out:", advError);
+            // We don't want to fail the punch-out if advance creation fails, but logging it is good
+        }
+        // --- End of NEW logic ---
 
         // Mark user status completed (Shows Working Closed screen)
         const driverUser = await User.findById(req.user._id);
@@ -309,7 +338,14 @@ const punchOut = async (req, res) => {
 
         // Release vehicle
         if (attendance.vehicle) {
-            await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
+            const vehicle = await Vehicle.findById(attendance.vehicle);
+            if (vehicle) {
+                vehicle.currentDriver = null;
+                if (Number(km) > (vehicle.lastOdometer || 0)) {
+                    vehicle.lastOdometer = Number(km);
+                }
+                await vehicle.save();
+            }
         }
 
         res.json({ message: 'Punched out successfully', attendance });
@@ -400,6 +436,19 @@ const addExpense = async (req, res) => {
         });
 
         await attendance.save();
+
+        // Update vehicle lastOdometer if any KM provided in expenses
+        if (kmsArr && kmsArr.length > 0) {
+            const maxKM = Math.max(...kmsArr.map(k => Number(k) || 0));
+            if (maxKM > 0) {
+                const vehicle = await Vehicle.findById(attendance.vehicle);
+                if (vehicle && maxKM > (vehicle.lastOdometer || 0)) {
+                    vehicle.lastOdometer = maxKM;
+                    await vehicle.save();
+                }
+            }
+        }
+
         res.status(201).json({ message: 'Expenses submitted for approval', attendance });
     } catch (error) {
         console.error("AddExpense Error:", error);
