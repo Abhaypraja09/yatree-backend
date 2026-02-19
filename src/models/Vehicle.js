@@ -101,7 +101,6 @@ const vehicleSchema = new mongoose.Schema({
 
 // Indexes for faster dashboard queries
 vehicleSchema.index({ company: 1 });
-vehicleSchema.index({ carNumber: 1 }, { unique: true });
 vehicleSchema.index({ isOutsideCar: 1 });
 
 // Virtual for document statuses

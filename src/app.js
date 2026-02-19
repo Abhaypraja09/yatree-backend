@@ -24,11 +24,13 @@ const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const driverRoutes = require('./routes/driverRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const warrantyRoutes = require('./routes/warrantyRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/warranty', warrantyRoutes);
 
 app.get('/api/db-check', async (req, res) => {
     const status = mongoose.connection.readyState;

@@ -77,6 +77,45 @@ const initCronJobs = () => {
         }
     });
 
+    // Daily Warranty Expiry Check (Every day at 10:30 AM)
+    cron.schedule('30 10 * * *', async () => {
+        const { DateTime } = require('luxon');
+        const PartsWarranty = require('../models/PartsWarranty');
+        const User = require('../models/User');
+
+        logCron('Starting Daily Warranty Expiry Check');
+        try {
+            // 1. Auto-expire warranties that have passed their end date
+            const updateResult = await PartsWarranty.updateMany(
+                { status: 'Active', warrantyEndDate: { $lt: new Date() } },
+                { $set: { status: 'Expired' } }
+            );
+            if (updateResult.modifiedCount > 0) {
+                logCron(`Updated ${updateResult.modifiedCount} warranties to EXPIRED status.`);
+            }
+
+            const now = DateTime.now().setZone('Asia/Kolkata').startOf('day');
+
+            // 2. Alert for warranties expiring in exactly 7 days
+            const targetDate = now.plus({ days: 7 }).toJSDate();
+            const tomorrow = now.plus({ days: 8 }).toJSDate();
+
+            const expiringWarranties = await PartsWarranty.find({
+                status: 'Active',
+                warrantyEndDate: { $gte: targetDate, $lt: tomorrow }
+            }).populate('vehicle', 'carNumber');
+
+            for (const warranty of expiringWarranties) {
+                const message = `WARRANTY ALERT: ${warranty.partName} for ${warranty.vehicle?.carNumber} is expiring in 7 days on ${DateTime.fromJSDate(warranty.warrantyEndDate).toFormat('dd-MM-yyyy')}. Purchase: ${warranty.supplierName}. [FleetCRM]`;
+                logCron(`[WARRANTY ALERT] ${message}`);
+            }
+
+            logCron(`Daily warranty expiry check completed. Found ${expiringWarranties.length} alerts.`);
+        } catch (error) {
+            logCron(`ERROR in Warranty Expiry Check: ${error.message}`);
+        }
+    });
+
     logCron('Cron Jobs Initialized');
 };
 

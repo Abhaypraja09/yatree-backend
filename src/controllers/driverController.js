@@ -24,37 +24,73 @@ const logToFile = (msg) => {
 const getDriverDashboard = async (req, res) => {
     const driver = await User.findById(req.user._id).populate('assignedVehicle').populate('company');
     const today = getTodayIST();
+    const companyId = driver.company?._id || driver.company;
+    logToFile(`getDriverDashboard - User: ${req.user._id}, Company: ${companyId}`);
 
-    // Fetch all vehicles of this company that are NOT currently in use
+    // 1. Fetch all vehicles of this company
     const availableVehicles = await Vehicle.find({
-        company: driver.company._id,
-        currentDriver: null,
+        $or: [
+            { company: companyId },
+            { company: companyId.toString() }
+        ],
         status: 'active',
         isOutsideCar: { $ne: true }
-    }).select('carNumber model carType');
+    }).select('carNumber model carType currentDriver');
 
-    // Fetch latest attendance
-    const attendance = await Attendance.findOne({ driver: req.user._id }).sort({ createdAt: -1 })
-        .populate('vehicle', 'carNumber model');
+    logToFile(`getDriverDashboard - User: ${req.user._id}, Comp: ${companyId}, Found: ${availableVehicles.length}`);
+    if (availableVehicles.length === 0) {
+        logToFile(`WARNING: No vehicles found for company ${companyId}. Check if isOutsideCar filter is too strict.`);
+    }
 
-    let effectiveStatus = driver.tripStatus || 'approved';
+    // 2. Fetch latest attendance records
+    // We want the absolutely most relevant one first.
+    // First, check for any INCOMPLETE shift (doesn't matter when it started)
+    let attendance = await Attendance.findOne({
+        driver: req.user._id,
+        status: 'incomplete'
+    }).sort({ createdAt: -1 }).populate('vehicle', 'carNumber model');
+
+    let effectiveStatus = 'approved';
 
     if (attendance) {
-        if (attendance.status === 'incomplete') {
-            effectiveStatus = 'active';
-        } else if (attendance.status === 'completed') {
-            if (attendance.date !== today) {
-                // If the last completed shift was from a previous day, allow a new one
-                effectiveStatus = 'approved';
-            } else if (effectiveStatus !== 'approved') {
-                // If it was hoje and they haven't requested a new one, show completed
-                effectiveStatus = 'completed';
-            }
+        // Driver has an active shift
+        effectiveStatus = 'active';
+
+        // SYNC: Ensure driver's DB status is 'active' if we found an incomplete shift
+        if (driver.tripStatus !== 'active') {
+            logToFile(`getDriverDashboard - SYNC: Setting driver ${driver._id} status to active because incomplete shift ${attendance._id} was found.`);
+            driver.tripStatus = 'active';
+            await driver.save();
         }
     } else {
-        // No attendance ever
-        effectiveStatus = 'approved';
+        // No active shift, check for the latest completed one
+        attendance = await Attendance.findOne({
+            driver: req.user._id,
+            status: 'completed'
+        }).sort({ createdAt: -1 }).populate('vehicle', 'carNumber model');
+
+        if (attendance) {
+            if (attendance.date === today) {
+                // Shift was completed today
+                // If admin didn't explicitly approve a new trip yet, keep it as completed
+                if (driver.tripStatus === 'approved') {
+                    effectiveStatus = 'approved';
+                } else if (driver.tripStatus === 'pending_approval') {
+                    effectiveStatus = 'pending_approval';
+                } else {
+                    effectiveStatus = 'completed';
+                }
+            } else {
+                // Shift was from a previous day, allow a new one
+                effectiveStatus = 'approved';
+            }
+        } else {
+            // No attendance history at all
+            effectiveStatus = 'approved';
+        }
     }
+
+    logToFile(`getDriverDashboard - Final Status: ${effectiveStatus}, Current Car: ${attendance?.vehicle?.carNumber || 'None'}`);
 
     res.json({
         driver: {
@@ -65,7 +101,7 @@ const getDriverDashboard = async (req, res) => {
         },
         vehicle: (attendance?.status === 'incomplete' ? attendance.vehicle : null) || driver.assignedVehicle || null,
         availableVehicles,
-        todayAttendance: attendance && attendance.date === today ? attendance : null
+        todayAttendance: (attendance && (attendance.date === today || attendance.status === 'incomplete')) ? attendance : null
     });
 };
 
@@ -102,7 +138,17 @@ const punchIn = async (req, res) => {
         }
 
         if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driver._id.toString()) {
-            return res.status(400).json({ message: 'This vehicle is already in use by another driver' });
+            // Check if that owner is actually on a trip
+            const otherDriverActive = await Attendance.findOne({
+                driver: vehicle.currentDriver,
+                status: 'incomplete'
+            });
+
+            if (otherDriverActive) {
+                return res.status(400).json({ message: 'This vehicle is already in use by another driver' });
+            }
+            // If the other driver is NOT active, we allow takeover
+            logToFile(`PunchIn - Vehicle takeover from inactive driver ${vehicle.currentDriver} to ${driver._id}`);
         }
 
         if (driver.tripStatus === 'pending_approval') {
@@ -175,7 +221,11 @@ const punchOut = async (req, res) => {
             return res.status(400).json({ message: 'Selfie, KM photo, and Car selfie are mandatory' });
         }
 
-        const attendance = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
+        const attendance = await Attendance.findOne({
+            driver: req.user._id,
+            status: 'incomplete'
+        }).sort({ createdAt: -1 });
+
 
         if (!attendance) {
             return res.status(400).json({ message: 'No active shift found to punch out' });
@@ -292,7 +342,7 @@ const punchOut = async (req, res) => {
         attendance.outsideTrip = {
             occurred: outsideTripOccurred === 'true',
             tripType: outsideTripType || null,
-            bonusAmount: calcTA + calcNight // FIXED: Sum them up
+            bonusAmount: 0 // FIXED: Do not duplicate TA/Night here
         };
 
         // Calculate Total KM
@@ -303,7 +353,7 @@ const punchOut = async (req, res) => {
 
         attendance.totalKM = totalKM;
         attendance.status = 'completed';
-        attendance.dutyCount = Number(dutyCount) || 1;
+        attendance.dutyCount = 1; // Force 1 duty for now to solve 'five options' issue
 
         await attendance.save();
 
@@ -478,8 +528,7 @@ const getDriverLedger = async (req, res) => {
         const summary = attendance.reduce((acc, att) => {
             const wage = att.dailyWage || 0;
             const bonuses = (att.punchOut?.allowanceTA || 0) +
-                (att.punchOut?.nightStayAmount || 0) +
-                (att.outsideTrip?.bonusAmount || 0);
+                (att.punchOut?.nightStayAmount || 0);
 
             acc.totalEarned += (wage + bonuses);
             acc.workingDays += 1;
@@ -503,7 +552,7 @@ const getDriverLedger = async (req, res) => {
                 date: att.date,
                 vehicle: att.vehicle?.carNumber || 'N/A',
                 dailyWage: att.dailyWage || 0,
-                bonuses: (att.punchOut?.allowanceTA || 0) + (att.punchOut?.nightStayAmount || 0) + (att.outsideTrip?.bonusAmount || 0),
+                bonuses: (att.punchOut?.allowanceTA || 0) + (att.punchOut?.nightStayAmount || 0),
                 totalKM: att.totalKM || 0,
                 status: att.status
             })),

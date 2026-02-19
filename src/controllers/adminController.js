@@ -10,6 +10,7 @@ const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
 const StaffAttendance = require('../models/StaffAttendance');
 const AccidentLog = require('../models/AccidentLog');
+const PartsWarranty = require('../models/PartsWarranty');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -219,9 +220,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         allAttendanceThisMonth, // All attendance for the month
         monthlyBorderTaxData,
         regularAdvancesList, // Specific pending advances for regular drivers
-        reportedIssuesList, // Reported issues from attendance
-        outsideCarsToday, // Outside cars logged as vehicles for today
-        monthlyAccidentData // Monthly accident cost
+        reportedIssuesList, // Reported issues from attendance,
+        outsideCarsToday, // Outside cars logged as vehicles for today,
+        monthlyAccidentData, // Monthly accident cost
+        totalWarrantyData // Total warranty cost
     ] = await Promise.all([
         Vehicle.countDocuments({
             $or: [
@@ -457,11 +459,21 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     $or: [
                         { company: new mongoose.Types.ObjectId(companyId) },
                         { company: companyId }
-                    ],
-                    date: { $gte: monthStart, $lte: monthEnd }
+                    ]
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        PartsWarranty.aggregate([
+            {
+                $match: {
+                    $or: [
+                        { company: new mongoose.Types.ObjectId(companyId) },
+                        { company: companyId }
+                    ]
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$cost' } } }
         ])
     ]);
 
@@ -535,13 +547,16 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             // Show alert if KM reached or within 500 KM (arbitrary threshold for "Upcoming")
             if (kmRemaining <= 500) {
                 kmAlertedVehicles.add(s.vehicle._id.toString());
+
+                const partName = s.category || s.maintenanceType || 'Service Part';
+
                 expiringAlerts.push({
                     type: 'Service',
                     identifier: s.vehicle.carNumber,
-                    documentType: `Service @ ${s.nextServiceKm} KM`,
+                    documentType: `${partName} - Repair Immediately`,
                     expiryDate: null,
                     daysLeft: kmRemaining, // Using daysLeft field to store remaining KM for display
-                    status: kmRemaining <= 0 ? 'KM OVERDUE' : 'KM DUE SOON',
+                    status: kmRemaining <= 0 ? 'Urgent: Overdue' : 'Repair Soon',
                     currentKm: currentKm,
                     targetKm: s.nextServiceKm
                 });
@@ -653,7 +668,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const monthlyParkingAmount = monthlyParkingData[0]?.total || 0;
     const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
-    const totalExpenseAmount = monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount;
+    const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
+    const totalExpenseAmount = monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost;
 
     res.json({
         date: targetDate,
@@ -668,6 +684,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         monthlyMaintenanceAmount,
         monthlyParkingAmount,
         monthlyBorderTaxAmount,
+        monthlyAccidentAmount,
+        totalWarrantyCost,
         totalExpenseAmount,
         totalStaff,
         countStaffPresent: staffAttendanceToday.length,
@@ -1299,6 +1317,20 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('driver', 'name mobile')
         .sort({ date: -1 });
 
+    // 9. Fetch Parts Warranty
+    const warrantyQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
+    if (startDate && endDate) {
+        warrantyQuery.purchaseDate = { $gte: startDate, $lte: endDate };
+    }
+    const partsWarranty = await PartsWarranty.find(warrantyQuery)
+        .populate('vehicle', 'carNumber model')
+        .sort({ date: -1 });
+
     res.json({
         attendance: finalReports,
         fastagRecharges,
@@ -1307,7 +1339,8 @@ const getDailyReports = asyncHandler(async (req, res) => {
         maintenance,
         advances,
         parking,
-        accidentLogs
+        accidentLogs,
+        partsWarranty
     });
 });
 
@@ -1318,6 +1351,10 @@ const approveNewTrip = asyncHandler(async (req, res) => {
         res.status(404);
         throw new Error('Driver not found');
     }
+
+    // Release any vehicle currently linked to this driver
+    await Vehicle.updateMany({ currentDriver: driverId }, { currentDriver: null });
+
     driver.tripStatus = 'approved';
     await driver.save();
     res.json({ message: 'Driver approved for new trip' });
@@ -1745,6 +1782,37 @@ const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
     }
 });
 
+// Helper to recalculate fuel metrics using the "Previous Fill" logic
+const recalculateFuelMetrics = async (vehicleId) => {
+    // Sort by odometer to ensure a proper chain
+    const entries = await Fuel.find({ vehicle: vehicleId }).sort({ odometer: 1, date: 1 });
+    let prev = null;
+    for (const entry of entries) {
+        if (!prev) {
+            // First entry: no distance or mileage possible yet
+            entry.distance = 0;
+            entry.mileage = 0;
+            entry.costPerKm = 0;
+        } else {
+            // Distance covered between these two logs
+            entry.distance = entry.odometer - prev.odometer;
+
+            if (entry.distance > 0 && prev.quantity > 0) {
+                // IMPORTANT: Mileage = Distance covered NOW / Fuel filled LAST TIME
+                entry.mileage = Number((entry.distance / prev.quantity).toFixed(2));
+                // Cost/KM = Amount spent LAST TIME / Distance covered NOW
+                entry.costPerKm = Number((prev.amount / entry.distance).toFixed(2));
+            } else {
+                entry.distance = entry.distance > 0 ? entry.distance : 0;
+                entry.mileage = 0;
+                entry.costPerKm = 0;
+            }
+        }
+        await entry.save();
+        prev = entry;
+    }
+};
+
 // @desc    Add Fuel Entry
 // @route   POST /api/admin/fuel
 // @access  Private/Admin
@@ -1769,22 +1837,6 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    // Find previous entry for calculations
-    const prevEntry = await Fuel.findOne({ vehicle: vehicleId })
-        .sort({ odometer: -1 });
-
-    let distance = 0;
-    let mileage = 0;
-    let costPerKm = 0;
-
-    if (prevEntry) {
-        distance = Number(odometer) - Number(prevEntry.odometer);
-        if (distance > 0) {
-            mileage = distance / Number(quantity);
-            costPerKm = Number(amount) / distance;
-        }
-    }
-
     const fuelEntry = await Fuel.create({
         vehicle: vehicleId,
         company: companyId,
@@ -1799,11 +1851,11 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         paymentSource: paymentSource || 'Yatree Office',
         driver,
         slipPhoto,
-        distance,
-        mileage: Number(mileage.toFixed(2)),
-        costPerKm: Number(costPerKm.toFixed(2)),
         createdBy: req.user._id
     });
+
+    // Recalculate chain to ensure perfect mileage
+    await recalculateFuelMetrics(vehicleId);
 
     res.status(201).json(fuelEntry);
 });
@@ -1877,30 +1929,17 @@ const updateFuelEntry = asyncHandler(async (req, res) => {
     entry.paymentMode = paymentMode || entry.paymentMode;
     entry.paymentSource = paymentSource || entry.paymentSource;
     entry.driver = driver || entry.driver;
-    // Allow replacing the photo even if one exists, or setting it new
-    // If slipPhoto is explicitly sent (even empty string), update it? No, keep it simple.
-    // If sent as 'undefined' string or empty, ignore. If real URL, update.
+
     if (slipPhoto && slipPhoto.trim() !== '') {
         entry.slipPhoto = slipPhoto;
     }
 
-    // Recalculate if odometer or quantity changed
-    const prevEntry = await Fuel.findOne({
-        vehicle: entry.vehicle,
-        _id: { $ne: entry._id },
-        odometer: { $lt: entry.odometer }
-    }).sort({ odometer: -1 });
+    await entry.save();
 
-    if (prevEntry) {
-        entry.distance = entry.odometer - prevEntry.odometer;
-        if (entry.distance > 0 && entry.quantity > 0) {
-            entry.mileage = Number((entry.distance / entry.quantity).toFixed(2));
-            entry.costPerKm = Number((entry.amount / entry.distance).toFixed(2));
-        }
-    }
+    // Recalculate chain to ensure perfect mileage after update
+    await recalculateFuelMetrics(entry.vehicle);
 
-    const updatedEntry = await entry.save();
-    res.json(updatedEntry);
+    res.json({ message: 'Entry updated successfully' });
 });
 
 
@@ -2004,7 +2043,12 @@ const deleteFuelEntry = asyncHandler(async (req, res) => {
         res.status(404);
         throw new Error('Fuel entry not found');
     }
+    const vehicleId = entry.vehicle;
     await Fuel.findByIdAndDelete(req.params.id);
+
+    // Recalculate chain after deletion
+    await recalculateFuelMetrics(vehicleId);
+
     res.json({ message: 'Entry removed' });
 });
 
@@ -2053,28 +2097,8 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
             // Use Admin provided slipPhoto if available, otherwise fallback to driver's
             const finalSlipPhoto = slipPhoto || expense.slipPhoto;
 
-            // Calculate Distance
-            const prevEntry = await Fuel.findOne({
-                vehicle: attendance.vehicle._id,
-                odometer: { $lt: finalOdometer }
-            }).sort({ odometer: -1 });
-
-            let distance = 0;
-            let mileage = 0;
-            let costPerKm = 0;
-
-            if (prevEntry) {
-                distance = finalOdometer - prevEntry.odometer;
-            }
-
-            // Calculate Mileage & Cost/Km
-            if (finalQuantity > 0 && distance > 0) {
-                mileage = Number((distance / finalQuantity).toFixed(2));
-                costPerKm = Number((finalAmount / distance).toFixed(2));
-            }
-
             // 1. Add to Fuel Collection
-            await Fuel.create({
+            const fuelEntry = await Fuel.create({
                 vehicle: attendance.vehicle._id,
                 company: attendance.company,
                 fuelType: expense.fuelType || 'Diesel',
@@ -2083,9 +2107,6 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 quantity: finalQuantity,
                 rate: finalRate,
                 odometer: finalOdometer,
-                distance: distance,
-                mileage: mileage,
-                costPerKm: costPerKm,
                 paymentSource: expense.paymentSource || 'Yatree Office',
                 driver: attendance.driver.name,
                 createdBy: req.user._id,
@@ -2093,6 +2114,9 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 stationName: req.body.stationName || '',
                 slipPhoto: finalSlipPhoto
             });
+
+            // Recalculate chain to ensure perfect mileage
+            await recalculateFuelMetrics(attendance.vehicle._id);
 
             // 2. Add to verified fuel entries in Attendance
             attendance.fuel.filled = true;
@@ -2179,6 +2203,9 @@ const getAdvances = asyncHandler(async (req, res) => {
         query.date = { $gte: startOfMonth, $lte: endOfMonth };
     }
 
+    // Exclude Auto-Generated Salary entries
+    query.remark = { $not: /Auto Generated/ };
+
     const advances = await Advance.find(query)
         .populate({
             path: 'driver',
@@ -2257,8 +2284,7 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
         const totalEarned = attendance.reduce((sum, att) => {
             const wage = att.dailyWage || driver.dailyWage || 500;
             const bonuses = (att.punchOut?.allowanceTA || 0) +
-                (att.punchOut?.nightStayAmount || 0) +
-                (att.outsideTrip?.bonusAmount || 0);
+                (att.punchOut?.nightStayAmount || 0);
             return sum + wage + bonuses;
         }, 0);
 
@@ -2301,28 +2327,49 @@ const createExecutive = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    const userExists = await User.findOne({ $or: [{ mobile }, { username }] });
+    // Check for existing user by mobile or username
+    const userExists = await User.findOne({
+        $or: [
+            { mobile: mobile },
+            { username: { $regex: new RegExp(`^${username.trim()}$`, 'i') } }
+        ]
+    });
+
     if (userExists) {
         console.log('EXECUTIVE CREATION FAILED: User already exists', { mobile, username });
-        return res.status(400).json({ message: 'User already exists with this mobile or username' });
+        const msg = userExists.mobile === mobile
+            ? 'User already exists with this mobile number'
+            : 'User already exists with this username';
+        return res.status(400).json({ message: msg });
     }
 
-    const executive = await User.create({
-        name,
-        mobile,
-        username,
-        password,
-        role: 'Executive'
-    });
-    console.log('EXECUTIVE CREATED SUCCESSFULLY:', executive._id);
+    try {
+        // Create user instance explicitly to ensure pre-save hooks (hashing) run
+        const executive = new User({
+            name,
+            mobile,
+            username,
+            password,
+            role: 'Executive',
+            status: 'active',
+            isFreelancer: false
+        });
 
-    res.status(201).json({
-        _id: executive._id,
-        name: executive.name,
-        mobile: executive.mobile,
-        username: executive.username,
-        role: executive.role
-    });
+        await executive.save();
+
+        console.log('EXECUTIVE CREATED SUCCESSFULLY:', executive._id);
+
+        res.status(201).json({
+            _id: executive._id,
+            name: executive.name,
+            mobile: executive.mobile,
+            username: executive.username,
+            role: executive.role
+        });
+    } catch (error) {
+        console.error('Error creating executive:', error);
+        res.status(500).json({ message: 'Server error while creating admin', error: error.message });
+    }
 });
 
 // @desc    Delete an executive user
@@ -2342,12 +2389,27 @@ const deleteExecutive = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/parking
 // @access  Private/AdminOrExecutive
 const addParkingEntry = asyncHandler(async (req, res) => {
-    const { vehicleId, companyId, driver, date, amount, location, remark, receiptPhoto } = req.body;
+    const { vehicleId, companyId, driver, date, amount, location, remark, receiptPhoto, driverId } = req.body;
+
+    // If driverId is provided, get driver name and assigned vehicle if needed
+    let driverName = driver;
+    let actualVehicleId = vehicleId;
+
+    if (driverId) {
+        const driverDoc = await User.findById(driverId);
+        if (driverDoc) {
+            driverName = driverDoc.name;
+            if (!actualVehicleId && driverDoc.assignedVehicle) {
+                actualVehicleId = driverDoc.assignedVehicle;
+            }
+        }
+    }
 
     const parking = await Parking.create({
-        vehicle: vehicleId,
+        vehicle: actualVehicleId,
         company: companyId,
-        driver,
+        driver: driverName,
+        driverId: driverId,
         date: date || new Date(),
         amount: Number(amount),
         location: location || 'Not Specified',
@@ -2364,8 +2426,25 @@ const addParkingEntry = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/parking/:companyId
 // @access  Private/AdminOrExecutive
 const getParkingEntries = asyncHandler(async (req, res) => {
-    const parking = await Parking.find({ company: req.params.companyId })
+    const { date, from, to } = req.query;
+    let query = { company: req.params.companyId };
+
+    if (from && to) {
+        query.date = {
+            $gte: new Date(from),
+            $lte: new Date(new Date(to).setHours(23, 59, 59, 999))
+        };
+    } else if (date) {
+        const targetDate = new Date(date);
+        query.date = {
+            $gte: targetDate,
+            $lte: new Date(new Date(targetDate).setHours(23, 59, 59, 999))
+        };
+    }
+
+    const parking = await Parking.find(query)
         .populate('vehicle', 'carNumber model')
+        .populate('driverId', 'name mobile')
         .sort({ date: -1 });
     res.json(parking);
 });

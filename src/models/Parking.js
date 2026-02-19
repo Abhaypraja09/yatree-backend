@@ -4,7 +4,7 @@ const parkingSchema = new mongoose.Schema({
     vehicle: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Vehicle',
-        required: true
+        required: false
     },
     company: {
         type: mongoose.Schema.Types.ObjectId,
@@ -12,8 +12,12 @@ const parkingSchema = new mongoose.Schema({
         required: true
     },
     driver: {
-        type: String, // Driver Name
+        type: String, // Driver Name (Legacy/Fallback)
         required: true
+    },
+    driverId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
     },
     date: {
         type: Date,
