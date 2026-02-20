@@ -42,6 +42,7 @@ const {
     deleteExecutive,
     addParkingEntry,
     getParkingEntries,
+    getCarServiceEntries,
     deleteParkingEntry,
     getPendingParkingExpenses,
     getAllStaff,
@@ -126,6 +127,7 @@ router.post('/parking', adminOrExecutive, addParkingEntry);
 router.get('/parking/:companyId', adminOrExecutive, getParkingEntries);
 router.delete('/parking/:id', adminOrExecutive, deleteParkingEntry);
 router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExpenses);
+router.get('/car-services/:companyId', adminOrExecutive, getCarServiceEntries);
 
 // Financials (Shared Admin & Executive)
 router.post('/advances', adminOrExecutive, addAdvance);

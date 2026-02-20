@@ -2227,7 +2227,8 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 source: 'Driver',
                 receiptPhoto: finalSlipPhoto,
                 createdBy: req.user._id,
-                notes: serviceLabel  // e.g., "Car Wash", "Puncture", "Car Wash,Puncture"
+                notes: serviceLabel,       // e.g., "Car Wash", "Puncture", "Car Wash,Puncture"
+                serviceType: 'car_service' // Tag to separate from regular parking
             });
         }
     }
@@ -2552,12 +2553,16 @@ const addParkingEntry = asyncHandler(async (req, res) => {
     res.status(201).json(parking);
 });
 
-// @desc    Get all parking entries for a company
+// @desc    Get all parking entries for a company (excludes Car Wash/Puncture)
 // @route   GET /api/admin/parking/:companyId
 // @access  Private/AdminOrExecutive
 const getParkingEntries = asyncHandler(async (req, res) => {
     const { date, from, to } = req.query;
-    let query = { company: req.params.companyId };
+    let query = {
+        company: req.params.companyId,
+        // Only return regular parking (not car wash/puncture)
+        $or: [{ serviceType: 'parking' }, { serviceType: { $exists: false } }, { serviceType: null }]
+    };
 
     if (from && to) {
         query.date = {
@@ -2577,6 +2582,30 @@ const getParkingEntries = asyncHandler(async (req, res) => {
         .populate('driverId', 'name mobile isFreelancer')
         .sort({ date: -1 });
     res.json(parking);
+});
+
+// @desc    Get all car service entries (Car Wash, Puncture) for a company
+// @route   GET /api/admin/car-services/:companyId
+// @access  Private/AdminOrExecutive
+const getCarServiceEntries = asyncHandler(async (req, res) => {
+    const { from, to } = req.query;
+    let query = {
+        company: req.params.companyId,
+        serviceType: 'car_service'
+    };
+
+    if (from && to) {
+        query.date = {
+            $gte: new Date(from),
+            $lte: new Date(new Date(to).setHours(23, 59, 59, 999))
+        };
+    }
+
+    const entries = await Parking.find(query)
+        .populate('vehicle', 'carNumber model')
+        .populate('driverId', 'name mobile isFreelancer')
+        .sort({ date: -1 });
+    res.json(entries);
 });
 
 // @desc    Delete a parking entry
@@ -2915,6 +2944,7 @@ module.exports = {
     deleteExecutive,
     addParkingEntry,
     getParkingEntries,
+    getCarServiceEntries,
     deleteParkingEntry,
     getPendingParkingExpenses,
     getAllStaff,

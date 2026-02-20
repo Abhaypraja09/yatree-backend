@@ -43,6 +43,15 @@ const parkingSchema = new mongoose.Schema({
     receiptPhoto: {
         type: String
     },
+    notes: {
+        type: String,
+        default: ''
+    },
+    serviceType: {
+        type: String,
+        enum: ['parking', 'car_service'],
+        default: 'parking'
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
