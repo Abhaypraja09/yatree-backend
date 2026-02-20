@@ -2,6 +2,7 @@ const Attendance = require('../models/Attendance');
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const Advance = require('../models/Advance');
+const Parking = require('../models/Parking');
 const { DateTime } = require('luxon');
 
 // Helper to get current date in IST (format: YYYY-MM-DD)
@@ -312,11 +313,7 @@ const punchOut = async (req, res) => {
             slipPhoto: fuelData.length > 0 ? fuelData[0].slipPhoto : null // Legacy fallback
         };
 
-        // Parking logic (Legacy/Slip storage)
-        let parkingData = attendance.parking || [];
-        // Start with previously approved sums
-        let totalParkingAmount = parkingData.reduce((sum, e) => sum + (e.amount || 0), 0);
-
+        // Parking logic (Moved to Pending Expenses for Admin Approval)
         if (parkingPaid === 'true') {
             const parkingSlips = req.files?.['parkingSlips'] || [];
             let amounts = parkingAmounts;
@@ -324,20 +321,24 @@ const punchOut = async (req, res) => {
                 amounts = amounts ? [amounts] : [];
             }
 
-            // Loop over amounts instead of slips to ensure data is captured even without photos
+            // Loop over amounts and add to PENDING expenses
             amounts.forEach((amt, index) => {
                 const amount = Number(amt) || 0;
-                totalParkingAmount += amount;
-
                 const slip = parkingSlips[index];
-                parkingData.push({
+
+                attendance.pendingExpenses.push({
+                    type: 'parking',
                     amount: amount,
-                    slipPhoto: slip ? slip.path : null
+                    slipPhoto: slip ? slip.path : null,
+                    status: 'pending',
+                    paymentSource: 'Yatree Office' // Default, consistent with addExpense
                 });
             });
         }
-        attendance.parking = parkingData;
-        attendance.punchOut.tollParkingAmount = totalParkingAmount;
+
+        // attendance.parking = parkingData; // REMOVED: Do not auto-approve
+        // attendance.punchOut.tollParkingAmount = length > 0... // REMOVED: Should be calculated from approved only
+        attendance.punchOut.tollParkingAmount = 0; // Reset or keep 0 until approved logic handles it (or separate toll)
 
         attendance.outsideTrip = {
             occurred: outsideTripOccurred === 'true',
@@ -358,27 +359,8 @@ const punchOut = async (req, res) => {
         await attendance.save();
 
         // --- NEW: Automatically create an Advance record for the daily wage ---
-        try {
-            const wageAmount = attendance.dailyWage || 0;
-            const finalDutyCount = attendance.dutyCount || 1;
-
-            if (wageAmount > 0) {
-                await Advance.create({
-                    driver: req.user._id,
-                    company: attendance.company,
-                    amount: wageAmount,
-                    date: new Date(),
-                    remark: `Daily Salary - Auto Generated (${attendance.date}) - ${finalDutyCount} Duties`,
-                    status: 'Pending',
-                    createdBy: req.user._id,
-                    advanceType: 'Office',
-                    givenBy: 'Office'
-                });
-            }
-        } catch (advError) {
-            console.error("Error creating auto-advance on punch-out:", advError);
-            // We don't want to fail the punch-out if advance creation fails, but logging it is good
-        }
+        // REMOVED: This was causing salary to be treated as a debt (Advance).
+        // Salary should only be calculated in the Ledger, not stored as an Advance.
         // --- End of NEW logic ---
 
         // Mark user status completed (Shows Working Closed screen)
@@ -507,33 +489,135 @@ const addExpense = async (req, res) => {
 };
 
 // @desc    Get driver duty history, salary and advances
-// @route   GET /api/driver/ledger
+// @route   GET /api/driver/ledger?month=2&year=2026
 // @access  Private/Driver
 const getDriverLedger = async (req, res) => {
     try {
         const driverId = req.user._id;
+        const { month, year } = req.query;
 
-        // 1. Fetch all completed attendance
+        // Build date filter (if month+year provided, filter by that month)
+        let dateFilter = {};
+        let startOfMonth, endOfMonth;
+        if (month && year) {
+            startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
+            endOfMonth = new Date(parseInt(year), parseInt(month), 0);
+            endOfMonth.setHours(23, 59, 59, 999);
+            // Attendance uses string date 'YYYY-MM-DD'
+            const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
+            const endDay = endOfMonth.getDate();
+            const endStr = `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+            dateFilter = { date: { $gte: startStr, $lte: endStr } };
+        }
+
+        // 1. Fetch completed attendance (filtered by month if provided)
         const attendance = await Attendance.find({
             driver: driverId,
-            status: 'completed'
+            status: 'completed',
+            ...dateFilter
         }).populate('vehicle', 'carNumber').sort({ date: -1 });
 
-        // 2. Fetch all advances
-        const advances = await Advance.find({
-            driver: driverId
-        }).sort({ date: -1 });
+        // 2. Fetch advances (filtered by month if provided)
+        const advanceFilter = {
+            driver: driverId,
+            remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
+        };
+        if (month && year) {
+            advanceFilter.date = { $gte: startOfMonth, $lte: endOfMonth };
+        }
+        const advances = await Advance.find(advanceFilter).sort({ date: -1 });
+
+        // 3. Fetch approved Parking entries (filtered by month if provided)
+        const parkingFilter = {
+            $or: [
+                { driverId: driverId },
+                { driver: { $regex: new RegExp(`^${req.user.name}$`, 'i') } }
+            ]
+        };
+        if (month && year) {
+            parkingFilter.date = { $gte: startOfMonth, $lte: endOfMonth };
+        }
+        const parkingEntries = await Parking.find(parkingFilter).populate('vehicle', 'carNumber').sort({ date: -1 });
+
+        console.log(`[DEBUG] Driver Ledger: ID=${driverId}, Month=${month || 'all'}, Year=${year || 'all'}`);
+        console.log(`[DEBUG] Found ${attendance.length} attendance records`);
+        console.log(`[DEBUG] Found ${parkingEntries.length} admin parking entries`);
 
         // Calculate Summary
-        const summary = attendance.reduce((acc, att) => {
-            const wage = att.dailyWage || 0;
-            const bonuses = (att.punchOut?.allowanceTA || 0) +
-                (att.punchOut?.nightStayAmount || 0);
+        let totalEarned = 0;
+        let workingDays = 0;
 
-            acc.totalEarned += (wage + bonuses);
-            acc.workingDays += 1;
-            return acc;
-        }, { totalEarned: 0, workingDays: 0 });
+        // Base Map for History (Use Map for easier updates by Date)
+        // Key: Date string (YYYY-MM-DD), Value: Ledger Entry Object
+        const ledgerMap = new Map();
+
+        // 1. Process Attendance
+        attendance.forEach(att => {
+            const dateKey = new Date(att.date).toISOString().split('T')[0];
+            const wage = Number(att.dailyWage) || 0;
+            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0);
+
+            // NOTE: DO NOT add embedded att.parking or tollParkingAmount here.
+            // Parking reimbursements come ONLY from approved Parking collection entries (Step 2 below).
+            // Including toll/parking here caused double-counting.
+
+            totalEarned += (wage + bonuses);
+            workingDays += 1;
+
+            if (ledgerMap.has(dateKey)) {
+                const existing = ledgerMap.get(dateKey);
+                existing.dailyWage += wage;
+                existing.bonuses += bonuses;
+                existing.totalKM += (att.totalKM || 0);
+            } else {
+                ledgerMap.set(dateKey, {
+                    _id: att._id,
+                    date: att.date,
+                    vehicle: att.vehicle?.carNumber || 'N/A',
+                    dailyWage: wage,
+                    bonuses: bonuses,
+                    parking: 0, // Will be filled by Step 2 (approved Parking entries only)
+                    totalKM: att.totalKM || 0,
+                    status: att.status,
+                    type: 'duty'
+                });
+            }
+        });
+
+        // 2. Process Admin Parking (Merge or Add)
+        parkingEntries.forEach(p => {
+            const dateKey = new Date(p.date).toISOString().split('T')[0];
+            const amount = Number(p.amount) || 0;
+            totalEarned += amount;
+
+            console.log(`[DEBUG] Processing Parking: Date=${dateKey}, Amount=${amount}, CurrentMapHas=${ledgerMap.has(dateKey)}`);
+
+            if (ledgerMap.has(dateKey)) {
+                // Merge with existing duty
+                const entry = ledgerMap.get(dateKey);
+                entry.parking += amount;
+                console.log(`[DEBUG] Merged into existing: New Total=${entry.parking}`);
+            } else {
+                // Create new standalone entry (formatted like duty)
+                ledgerMap.set(dateKey, {
+                    _id: p._id,
+                    date: p.date, // Use original date object
+                    vehicle: p.vehicle?.carNumber || 'N/A',
+                    dailyWage: 0,
+                    bonuses: 0,
+                    parking: amount,
+                    totalKM: 0,
+                    status: 'Approved',
+                    type: 'duty' // Treat as 'duty' so UI renders it consistently
+                });
+                console.log(`[DEBUG] Created new entry: Amount=${amount}`);
+            }
+        });
+
+        // Convert Map back to Array and Sort
+        const combinedHistory = Array.from(ledgerMap.values()).sort((a, b) => {
+            return new Date(b.date) - new Date(a.date);
+        });
 
         const totalAdvances = advances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
         const totalRecovered = advances.reduce((sum, adv) => sum + (adv.recoveredAmount || 0), 0);
@@ -541,21 +625,14 @@ const getDriverLedger = async (req, res) => {
 
         res.json({
             summary: {
-                ...summary,
+                totalEarned,
+                workingDays,
                 totalAdvances,
                 totalRecovered,
                 pendingAdvance,
-                netPayable: summary.totalEarned - pendingAdvance
+                netPayable: totalEarned - pendingAdvance
             },
-            history: attendance.map(att => ({
-                _id: att._id,
-                date: att.date,
-                vehicle: att.vehicle?.carNumber || 'N/A',
-                dailyWage: att.dailyWage || 0,
-                bonuses: (att.punchOut?.allowanceTA || 0) + (att.punchOut?.nightStayAmount || 0),
-                totalKM: att.totalKM || 0,
-                status: att.status
-            })),
+            history: combinedHistory,
             advances: advances.map(adv => ({
                 _id: adv._id,
                 amount: adv.amount,

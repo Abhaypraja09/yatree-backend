@@ -47,7 +47,7 @@ const fuelSchema = new mongoose.Schema({
     },
     paymentSource: {
         type: String,
-        enum: ['Yatree Office', 'Guest / Client'],
+        enum: ['Yatree Office', 'Guest / Client', 'Guest'],
         default: 'Yatree Office'
     },
     driver: {

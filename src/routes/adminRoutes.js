@@ -36,6 +36,7 @@ const {
     getAdvances,
     deleteAdvance,
     getDriverSalarySummary,
+    getDriverSalaryDetails,
     getAllExecutives,
     createExecutive,
     deleteExecutive,
@@ -51,7 +52,9 @@ const {
     deleteAttendance,
     addAccidentLog,
     getAccidentLogs,
-    deleteAccidentLog
+    deleteAccidentLog,
+    updateAttendance,
+    updateMaintenanceRecord
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -89,6 +92,7 @@ router.post('/freelancers/punch-in', adminOrExecutive, freelancerPunchIn);
 router.post('/freelancers/punch-out', adminOrExecutive, freelancerPunchOut);
 router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);
 router.post('/maintenance', adminOrExecutive, upload.single('billPhoto'), addMaintenanceRecord);
+router.put('/maintenance/:id', adminOrExecutive, upload.single('billPhoto'), updateMaintenanceRecord);
 router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);
 
 // Admin Only Operations (Sensitive)
@@ -105,6 +109,7 @@ router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
 router.delete('/drivers/:id', adminOrExecutive, deleteDriver);
 router.delete('/vehicles/:id', adminOrExecutive, deleteVehicle);
 router.delete('/attendance/:id', adminOrExecutive, deleteAttendance);
+router.put('/attendance/:id', adminOrExecutive, updateAttendance);
 router.patch('/attendance/:attendanceId/expense/:expenseId', adminOrExecutive, approveRejectExpense);
 
 router.post('/border-tax', adminOrExecutive, upload.single('receiptPhoto'), addBorderTax);
@@ -127,6 +132,7 @@ router.post('/advances', adminOrExecutive, addAdvance);
 router.get('/advances/:companyId', adminOrExecutive, getAdvances);
 router.delete('/advances/:id', adminOrExecutive, deleteAdvance);
 router.get('/salary-summary/:companyId', adminOrExecutive, getDriverSalarySummary);
+router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails);
 
 // Executive Management (Super Admin only)
 router.get('/executives', admin, getAllExecutives);

@@ -1,0 +1,29 @@
+{
+    "short_name": "Yatree CRM",
+    "name": "Yatree Destination Fleet CRM",
+    "icons": [
+        {
+            "src": "/logos/logo.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any"
+        },
+        {
+            "src": "/logos/logo.png",
+            "type": "image/png",
+            "sizes": "192x192",
+            "purpose": "any"
+        },
+        {
+            "src": "/logos/logo.png",
+            "type": "image/png",
+            "sizes": "any maskable",
+            "purpose": "maskable"
+        }
+    ],
+    "start_url": "/",
+    "display": "standalone",
+    "theme_color": "#1e3a8a",
+    "background_color": "#0f172a",
+    "orientation": "portrait"
+}
