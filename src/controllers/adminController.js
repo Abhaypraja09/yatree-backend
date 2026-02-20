@@ -2023,16 +2023,17 @@ const getPendingFuelExpenses = asyncHandler(async (req, res) => {
     }
 });
 
-// @desc    Get all pending parking expenses for a company
+// @desc    Get all pending parking + other (Car Wash/Puncture) expenses
 // @route   GET /api/admin/parking/pending/:companyId
 // @access  Private/AdminOrExecutive
 const getPendingParkingExpenses = asyncHandler(async (req, res) => {
     try {
         const { companyId } = req.params;
+        // Fetch docs that have parking OR other (car wash, puncture) pending expenses
         const pendingDocs = await Attendance.find({
             company: companyId,
-            'pendingExpenses.type': 'parking',
-            'pendingExpenses.status': 'pending'
+            'pendingExpenses.status': 'pending',
+            'pendingExpenses.type': { $in: ['parking', 'other'] }
         })
             .populate('driver', 'name')
             .populate('vehicle', 'carNumber')
@@ -2044,7 +2045,8 @@ const getPendingParkingExpenses = asyncHandler(async (req, res) => {
             if (!doc.pendingExpenses) return;
 
             doc.pendingExpenses.forEach(exp => {
-                if (exp.type === 'parking' && exp.status === 'pending') {
+                // Include both 'parking' and 'other' (Car Wash, Puncture) pending expenses
+                if ((exp.type === 'parking' || exp.type === 'other') && exp.status === 'pending') {
                     formattedExpenses.push({
                         ...exp.toObject(),
                         attendanceId: doc._id,
@@ -2058,7 +2060,7 @@ const getPendingParkingExpenses = asyncHandler(async (req, res) => {
 
         res.json(formattedExpenses);
     } catch (error) {
-        console.error("Error fetching pending parking expenses:", error);
+        console.error("Error fetching pending parking/other expenses:", error);
         res.status(500).json({ message: 'Error fetching pending parking expenses' });
     }
 });
@@ -2200,6 +2202,32 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 source: 'Driver',
                 receiptPhoto: finalSlipPhoto,
                 createdBy: req.user._id
+            });
+
+        } else if (expense.type === 'other') {
+            // Car Wash, Puncture, or other services — paid hand-to-hand from office
+            // Store in Parking collection with a label to distinguish
+            const { slipPhoto } = req.body;
+            const finalSlipPhoto = slipPhoto || expense.slipPhoto || '';
+            const driverId = attendance.driver?._id || attendance.driver;
+
+            // fuelType field stores the service names (e.g., "Car Wash", "Puncture", "Car Wash,Puncture")
+            const serviceLabel = expense.fuelType || 'Other Service';
+
+            console.log(`[approveRejectExpense] Creating other-service (${serviceLabel}) entry: vehicleId=${vehicleId}, amount=${expense.amount}`);
+
+            // Store in Parking collection with serviceLabel as notes/remark
+            await Parking.create({
+                vehicle: vehicleId,
+                company: attendance.company,
+                driver: driverName,
+                driverId: driverId,
+                date: expense.createdAt || new Date(),
+                amount: expense.amount,
+                source: 'Driver',
+                receiptPhoto: finalSlipPhoto,
+                createdBy: req.user._id,
+                notes: serviceLabel  // e.g., "Car Wash", "Puncture", "Car Wash,Puncture"
             });
         }
     }
