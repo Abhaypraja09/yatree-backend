@@ -87,7 +87,7 @@ router.get('/drivers/:companyId', adminOrExecutive, getAllDrivers);
 router.post('/drivers', adminOrExecutive, driverUpload, createDriver);
 router.put('/drivers/:id', adminOrExecutive, updateDriver);
 router.post('/vehicles', adminOrExecutive, vehicleUpload, createVehicle);
-router.put('/vehicles/:id', adminOrExecutive, updateVehicle);
+router.put('/vehicles/:id', adminOrExecutive, vehicleUpload, updateVehicle);
 router.post('/freelancers/punch-in', adminOrExecutive, freelancerPunchIn);
 router.post('/freelancers/punch-out', adminOrExecutive, freelancerPunchOut);
 router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);

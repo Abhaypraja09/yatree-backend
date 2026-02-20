@@ -870,11 +870,19 @@ const updateDriver = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // @access  Private/Admin
 const updateVehicle = asyncHandler(async (req, res) => {
-    console.log('UPDATE VEHICLE REQUEST:', { id: req.params.id, body: req.body });
+    console.log('UPDATE VEHICLE REQUEST:', { id: req.params.id, body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (vehicle) {
-        vehicle.carNumber = req.body.carNumber || vehicle.carNumber;
+        // Check if new car number is already taken by another vehicle
+        if (req.body.carNumber && req.body.carNumber !== vehicle.carNumber) {
+            const vehicleExists = await Vehicle.findOne({ carNumber: req.body.carNumber });
+            if (vehicleExists) {
+                return res.status(400).json({ message: 'Vehicle already exists with this car number' });
+            }
+            vehicle.carNumber = req.body.carNumber;
+        }
+
         vehicle.model = req.body.model || vehicle.model;
         vehicle.permitType = req.body.permitType || vehicle.permitType;
         vehicle.carType = req.body.carType || vehicle.carType;
@@ -895,9 +903,36 @@ const updateVehicle = asyncHandler(async (req, res) => {
         if (req.body.fastagBalance !== undefined) {
             vehicle.fastagBalance = Number(req.body.fastagBalance);
         }
+        if (req.body.fastagNumber !== undefined) {
+            vehicle.fastagNumber = req.body.fastagNumber;
+        }
+        if (req.body.fastagBank !== undefined) {
+            vehicle.fastagBank = req.body.fastagBank;
+        }
         if (req.body.createdAt) {
             const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
             vehicle.createdAt = new Date(dateStr);
+        }
+
+        // Handle Document Updates if any files are uploaded
+        if (req.files) {
+            const docTypes = ['rc', 'insurance', 'puc', 'fitness', 'permit'];
+            docTypes.forEach(type => {
+                if (req.files[type]) {
+                    const upperType = type.toUpperCase();
+                    const expiry = req.body[`expiry_${type}`];
+
+                    // Remove old document of same type if it exists
+                    vehicle.documents = vehicle.documents.filter(d => d.documentType !== upperType);
+
+                    // Add new one
+                    vehicle.documents.push({
+                        documentType: upperType,
+                        imageUrl: req.files[type][0].path,
+                        expiryDate: expiry ? new Date(expiry) : new Date()
+                    });
+                }
+            });
         }
 
         const updatedVehicle = await vehicle.save();
