@@ -55,21 +55,33 @@ const uploadsPath = path.resolve(__dirname, '../uploads');
 if (!fs.existsSync(uploadsPath)) {
     fs.mkdirSync(uploadsPath, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsPath));
-
-// Serve static files
-app.use(express.static(finalPath, {
-    maxAge: 0, // Disable cache to force fresh files
-    etag: true
+app.use('/uploads', express.static(uploadsPath, {
+    maxAge: '7d' // Cache uploaded files for 7 days
 }));
 
-// Catch-all for React/Vite routing
+// Serve static assets (JS, CSS, images) with long-term caching
+// Safe because Vite adds content hash to filenames (e.g. index-CA8Jt-iv.js)
+app.use('/assets', express.static(path.join(finalPath, 'assets'), {
+    maxAge: '1y', // Cache for 1 year — safe due to hash in filename
+    immutable: true
+}));
+
+// Serve other static files (logos, icons) with moderate caching
+app.use(express.static(finalPath, {
+    maxAge: '1h',
+    etag: true,
+    index: false // Don't auto-serve index.html here, we handle it below
+}));
+
+// Catch-all for React/Vite routing — NO cache on index.html
 app.get('*', (req, res, next) => {
-    // If it's an API call or looks like a file (has a dot), don't serve index.html
     if (req.path.startsWith('/api') || req.path.includes('.')) {
         return next();
     }
 
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(finalPath, 'index.html'), (err) => {
         if (err) {
             res.status(500).send('<h1>Server is Live</h1><p>Frontend files are not found in the dist folder. Please check deployment.</p>');

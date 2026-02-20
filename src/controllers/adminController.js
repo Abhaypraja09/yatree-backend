@@ -77,7 +77,8 @@ const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
     const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, ownerName, dropLocation, property } = req.body;
 
-    const vehicleExists = await Vehicle.findOne({ carNumber });
+    const formattedCarNumber = carNumber.trim().toUpperCase();
+    const vehicleExists = await Vehicle.findOne({ carNumber: formattedCarNumber });
     if (vehicleExists) {
         return res.status(400).json({ message: 'Vehicle already exists with this car number' });
     }
@@ -96,7 +97,7 @@ const createVehicle = asyncHandler(async (req, res) => {
     });
 
     const vehicle = new Vehicle({
-        carNumber,
+        carNumber: formattedCarNumber,
         model: model || (isOutsideCar ? 'Outside Car' : undefined),
         permitType: permitType || (isOutsideCar ? 'None/Outside' : undefined),
         company: companyId,
@@ -870,76 +871,85 @@ const updateDriver = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // @access  Private/Admin
 const updateVehicle = asyncHandler(async (req, res) => {
-    console.log('UPDATE VEHICLE REQUEST:', { id: req.params.id, body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const vehicle = await Vehicle.findById(req.params.id);
+    const vehicleId = req.params.id;
+    console.log('UPDATE VEHICLE REQUEST:', { id: vehicleId, body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
 
-    if (vehicle) {
-        // Check if new car number is already taken by another vehicle
-        if (req.body.carNumber && req.body.carNumber !== vehicle.carNumber) {
-            const vehicleExists = await Vehicle.findOne({ carNumber: req.body.carNumber });
-            if (vehicleExists) {
-                return res.status(400).json({ message: 'Vehicle already exists with this car number' });
-            }
-            vehicle.carNumber = req.body.carNumber;
-        }
-
-        vehicle.model = req.body.model || vehicle.model;
-        vehicle.permitType = req.body.permitType || vehicle.permitType;
-        vehicle.carType = req.body.carType || vehicle.carType;
-        vehicle.status = req.body.status || vehicle.status;
-
-        if (req.body.isOutsideCar !== undefined) {
-            vehicle.isOutsideCar = req.body.isOutsideCar === 'true' || req.body.isOutsideCar === true;
-        }
-        if (req.body.driverName !== undefined) vehicle.driverName = req.body.driverName;
-        if (req.body.ownerName !== undefined) vehicle.ownerName = req.body.ownerName;
-        if (req.body.dutyAmount !== undefined) vehicle.dutyAmount = Number(req.body.dutyAmount);
-        if (req.body.dutyType !== undefined) vehicle.dutyType = req.body.dutyType;
-        if (req.body.dropLocation !== undefined) vehicle.dropLocation = req.body.dropLocation;
-        if (req.body.property !== undefined) vehicle.property = req.body.property;
-        if (req.body.lastOdometer !== undefined) {
-            vehicle.lastOdometer = Number(req.body.lastOdometer);
-        }
-        if (req.body.fastagBalance !== undefined) {
-            vehicle.fastagBalance = Number(req.body.fastagBalance);
-        }
-        if (req.body.fastagNumber !== undefined) {
-            vehicle.fastagNumber = req.body.fastagNumber;
-        }
-        if (req.body.fastagBank !== undefined) {
-            vehicle.fastagBank = req.body.fastagBank;
-        }
-        if (req.body.createdAt) {
-            const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
-            vehicle.createdAt = new Date(dateStr);
-        }
-
-        // Handle Document Updates if any files are uploaded
-        if (req.files) {
-            const docTypes = ['rc', 'insurance', 'puc', 'fitness', 'permit'];
-            docTypes.forEach(type => {
-                if (req.files[type]) {
-                    const upperType = type.toUpperCase();
-                    const expiry = req.body[`expiry_${type}`];
-
-                    // Remove old document of same type if it exists
-                    vehicle.documents = vehicle.documents.filter(d => d.documentType !== upperType);
-
-                    // Add new one
-                    vehicle.documents.push({
-                        documentType: upperType,
-                        imageUrl: req.files[type][0].path,
-                        expiryDate: expiry ? new Date(expiry) : new Date()
-                    });
-                }
-            });
-        }
-
-        const updatedVehicle = await vehicle.save();
-        res.json(updatedVehicle);
-    } else {
-        res.status(404).json({ message: 'Vehicle not found' });
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found' });
     }
+
+    // Build the update object
+    const updateData = {};
+
+    // Handle carNumber update with uniqueness check
+    if (req.body.carNumber) {
+        const newCarNumber = req.body.carNumber.trim().toUpperCase();
+        // Only do uniqueness check if the number actually changed
+        if (newCarNumber.toUpperCase() !== vehicle.carNumber.toUpperCase()) {
+            const vehicleExists = await Vehicle.findOne({
+                carNumber: { $regex: new RegExp(`^${newCarNumber}$`, 'i') },
+                _id: { $ne: vehicle._id }
+            });
+            if (vehicleExists) {
+                return res.status(400).json({ message: 'Another vehicle already exists with this car number' });
+            }
+        }
+        updateData.carNumber = newCarNumber;
+    }
+
+    if (req.body.model) updateData.model = req.body.model;
+    if (req.body.permitType) updateData.permitType = req.body.permitType;
+    if (req.body.carType) updateData.carType = req.body.carType;
+    if (req.body.status) updateData.status = req.body.status;
+
+    if (req.body.isOutsideCar !== undefined) {
+        updateData.isOutsideCar = req.body.isOutsideCar === 'true' || req.body.isOutsideCar === true;
+    }
+    if (req.body.driverName !== undefined) updateData.driverName = req.body.driverName;
+    if (req.body.ownerName !== undefined) updateData.ownerName = req.body.ownerName;
+    if (req.body.dutyAmount !== undefined) updateData.dutyAmount = Number(req.body.dutyAmount);
+    if (req.body.dutyType !== undefined) updateData.dutyType = req.body.dutyType;
+    if (req.body.dropLocation !== undefined) updateData.dropLocation = req.body.dropLocation;
+    if (req.body.property !== undefined) updateData.property = req.body.property;
+    if (req.body.lastOdometer !== undefined) updateData.lastOdometer = Number(req.body.lastOdometer);
+    if (req.body.fastagBalance !== undefined) updateData.fastagBalance = Number(req.body.fastagBalance);
+    if (req.body.fastagNumber !== undefined) updateData.fastagNumber = req.body.fastagNumber;
+    if (req.body.fastagBank !== undefined) updateData.fastagBank = req.body.fastagBank;
+
+    if (req.body.createdAt) {
+        const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
+        updateData.createdAt = new Date(dateStr);
+    }
+
+    // Handle Document Updates if any files are uploaded
+    let documentUpdates = [...vehicle.documents];
+    if (req.files) {
+        const docTypes = ['rc', 'insurance', 'puc', 'fitness', 'permit'];
+        docTypes.forEach(type => {
+            if (req.files[type]) {
+                const upperType = type.toUpperCase();
+                const expiry = req.body[`expiry_${type}`];
+                // Remove old document of same type
+                documentUpdates = documentUpdates.filter(d => d.documentType !== upperType);
+                // Add new one
+                documentUpdates.push({
+                    documentType: upperType,
+                    imageUrl: req.files[type][0].path,
+                    expiryDate: expiry ? new Date(expiry) : new Date()
+                });
+            }
+        });
+        updateData.documents = documentUpdates;
+    }
+
+    const updatedVehicle = await Vehicle.findByIdAndUpdate(
+        vehicleId,
+        { $set: updateData },
+        { new: true, runValidators: false }
+    ).populate('currentDriver', 'name mobile');
+
+    res.json(updatedVehicle);
 });
 
 // @desc    Delete driver
@@ -2536,7 +2546,7 @@ const getParkingEntries = asyncHandler(async (req, res) => {
 
     const parking = await Parking.find(query)
         .populate('vehicle', 'carNumber model')
-        .populate('driverId', 'name mobile')
+        .populate('driverId', 'name mobile isFreelancer')
         .sort({ date: -1 });
     res.json(parking);
 });
