@@ -430,7 +430,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ]);
 
     // Dashboard totals now reflect the Approved collections to match the logs.
-    const filteredAttendance = attendanceToday.filter(a => a.driver && !a.driver.isFreelancer);
+    const allDriversOnDutyToday = attendanceToday.filter(a => a.driver);
 
     const expiringAlerts = [];
     vehiclesWithExpiringDocs.forEach(v => {
@@ -606,14 +606,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const totalAdvancePending = advanceData[0]?.total || 0;
     const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
 
-    // Get individual advances for drivers on duty to show alerts
-    const driverIdsOnDuty = [...new Set(filteredAttendance.map(a => a.driver._id))];
+    // Get individual advances for ALL drivers on duty to show alerts
+    const driverIdsOnDuty = [...new Set(allDriversOnDutyToday.map(a => a.driver._id))];
     const pendingAdvances = await Advance.find({
         driver: { $in: driverIdsOnDuty },
         status: 'Pending'
     });
 
-    const attendanceWithAdvanceInfo = filteredAttendance.map(attendance => {
+    const attendanceWithAdvanceInfo = allDriversOnDutyToday.map(attendance => {
         const driverAdvance = pendingAdvances
             .filter(adv => adv.driver.toString() === attendance.driver._id.toString())
             .reduce((sum, adv) => sum + adv.amount, 0);
@@ -1432,7 +1432,7 @@ const getBorderTaxEntries = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/vehicles/:id/fastag-recharge
 // @access  Private/Admin
 const rechargeFastag = asyncHandler(async (req, res) => {
-    const { amount, method, remarks } = req.body;
+    const { amount, method, remarks, date } = req.body;
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
@@ -1451,7 +1451,7 @@ const rechargeFastag = asyncHandler(async (req, res) => {
         amount: rechargeAmount,
         method: method || 'Manual',
         remarks: remarks || '',
-        date: new Date()
+        date: date ? new Date(date) : new Date()
     });
 
     await vehicle.save();
@@ -1596,10 +1596,17 @@ const addManualDuty = asyncHandler(async (req, res) => {
         date,
         punchInKM,
         punchOutKM,
+        punchInTime,
+        punchOutTime,
+        pickUpLocation,
+        dropLocation,
+        fuelAmount,
         parkingAmount,
+        dailyWage,
+        review,
         allowanceTA,
         nightStayAmount,
-        review
+        otherBonus
     } = req.body;
 
     if (!driverId || !vehicleId || !companyId || !date) {
@@ -1611,40 +1618,68 @@ const addManualDuty = asyncHandler(async (req, res) => {
         return res.status(404).json({ message: 'Driver not found' });
     }
 
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    // Check if driver is already on duty
+    if (driver.tripStatus === 'active') {
+        return res.status(400).json({ message: 'Driver is currently on active duty. Please finish active duty first.' });
+    }
+
     const attendance = new Attendance({
         driver: driverId,
         company: companyId,
         vehicle: vehicleId,
         date,
         status: 'completed',
-        dailyWage: driver.dailyWage || 0,
+        dailyWage: Number(dailyWage) || driver.dailyWage || 0,
         punchIn: {
             km: Number(punchInKM) || 0,
-            time: new Date(date + 'T08:00:00Z'),
+            time: punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z'),
         },
         punchOut: {
             km: Number(punchOutKM) || 0,
-            time: new Date(date + 'T20:00:00Z'),
+            time: punchOutTime ? new Date(punchOutTime) : new Date(date + 'T20:00:00Z'),
             remarks: 'Manual Entry',
             otherRemarks: review || '',
+            tollParkingAmount: Number(parkingAmount) || 0,
             allowanceTA: allowanceTA ? 100 : 0,
             nightStayAmount: nightStayAmount ? 500 : 0
         },
+        outsideTrip: {
+            bonusAmount: Number(otherBonus) || 0
+        },
         totalKM: (Number(punchOutKM) || 0) - (Number(punchInKM) || 0),
-        pickUpLocation: 'Office',
-        dropLocation: 'Office',
+        pickUpLocation: pickUpLocation || 'Office',
+        dropLocation: dropLocation || 'Office',
         fuel: {
-            filled: false,
-            amount: 0
+            filled: Number(fuelAmount) > 0,
+            amount: Number(fuelAmount) || 0
         },
         parking: [{ amount: Number(parkingAmount) || 0 }]
     });
 
+    // For historical entries, we set createdAt to match the duty date
+    attendance.createdAt = punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z');
+
     await attendance.save();
 
-    // --- NEW: Automatically create an Advance record for the daily wage ---
-    // REMOVED: This was causing salary to be treated as a debt (Advance).
-    // --- End of NEW logic ---
+    // If freelancer, we don't need to change tripStatus to active, 
+    // but we should ensure they aren't marked as "on duty" now.
+    // However, if this is a manual entry for a FINISHED duty, we just leave them as is or ensure they are 'approved' (available).
+    if (driver.isFreelancer) {
+        driver.tripStatus = 'approved';
+        driver.assignedVehicle = null;
+        await driver.save();
+
+        // Ensure vehicle is free
+        if (vehicle.currentDriver && vehicle.currentDriver.toString() === driverId.toString()) {
+            vehicle.currentDriver = null;
+            await vehicle.save();
+        }
+    }
 
     res.status(201).json({ message: 'Manual duty entry created successfully', attendance });
 });
@@ -1813,24 +1848,22 @@ const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
 
 // Helper to recalculate fuel metrics using the "Previous Fill" logic
 const recalculateFuelMetrics = async (vehicleId) => {
-    // Sort by odometer to ensure a proper chain
     const entries = await Fuel.find({ vehicle: vehicleId }).sort({ odometer: 1, date: 1 });
-    let prev = null;
+    let prevOdometer = null;
+
     for (const entry of entries) {
-        if (!prev) {
-            // First entry: no distance or mileage possible yet
+        if (prevOdometer === null) {
             entry.distance = 0;
             entry.mileage = 0;
             entry.costPerKm = 0;
         } else {
-            // Distance covered between these two logs
-            entry.distance = entry.odometer - prev.odometer;
+            entry.distance = entry.odometer - prevOdometer;
 
-            if (entry.distance > 0 && prev.quantity > 0) {
-                // IMPORTANT: Mileage = Distance covered NOW / Fuel filled LAST TIME
-                entry.mileage = Number((entry.distance / prev.quantity).toFixed(2));
-                // Cost/KM = Amount spent LAST TIME / Distance covered NOW
-                entry.costPerKm = Number((prev.amount / entry.distance).toFixed(2));
+            if (entry.distance > 0) {
+                // Mileage = Distance covered / Fuel required to fill it back (Full-to-Full)
+                entry.mileage = entry.quantity > 0 ? Number((entry.distance / entry.quantity).toFixed(2)) : 0;
+                // Cost/KM = Amount paid for this trip / Distance covered
+                entry.costPerKm = Number((entry.amount / entry.distance).toFixed(2));
             } else {
                 entry.distance = entry.distance > 0 ? entry.distance : 0;
                 entry.mileage = 0;
@@ -1838,7 +1871,7 @@ const recalculateFuelMetrics = async (vehicleId) => {
             }
         }
         await entry.save();
-        prev = entry;
+        prevOdometer = entry.odometer;
     }
 };
 
@@ -2320,6 +2353,28 @@ const deleteAdvance = asyncHandler(async (req, res) => {
     }
 });
 
+// @desc    Update advance record
+// @route   PUT /api/admin/advances/:id
+// @access  Private/Admin
+const updateAdvance = asyncHandler(async (req, res) => {
+    const { amount, remark, date, advanceType, givenBy, driverId } = req.body;
+    const advance = await Advance.findById(req.params.id);
+
+    if (advance) {
+        if (amount !== undefined) advance.amount = Number(amount);
+        if (remark !== undefined) advance.remark = remark;
+        if (date !== undefined) advance.date = date;
+        if (advanceType !== undefined) advance.advanceType = advanceType;
+        if (givenBy !== undefined) advance.givenBy = givenBy;
+        if (driverId) advance.driver = driverId;
+
+        const updatedAdvance = await advance.save();
+        res.json(updatedAdvance);
+    } else {
+        res.status(404).json({ message: 'Advance record not found' });
+    }
+});
+
 // @desc    Get Salary Summary for all drivers in a company
 // @route   GET /api/admin/salary-summary/:companyId
 // @access  Private/Admin
@@ -2385,13 +2440,14 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
         const attendanceEarnings = attendance.reduce((sum, att) => {
             const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
             const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
-                (Number(att.punchOut?.nightStayAmount) || 0);
+                (Number(att.punchOut?.nightStayAmount) || 0) +
+                (Number(att.outsideTrip?.bonusAmount) || 0);
 
-            // DO NOT count embedded att.parking or tollParkingAmount here.
-            // Parking reimbursements are tracked separately in the Parking collection (parkingTotal below).
-            // Counting embedded parking here would cause double-counting.
+            // Include internal parking from attendance records
+            const internalParking = (att.parking || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) +
+                (Number(att.punchOut?.tollParkingAmount) || 0);
 
-            return sum + wage + bonuses;
+            return sum + wage + bonuses + internalParking;
         }, 0);
 
         const totalEarned = attendanceEarnings + parkingTotal;
@@ -2858,7 +2914,13 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         // Combine Data
         const dailyBreakdown = attendance.map(att => {
             const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
-            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0);
+            const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+            const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+            const otherBonuses = Number(att.outsideTrip?.bonusAmount) || 0;
+            const bonuses = sameDayReturn + nightStay + otherBonuses;
+
+            // NEW: Get parking from the attendance record itself (manual duties often store parking here)
+            const internalParking = (att.parking || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) + (Number(att.punchOut?.tollParkingAmount) || 0);
 
             // Detect if this was a Manual Entry (added by admin via addManualDuty)
             const isManualEntry = att.punchOut?.remarks === 'Manual Entry';
@@ -2867,19 +2929,24 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 date: att.date,
                 type: isManualEntry ? 'Manual Entry' : 'Duty',
                 wage,
+                sameDayReturn,
+                nightStay,
+                otherBonuses,
                 bonuses,
-                parking: 0, // Always 0 - parking is in Parking collection, shown separately
-                total: wage + bonuses,
+                parking: internalParking,
+                total: wage + bonuses + internalParking,
                 vehicleId: att.vehicle,
                 remarks: isManualEntry ? '' : (att.punchOut?.remarks || '')
             };
         });
 
         // Summary Totals
-        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.total, 0);
-        const parkingTotal = parking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage + d.bonuses, 0);
+        const internalParkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0);
+        const externalParkingTotal = parking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const parkingTotal = internalParkingTotal + externalParkingTotal;
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-        const grandTotal = totalWages + parkingTotal; // Total Earned (wages + parking reimbursements)
+        const grandTotal = totalWages + parkingTotal;
         const netPayable = grandTotal - totalAdvances;
 
         res.json({
@@ -2937,6 +3004,7 @@ module.exports = {
     addAdvance,
     getAdvances,
     deleteAdvance,
+    updateAdvance,
     getDriverSalarySummary,
     getDriverSalaryDetails, // Export new function
     getAllExecutives,

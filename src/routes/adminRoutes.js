@@ -35,6 +35,7 @@ const {
     addAdvance,
     getAdvances,
     deleteAdvance,
+    updateAdvance,
     getDriverSalarySummary,
     getDriverSalaryDetails,
     getAllExecutives,
@@ -132,6 +133,7 @@ router.get('/car-services/:companyId', adminOrExecutive, getCarServiceEntries);
 // Financials (Shared Admin & Executive)
 router.post('/advances', adminOrExecutive, addAdvance);
 router.get('/advances/:companyId', adminOrExecutive, getAdvances);
+router.put('/advances/:id', adminOrExecutive, updateAdvance);
 router.delete('/advances/:id', adminOrExecutive, deleteAdvance);
 router.get('/salary-summary/:companyId', adminOrExecutive, getDriverSalarySummary);
 router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails);
