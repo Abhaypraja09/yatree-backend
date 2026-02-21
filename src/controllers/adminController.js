@@ -1850,6 +1850,9 @@ const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
 const recalculateFuelMetrics = async (vehicleId) => {
     const entries = await Fuel.find({ vehicle: vehicleId }).sort({ odometer: 1, date: 1 });
     let prevOdometer = null;
+    let prevQuantity = null;
+    let prevAmount = null;
+    let prevRate = null;
 
     for (const entry of entries) {
         if (prevOdometer === null) {
@@ -1859,19 +1862,23 @@ const recalculateFuelMetrics = async (vehicleId) => {
         } else {
             entry.distance = entry.odometer - prevOdometer;
 
-            if (entry.distance > 0) {
-                // Mileage = Distance covered / Fuel required to fill it back (Full-to-Full)
-                entry.mileage = entry.quantity > 0 ? Number((entry.distance / entry.quantity).toFixed(2)) : 0;
-                // Cost/KM = Amount paid for this trip / Distance covered
-                entry.costPerKm = Number((entry.amount / entry.distance).toFixed(2));
+            if (entry.distance > 0 && prevAmount > 0 && prevRate > 0) {
+                // Formula: Mileage = Distance / (Amount / Rate)
+                // This simplifies to: (Distance * Rate) / Amount
+                entry.mileage = Number(((entry.distance * prevRate) / prevAmount).toFixed(2));
+                // Cost/KM = Amount paid previously / Distance covered now
+                entry.costPerKm = Number((prevAmount / entry.distance).toFixed(2));
             } else {
-                entry.distance = entry.distance > 0 ? entry.distance : 0;
+                entry.distance = 0;
                 entry.mileage = 0;
                 entry.costPerKm = 0;
             }
         }
         await entry.save();
         prevOdometer = entry.odometer;
+        prevQuantity = entry.quantity;
+        prevAmount = entry.amount;
+        prevRate = entry.rate;
     }
 };
 
