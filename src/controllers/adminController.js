@@ -1131,14 +1131,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     if (from && to) {
         query.date = { $gte: from, $lte: to };
-        startDate = new Date(from);
-        endDate = new Date(to);
-        endDate.setHours(23, 59, 59, 999);
+        startDate = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+        endDate = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
     } else if (date) {
         query.date = date;
-        startDate = new Date(date);
-        endDate = new Date(date);
-        endDate.setHours(23, 59, 59, 999);
+        startDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+        endDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
     }
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
@@ -2313,15 +2311,18 @@ const addAdvance = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getAdvances = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { driverId, month, year } = req.query;
+    const { driverId, month, year, from, to } = req.query;
 
     const query = { company: companyId };
     if (driverId) query.driver = driverId;
 
-    if (month && year) {
-        const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
-        const endOfMonth = new Date(parseInt(year), parseInt(month), 0);
-        endOfMonth.setHours(23, 59, 59, 999);
+    if (from && to) {
+        const startDate = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+        const endDate = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
+        query.date = { $gte: startDate, $lte: endDate };
+    } else if (month && year) {
+        const startOfMonth = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month').toJSDate();
+        const endOfMonth = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).endOf('month').toJSDate();
         query.date = { $gte: startOfMonth, $lte: endOfMonth };
     }
 
@@ -2669,6 +2670,31 @@ const getCarServiceEntries = asyncHandler(async (req, res) => {
         .populate('driverId', 'name mobile isFreelancer')
         .sort({ date: -1 });
     res.json(entries);
+});
+
+// @desc    Update a parking entry
+// @route   PUT /api/admin/parking/:id
+// @access  Private/AdminOrExecutive
+const updateParkingEntry = asyncHandler(async (req, res) => {
+    const { vehicleId, driverId, driver, date, amount, location, remark, receiptPhoto } = req.body;
+    const parking = await Parking.findById(req.params.id);
+
+    if (parking) {
+        if (vehicleId) parking.vehicle = vehicleId;
+        if (driverId) parking.driverId = driverId;
+        if (driver) parking.driver = driver;
+        if (date) parking.date = date;
+        if (amount) parking.amount = Number(amount);
+        if (location) parking.location = location;
+        if (remark !== undefined) parking.remark = remark;
+        if (receiptPhoto !== undefined) parking.receiptPhoto = receiptPhoto;
+
+        const updatedParking = await parking.save();
+        res.json(updatedParking);
+    } else {
+        res.status(404);
+        throw new Error('Parking record not found');
+    }
 });
 
 // @desc    Delete a parking entry
@@ -3021,6 +3047,7 @@ module.exports = {
     getParkingEntries,
     getCarServiceEntries,
     deleteParkingEntry,
+    updateParkingEntry,
     getPendingParkingExpenses,
     getAllStaff,
     createStaff,

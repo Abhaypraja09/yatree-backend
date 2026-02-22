@@ -45,6 +45,7 @@ const {
     getParkingEntries,
     getCarServiceEntries,
     deleteParkingEntry,
+    updateParkingEntry,
     getPendingParkingExpenses,
     getAllStaff,
     createStaff,
@@ -126,6 +127,7 @@ router.get('/fuel/pending/:companyId', adminOrExecutive, getPendingFuelExpenses)
 
 router.post('/parking', adminOrExecutive, addParkingEntry);
 router.get('/parking/:companyId', adminOrExecutive, getParkingEntries);
+router.put('/parking/:id', adminOrExecutive, updateParkingEntry);
 router.delete('/parking/:id', adminOrExecutive, deleteParkingEntry);
 router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExpenses);
 router.get('/car-services/:companyId', adminOrExecutive, getCarServiceEntries);
