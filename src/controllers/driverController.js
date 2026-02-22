@@ -532,7 +532,8 @@ const getDriverLedger = async (req, res) => {
             $or: [
                 { driverId: driverId },
                 { driver: { $regex: new RegExp(`^${req.user.name}$`, 'i') } }
-            ]
+            ],
+            serviceType: { $ne: 'car_service' }
         };
         if (month && year) {
             parkingFilter.date = { $gte: startOfMonth, $lte: endOfMonth };
@@ -550,24 +551,34 @@ const getDriverLedger = async (req, res) => {
         // Base Map for History (Use Map for easier updates by Date)
         // Key: Date string (YYYY-MM-DD), Value: Ledger Entry Object
         const ledgerMap = new Map();
+        const attendanceDatesUsedForParking = new Set();
 
         // 1. Process Attendance
         attendance.forEach(att => {
-            const dateKey = new Date(att.date).toISOString().split('T')[0];
+            // Use parking from official external collection only
+            const dateKey = att.date; // already YYYY-MM-DD
             const wage = Number(att.dailyWage) || 0;
-            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0);
+            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0) + (Number(att.outsideTrip?.bonusAmount) || 0);
 
-            // NOTE: DO NOT add embedded att.parking or tollParkingAmount here.
-            // Parking reimbursements come ONLY from approved Parking collection entries (Step 2 below).
-            // Including toll/parking here caused double-counting.
+            // Find matching external parking for this date
+            // Using surplusUsed logic to only add parking to the first shift of the day
+            let finalParkingForDay = 0;
+            if (!attendanceDatesUsedForParking.has(dateKey)) {
+                finalParkingForDay = parkingEntries
+                    .filter(p => DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd') === dateKey)
+                    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-            totalEarned += (wage + bonuses);
+                attendanceDatesUsedForParking.add(dateKey);
+            }
+
+            totalEarned += (wage + bonuses + finalParkingForDay);
             workingDays += 1;
 
             if (ledgerMap.has(dateKey)) {
                 const existing = ledgerMap.get(dateKey);
                 existing.dailyWage += wage;
                 existing.bonuses += bonuses;
+                existing.parking += finalParkingForDay;
                 existing.totalKM += (att.totalKM || 0);
             } else {
                 ledgerMap.set(dateKey, {
@@ -576,7 +587,7 @@ const getDriverLedger = async (req, res) => {
                     vehicle: att.vehicle?.carNumber || 'N/A',
                     dailyWage: wage,
                     bonuses: bonuses,
-                    parking: 0, // Will be filled by Step 2 (approved Parking entries only)
+                    parking: finalParkingForDay,
                     totalKM: att.totalKM || 0,
                     status: att.status,
                     type: 'duty'
@@ -584,33 +595,29 @@ const getDriverLedger = async (req, res) => {
             }
         });
 
-        // 2. Process Admin Parking (Merge or Add)
+        // 2. Add Standalone parking entries (those that don't match any attendance date)
+        const attendanceDates = new Set(attendance.map(a => a.date));
         parkingEntries.forEach(p => {
-            const dateKey = new Date(p.date).toISOString().split('T')[0];
-            const amount = Number(p.amount) || 0;
-            totalEarned += amount;
+            const pDateKey = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+            if (!attendanceDates.has(pDateKey)) {
+                const amount = Number(p.amount) || 0;
+                totalEarned += amount;
 
-            console.log(`[DEBUG] Processing Parking: Date=${dateKey}, Amount=${amount}, CurrentMapHas=${ledgerMap.has(dateKey)}`);
-
-            if (ledgerMap.has(dateKey)) {
-                // Merge with existing duty
-                const entry = ledgerMap.get(dateKey);
-                entry.parking += amount;
-                console.log(`[DEBUG] Merged into existing: New Total=${entry.parking}`);
-            } else {
-                // Create new standalone entry (formatted like duty)
-                ledgerMap.set(dateKey, {
-                    _id: p._id,
-                    date: p.date, // Use original date object
-                    vehicle: p.vehicle?.carNumber || 'N/A',
-                    dailyWage: 0,
-                    bonuses: 0,
-                    parking: amount,
-                    totalKM: 0,
-                    status: 'Approved',
-                    type: 'duty' // Treat as 'duty' so UI renders it consistently
-                });
-                console.log(`[DEBUG] Created new entry: Amount=${amount}`);
+                if (ledgerMap.has(pDateKey)) {
+                    ledgerMap.get(pDateKey).parking += amount;
+                } else {
+                    ledgerMap.set(pDateKey, {
+                        _id: p._id,
+                        date: pDateKey,
+                        vehicle: p.vehicle?.carNumber || 'N/A',
+                        dailyWage: 0,
+                        bonuses: 0,
+                        parking: amount,
+                        totalKM: 0,
+                        status: 'Approved',
+                        type: 'duty'
+                    });
+                }
             }
         });
 

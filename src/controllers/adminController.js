@@ -1621,25 +1621,24 @@ const addManualDuty = asyncHandler(async (req, res) => {
         return res.status(404).json({ message: 'Vehicle not found' });
     }
 
-    // Check if driver is already on duty
-    if (driver.tripStatus === 'active') {
-        return res.status(400).json({ message: 'Driver is currently on active duty. Please finish active duty first.' });
-    }
+    // Allowed admin to add manual duty even if driver is currently active (e.g. for past missing duties)
 
     const attendance = new Attendance({
         driver: driverId,
         company: companyId,
         vehicle: vehicleId,
-        date,
+        date: date, // YYYY-MM-DD
         status: 'completed',
         dailyWage: Number(dailyWage) || driver.dailyWage || 0,
         punchIn: {
             km: Number(punchInKM) || 0,
-            time: punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z'),
+            time: punchInTime ? new Date(punchInTime) : DateTime.fromFormat(date, 'yyyy-MM-dd', { zone: 'Asia/Kolkata' }).set({ hour: 8 }).toJSDate(),
+            remarks: 'Regular', // Punch-in remark
+            location: { address: pickUpLocation || 'Office' }
         },
         punchOut: {
             km: Number(punchOutKM) || 0,
-            time: punchOutTime ? new Date(punchOutTime) : new Date(date + 'T20:00:00Z'),
+            time: punchOutTime ? new Date(punchOutTime) : DateTime.fromFormat(date, 'yyyy-MM-dd', { zone: 'Asia/Kolkata' }).set({ hour: 20 }).toJSDate(),
             remarks: 'Manual Entry',
             otherRemarks: review || '',
             tollParkingAmount: Number(parkingAmount) || 0,
@@ -1655,14 +1654,28 @@ const addManualDuty = asyncHandler(async (req, res) => {
         fuel: {
             filled: Number(fuelAmount) > 0,
             amount: Number(fuelAmount) || 0
-        },
-        parking: [{ amount: Number(parkingAmount) || 0 }]
+        }
     });
 
     // For historical entries, we set createdAt to match the duty date
     attendance.createdAt = punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z');
 
     await attendance.save();
+
+    // Ensure we create a Parking entry so it gets tracked properly in Driver Salaries
+    if (Number(parkingAmount) > 0) {
+        await Parking.create({
+            vehicle: vehicleId,
+            company: companyId,
+            driver: driver.name,
+            driverId: driverId,
+            date: new Date(date),
+            amount: Number(parkingAmount),
+            source: 'Admin',
+            notes: 'Manual Duty Parking',
+            createdBy: req.user._id
+        });
+    }
 
     // If freelancer, we don't need to change tripStatus to active, 
     // but we should ensure they aren't marked as "on duty" now.
@@ -2439,26 +2452,49 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             const endOfMonth = new Date(parseInt(year), parseInt(month), 0);
             endOfMonth.setHours(23, 59, 59, 999);
             parkingQuery.date = { $gte: startOfMonth, $lte: endOfMonth };
+            parkingQuery.serviceType = { $ne: 'car_service' };
+        } else {
+            parkingQuery.serviceType = { $ne: 'car_service' };
         }
 
         const parkingEntries = await Parking.find(parkingQuery);
-        const parkingTotal = parkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
         // 4. Calculate Earnings
-        const attendanceEarnings = attendance.reduce((sum, att) => {
+        // Use maps to aggregate daily values to avoid double counting across multiple shifts
+        const dailyAggs = new Map();
+        attendance.forEach(att => {
+            const dateStr = att.date;
             const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
             const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
                 (Number(att.punchOut?.nightStayAmount) || 0) +
                 (Number(att.outsideTrip?.bonusAmount) || 0);
 
-            // Include internal parking from attendance records
-            const internalParking = (att.parking || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) +
-                (Number(att.punchOut?.tollParkingAmount) || 0);
+            if (!dailyAggs.has(dateStr)) {
+                dailyAggs.set(dateStr, { earnings: 0 });
+            }
+            const current = dailyAggs.get(dateStr);
+            current.earnings += (wage + bonuses);
+        });
 
-            return sum + wage + bonuses + internalParking;
-        }, 0);
+        // Group external parking by date (GST/IST safe)
+        const externalParkingByDay = new Map();
+        parkingEntries.forEach(p => {
+            const dateStr = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+            externalParkingByDay.set(dateStr, (externalParkingByDay.get(dateStr) || 0) + (Number(p.amount) || 0));
+        });
 
-        const totalEarned = attendanceEarnings + parkingTotal;
+        // Sum everything with the MAX logic per day
+        const allUniqueDates = new Set([...dailyAggs.keys(), ...externalParkingByDay.keys()]);
+        let totalCalculatedEarnings = 0;
+        allUniqueDates.forEach(dateStr => {
+            const attData = dailyAggs.get(dateStr) || { earnings: 0 };
+            const extP = externalParkingByDay.get(dateStr) || 0;
+
+            // Total is simply earnings PLUS official external parking
+            totalCalculatedEarnings += (attData.earnings + extP);
+        });
+
+        const totalEarned = totalCalculatedEarnings;
 
         // 5. Fetch Advances
         // A. Monthly Activity (for display)
@@ -2932,9 +2968,10 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         const parking = await Parking.find({
             $or: [
                 { driverId: driverId },
-                { driver: driver.name }  // fallback: match by name for older records
+                { driver: { $regex: new RegExp(`^${driver.name.trim()}$`, 'i') } }
             ],
-            date: { $gte: startOfMonth, $lte: endOfMonth }
+            date: { $gte: startOfMonth, $lte: endOfMonth },
+            serviceType: { $ne: 'car_service' }
         }).sort({ date: 1 });
 
         // 3. Fetch Advances
@@ -2944,7 +2981,19 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
         });
 
-        // Combine Data
+        // Group external parking for logic
+        const externalByDay = new Map();
+        parking.forEach(p => {
+            const dStr = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+            externalByDay.set(dStr, (externalByDay.get(dStr) || 0) + (Number(p.amount) || 0));
+        });
+
+        // Group internal totals not needed anymore as we use Parking section only
+        const internalByDay = new Map();
+
+        // Track which date's surplus we have already distributed
+        const surplusUsed = new Set();
+
         const dailyBreakdown = attendance.map(att => {
             const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
             const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
@@ -2952,10 +3001,15 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             const otherBonuses = Number(att.outsideTrip?.bonusAmount) || 0;
             const bonuses = sameDayReturn + nightStay + otherBonuses;
 
-            // NEW: Get parking from the attendance record itself (manual duties often store parking here)
-            const internalParking = (att.parking || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) + (Number(att.punchOut?.tollParkingAmount) || 0);
+            // Use parking from official Parking collection only, ignore internal fields
+            const totalExternalForDay = externalByDay.get(att.date) || 0;
 
-            // Detect if this was a Manual Entry (added by admin via addManualDuty)
+            // We only add the parking amount TO THE FIRST shift encountered for that day
+            let finalParkingCell = 0;
+            if (!surplusUsed.has(att.date)) {
+                finalParkingCell = totalExternalForDay;
+                surplusUsed.add(att.date);
+            }
             const isManualEntry = att.punchOut?.remarks === 'Manual Entry';
 
             return {
@@ -2966,18 +3020,24 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 nightStay,
                 otherBonuses,
                 bonuses,
-                parking: internalParking,
-                total: wage + bonuses + internalParking,
+                parking: finalParkingCell,
+                total: wage + bonuses + finalParkingCell,
                 vehicleId: att.vehicle,
                 remarks: isManualEntry ? '' : (att.punchOut?.remarks || '')
             };
         });
 
-        // Summary Totals
+        // Standalone parking (dates with NO attendance)
+        const attendanceDates = new Set(attendance.map(a => a.date));
+        const standaloneParkingEntries = parking.filter(p => {
+            const d = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+            return !attendanceDates.has(d);
+        });
+
+        // Aggregated totals
         const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage + d.bonuses, 0);
-        const internalParkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0);
-        const externalParkingTotal = parking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-        const parkingTotal = internalParkingTotal + externalParkingTotal;
+        const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
+            standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
         const grandTotal = totalWages + parkingTotal;
         const netPayable = grandTotal - totalAdvances;

@@ -1,28 +1,23 @@
-COMPANIES_FOUND: 3
+Found Driver: Suresh Patel 698abf58f2e4d5f19c74f951
+--- Attendance Records Found: 17 ---
+Date: 2026-02-01, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944aca5f9a7cebdb76c21e"}], Remarks: Manual Entry
+Date: 2026-02-02, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944adf5f9a7cebdb76c251"}], Remarks: Manual Entry
+Date: 2026-02-03, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944b0d5f9a7cebdb76c284"}], Remarks: Manual Entry
+Date: 2026-02-04, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944bec5f9a7cebdb76c2b7"}], Remarks: Manual Entry
+Date: 2026-02-05, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944c025f9a7cebdb76c2f0"}], Remarks: Manual Entry
+Date: 2026-02-07, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944c3a5f9a7cebdb76c350"}], Remarks: Manual Entry
+Date: 2026-02-08, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69944e0e5f9a7cebdb76c482"}], Remarks: Manual Entry
+Date: 2026-02-09, Wage: 400, Toll: 0, ParkingArr: [{"amount":492,"_id":"699454d45f9a7cebdb76cdc1"}], Remarks: Manual Entry
+Date: 2026-02-10, Wage: 400, Toll: 0, ParkingArr: [{"amount":499,"_id":"699455245f9a7cebdb76ce5e"}], Remarks: Manual Entry
+Date: 2026-02-11, Wage: 400, Toll: 0, ParkingArr: [{"amount":500,"_id":"699455545f9a7cebdb76ce9b"}], Remarks: Manual Entry
+Date: 2026-02-12, Wage: 400, Toll: 0, ParkingArr: [{"amount":500,"_id":"6994559e5f9a7cebdb76cf01"}], Remarks: Manual Entry
+Date: 2026-02-13, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"69955d7b80f3d15a08f3e0cd"}], Remarks: Manual Entry
+Date: 2026-02-14, Wage: 400, Toll: 0, ParkingArr: [{"amount":500,"_id":"6994562c85acb133d011b17f"}], Remarks: Manual Entry
+Date: 2026-02-16, Wage: 400, Toll: 0, ParkingArr: [{"amount":500,"_id":"6994566c85acb133d011b1e5"}], Remarks: Manual Entry
+Date: 2026-02-17, Wage: 400, Toll: 0, ParkingArr: [{"amount":499,"_id":"6994567b85acb133d011b218"}], Remarks: Manual Entry
+Date: 2026-02-18, Wage: 400, Toll: 0, ParkingArr: [{"amount":0,"_id":"699713d5bdc8d61b60eded00"}], Remarks: Manual Entry
+Date: 2026-02-19, Wage: 400, Toll: 0, ParkingArr: [{"amount":140,"_id":"6997140cbdc8d61b60eded3c"}], Remarks: Manual Entry
 
---- Company: Yatree Destination (6982e8b7d0b069a49db197b9) ---
-  OUTSIDE_CARS_COUNT: 84
-  CAR_NUMBERS: [
-  'RJ27 TA 7977',
-  'RJ 27 TB 0973#2026-02-11#1rrd9',
-  'RJ 27 TD 2230#2026-02-11#s5f48',
-  'NEW VEHICLE (A/F#2026-02-11',
-  'RJ27 PD 1731#2026-02-11#flybr'
-]
-  TOTAL_OUTSIDE_AMOUNT: 22570
-  ATTENDANCE_COUNT: 177
-  SAMPLE_ATTENDANCE: {
-  date: '2026-02-01',
-  driver: new ObjectId('6993463109a83283ae7365ae')
-}
-  DRIVERS_COUNT: 19
-
---- Company: YatreeDestination (698ac8b01587e01651a49443) ---
-  OUTSIDE_CARS_COUNT: 0
-  ATTENDANCE_COUNT: 0
-  DRIVERS_COUNT: 0
-
---- Company: GoGetGo (698ac8b01587e01651a49444) ---
-  OUTSIDE_CARS_COUNT: 0
-  ATTENDANCE_COUNT: 0
-  DRIVERS_COUNT: 0
+--- Parking Collection Entries (Feb 2026) ---
+Date: 2026-02-07T00:00:00.000Z, Amount: 140, Source: Admin, DriverField: Suresh Patel
+Date: 2026-02-09T00:00:00.000Z, Amount: 50, Source: Admin, DriverField: Suresh Patel
