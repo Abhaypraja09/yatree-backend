@@ -232,7 +232,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         outsideCarsToday, // Outside cars logged as vehicles for today,
         monthlyAccidentData, // Monthly accident cost
         totalWarrantyData, // Total warranty cost
-        outsideCarsThisMonth // Outside cars for the entire month
+        outsideCarsThisMonth, // Outside cars for the entire month
+        allDrivers,
+        allVehicles
     ] = await Promise.all([
         Vehicle.countDocuments({
             company: companyObjectId,
@@ -426,8 +428,54 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             company: companyObjectId,
             isOutsideCar: true,
             createdAt: { $gte: monthStart, $lte: monthEnd }
-        })
+        }),
+        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle'),
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver')
     ]);
+
+    // Map all drivers with their today attendance status
+    const liveDriversFeed = allDrivers.map(driver => {
+        const attendance = attendanceToday.find(a => {
+            const attDriverId = a.driver?._id ? a.driver._id.toString() : a.driver?.toString();
+            return attDriverId === driver._id.toString();
+        });
+
+        const isF = driver.isFreelancer === true;
+        const isP = !!attendance;
+
+        return {
+            _id: driver._id,
+            name: driver.name,
+            mobile: driver.mobile,
+            isFreelancer: isF,
+            status: isP ? 'Present' : 'Absent',
+            tripStatus: driver.tripStatus,
+            currentAttendance: attendance || null,
+            assignedVehicle: driver.assignedVehicle
+        };
+    }).filter(driver => {
+        // 1. If Company/Permanent Driver -> ALWAYS show (Present or Absent)
+        if (driver.isFreelancer === false) return true;
+
+        // 2. If Freelancer Driver -> ONLY show if Present (On Duty)
+        if (driver.isFreelancer === true && driver.status === 'Present') return true;
+
+        // Otherwise (Absent Freelancer) -> HIDE
+        return false;
+    });
+
+    // Map all vehicles with their status
+    const liveVehiclesFeed = allVehicles.map(vehicle => {
+        const attendance = attendanceToday.find(a => a.vehicle?._id?.toString() === vehicle._id.toString());
+        return {
+            _id: vehicle._id,
+            carNumber: vehicle.carNumber,
+            model: vehicle.model,
+            status: attendance ? (attendance.status === 'incomplete' ? 'In Use' : 'Completed') : 'Idle',
+            currentDriver: attendance?.driver || null,
+            date: attendance?.date || targetDate
+        };
+    });
 
     // Dashboard totals now reflect the Approved collections to match the logs.
     const allDriversOnDutyToday = attendanceToday.filter(a => a.driver);
@@ -546,6 +594,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }
     });
 
+    const dailyNightStayCount = attendanceToday.filter(att => Number(att.punchOut?.nightStayAmount) > 0).length;
+
     const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0) +
         outsideCarsToday.reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
     const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
@@ -635,7 +685,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     res.json({
         date: targetDate,
         totalVehicles,
-        totalDrivers,
+        totalDrivers: liveDriversFeed.length,
         countPunchIns: uniqueDriversToday.size,
         countPunchOuts: punchOutCount,
         pendingApprovalsCount,
@@ -659,6 +709,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         // Combined Daily + Monthly + Manual Advances logic
         dailyAdvancesSum: dailySalaryTotal + (dailyAdvanceData[0]?.total || 0),
         dailySalaryTotal,
+        dailyNightStayCount,
         dailyFreelancerSalaryTotal,
         monthlySalaryTotal, // Still combined for backward compatibility
         monthlyRegularSalaryTotal: Array.from(monthlyWorkedDrivers.values()).reduce((sum, val) => sum + val, 0),
@@ -668,7 +719,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         freelancerAdvances: {
             total: totalFreelancerAdvancePending,
             count: freelancerAdvanceData[0]?.count || 0
-        }
+        },
+        liveDriversFeed,
+        liveVehiclesFeed
     });
 });
 
@@ -2470,10 +2523,17 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
                 (Number(att.outsideTrip?.bonusAmount) || 0);
 
             if (!dailyAggs.has(dateStr)) {
-                dailyAggs.set(dateStr, { earnings: 0 });
+                dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0 });
             }
             const current = dailyAggs.get(dateStr);
             current.earnings += (wage + bonuses);
+
+            if (Number(att.punchOut?.nightStayAmount) > 0) {
+                current.nights += 1;
+            }
+            if (Number(att.punchOut?.allowanceTA) > 0) {
+                current.sameDays += 1;
+            }
         });
 
         // Group external parking by date (GST/IST safe)
@@ -2532,6 +2592,8 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             // If Pending Advance is large, Net Payable might be negative (Driver owes money).
             netPayable: totalEarned - pendingAdvance,
             workingDays: attendance.length,
+            nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
+            sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
             dailyWage: driver.dailyWage || 0 // Added Daily Wage
         };
     }));
@@ -2885,7 +2947,10 @@ const updateAttendance = asyncHandler(async (req, res) => {
         startKm,
         status,
         remarks,
-        driverId
+        driverId,
+        allowanceTA,
+        nightStayAmount,
+        bonusAmount
     } = req.body;
 
     // Helper: If updating vehicle, we might want to update the vehicle reference
@@ -2909,10 +2974,31 @@ const updateAttendance = asyncHandler(async (req, res) => {
         }
     }
 
+    if (!attendance.punchOut) {
+        attendance.punchOut = {};
+    }
+
     if (remarks) {
         attendance.punchOut.remarks = remarks;
     }
 
+    if (allowanceTA !== undefined) {
+        attendance.punchOut.allowanceTA = Number(allowanceTA);
+    }
+
+    if (nightStayAmount !== undefined) {
+        attendance.punchOut.nightStayAmount = Number(nightStayAmount);
+    }
+
+    if (bonusAmount !== undefined) {
+        if (!attendance.outsideTrip) {
+            attendance.outsideTrip = { occurred: true, tripType: 'Manual', bonusAmount: 0 };
+        }
+        attendance.outsideTrip.bonusAmount = Number(bonusAmount);
+    }
+
+    attendance.markModified('punchOut');
+    attendance.markModified('outsideTrip');
     const updatedAttendance = await attendance.save();
     res.json(updatedAttendance);
 });

@@ -247,10 +247,10 @@ const punchOut = async (req, res) => {
         let calcNight = 0;
         if (outsideTripOccurred === 'true' && outsideTripType) {
             // Handle comma-separated values (e.g "Same Day,Night Stay")
-            const types = outsideTripType.split(',').map(t => t.trim());
+            const types = outsideTripType.split(',').map(t => t.trim().toLowerCase());
 
-            if (types.includes('Same Day')) calcTA = 100;
-            if (types.includes('Night Stay')) calcNight = 500;
+            if (types.some(t => t.includes('same day') || t.includes('ta') || t.includes('return'))) calcTA = 100;
+            if (types.some(t => t.includes('night') || t.includes('stay'))) calcNight = 500;
         }
 
         attendance.punchOut = {
