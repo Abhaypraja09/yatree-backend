@@ -86,6 +86,31 @@ const userSchema = new mongoose.Schema({
     dailyWage: {
         type: Number,
         default: 0
+    },
+    monthlyLeaveAllowance: {
+        type: Number,
+        default: 4
+    },
+    email: {
+        type: String,
+        required: false
+    },
+    designation: {
+        type: String,
+        required: false
+    },
+    shiftTiming: {
+        start: { type: String, default: '09:00' },
+        end: { type: String, default: '18:00' }
+    },
+    officeLocation: {
+        latitude: { type: Number },
+        longitude: { type: Number },
+        address: { type: String },
+        radius: { type: Number, default: 200 } // in meters
+    },
+    profilePhoto: {
+        type: String
     }
 }, {
     timestamps: true,

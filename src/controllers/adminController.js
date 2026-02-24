@@ -11,6 +11,7 @@ const Parking = require('../models/Parking');
 const StaffAttendance = require('../models/StaffAttendance');
 const AccidentLog = require('../models/AccidentLog');
 const PartsWarranty = require('../models/PartsWarranty');
+const LeaveRequest = require('../models/LeaveRequest');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -234,7 +235,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         totalWarrantyData, // Total warranty cost
         outsideCarsThisMonth, // Outside cars for the entire month
         allDrivers,
-        allVehicles
+        allVehicles,
+        fuelEntriesToday
     ] = await Promise.all([
         Vehicle.countDocuments({
             company: companyObjectId,
@@ -430,51 +432,141 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             createdAt: { $gte: monthStart, $lte: monthEnd }
         }),
         User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle'),
-        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver')
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver'),
+        Fuel.find({
+            company: companyObjectId,
+            date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() }
+        })
     ]);
 
     // Map all drivers with their today attendance status
+    const isTodaySelected = targetDate === todayIST;
+
     const liveDriversFeed = allDrivers.map(driver => {
         const attendance = attendanceToday.find(a => {
             const attDriverId = a.driver?._id ? a.driver._id.toString() : a.driver?.toString();
             return attDriverId === driver._id.toString();
         });
 
+        // Calculate Fuel: Use Attendance (Approved + Pending) + Standalone Admin Fuel
+        let fuelAmount = 0;
+        const driverAttendances = attendanceToday.filter(a => {
+            const attDriverId = a.driver?._id ? a.driver._id.toString() : a.driver?.toString();
+            return attDriverId === driver._id.toString();
+        });
+
+        const processedAttIds = new Set();
+        driverAttendances.forEach(a => {
+            const attId = a._id.toString();
+            if (processedAttIds.has(attId)) return;
+            processedAttIds.add(attId);
+
+            // 1. Sum up approved/verified fuel in this shift
+            fuelAmount += (Number(a.fuel?.amount) || 0);
+
+            // 2. Sum up pending fuel in this shift
+            if (a.pendingExpenses && Array.isArray(a.pendingExpenses)) {
+                a.pendingExpenses.forEach(e => {
+                    if (e.type === 'fuel' && e.amount > 0 && e.status === 'pending') {
+                        fuelAmount += Number(e.amount);
+                    }
+                });
+            }
+        });
+
+        // 3. Add standalone manual fuel entries (Source: Admin / Not Driver)
+        // These are entries added via "Add Fuel" button and not linked to a shift approval.
+        const standaloneFuel = fuelEntriesToday
+            .filter(f => f.driver === driver.name && f.source !== 'Driver')
+            .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+
+        fuelAmount += standaloneFuel;
+
         const isF = driver.isFreelancer === true;
         const isP = !!attendance;
+
+        let currentStatus = isP ? 'Present' : 'Absent';
+        if (isP && attendance.status === 'incomplete' && !isTodaySelected) {
+            currentStatus = 'Lapsed';
+        }
 
         return {
             _id: driver._id,
             name: driver.name,
             mobile: driver.mobile,
             isFreelancer: isF,
-            status: isP ? 'Present' : 'Absent',
+            status: currentStatus,
             tripStatus: driver.tripStatus,
             currentAttendance: attendance || null,
-            assignedVehicle: driver.assignedVehicle
+            assignedVehicle: driver.assignedVehicle,
+            fuelAmount
         };
     }).filter(driver => {
-        // 1. If Company/Permanent Driver -> ALWAYS show (Present or Absent)
-        if (driver.isFreelancer === false) return true;
+        // 1. If Company/Permanent Driver
+        if (driver.isFreelancer === false) {
+            // If it's today, show everyone (Present or Absent)
+            if (isTodaySelected) return true;
+            // If it's a past date, ONLY show if they were Present
+            return driver.status !== 'Absent';
+        }
 
-        // 2. If Freelancer Driver -> ONLY show if Present (On Duty)
-        if (driver.isFreelancer === true && driver.status === 'Present') return true;
-
-        // Otherwise (Absent Freelancer) -> HIDE
-        return false;
+        // 2. If Freelancer Driver -> ONLY show if they were Present/Worked
+        return driver.status !== 'Absent';
     });
 
-    // Map all vehicles with their status
     const liveVehiclesFeed = allVehicles.map(vehicle => {
-        const attendance = attendanceToday.find(a => a.vehicle?._id?.toString() === vehicle._id.toString());
+        const vehicleAttendances = attendanceToday.filter(a => a.vehicle?._id?.toString() === vehicle._id.toString());
+
+        let status = 'Idle';
+        let currentAttendance = null;
+
+        // Prioritize "In Use" (incomplete) status
+        const activeAtt = vehicleAttendances.find(a => a.status === 'incomplete');
+        if (activeAtt) {
+            status = isTodaySelected ? 'In Use' : 'Lapsed';
+            currentAttendance = activeAtt;
+        } else if (vehicleAttendances.length > 0) {
+            status = 'Completed';
+            currentAttendance = vehicleAttendances[0];
+        }
+        // Calculate Fuel: Attendance (Approved + Pending) + Standalone Admin Fuel
+        let fuelAmount = 0;
+        const seenAtt = new Set();
+        vehicleAttendances.forEach(a => {
+            const attId = a._id.toString();
+            if (seenAtt.has(attId)) return;
+            seenAtt.add(attId);
+
+            fuelAmount += (Number(a.fuel?.amount) || 0);
+            if (a.pendingExpenses && Array.isArray(a.pendingExpenses)) {
+                a.pendingExpenses.forEach(e => {
+                    if (e.type === 'fuel' && e.amount > 0 && e.status === 'pending') {
+                        fuelAmount += Number(e.amount);
+                    }
+                });
+            }
+        });
+
+        const standaloneFuelForVehicle = fuelEntriesToday
+            .filter(f => f.vehicle?.toString() === vehicle._id.toString() && f.source !== 'Driver')
+            .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+
+        fuelAmount += standaloneFuelForVehicle;
+
         return {
             _id: vehicle._id,
             carNumber: vehicle.carNumber,
             model: vehicle.model,
-            status: attendance ? (attendance.status === 'incomplete' ? 'In Use' : 'Completed') : 'Idle',
-            currentDriver: attendance?.driver || null,
-            date: attendance?.date || targetDate
+            status,
+            currentDriver: currentAttendance?.driver || null,
+            fuelAmount,
+            date: targetDate
         };
+    }).filter(vehicle => {
+        // If it's today, show all vehicles (including Idle)
+        if (isTodaySelected) return true;
+        // If it's a past date, ONLY show if they were active
+        return vehicle.status !== 'Idle';
     });
 
     // Dashboard totals now reflect the Approved collections to match the logs.
@@ -2833,10 +2925,58 @@ const createStaff = asyncHandler(async (req, res) => {
         company: companyId,
         salary: Number(salary),
         username,
-        role: 'Staff'
+        role: 'Staff',
+        monthlyLeaveAllowance: Number(req.body.monthlyLeaveAllowance) || 4,
+        email: req.body.email,
+        designation: req.body.designation,
+        shiftTiming: req.body.shiftTiming || { start: '09:00', end: '18:00' },
+        officeLocation: req.body.officeLocation ? {
+            latitude: req.body.officeLocation.latitude || undefined,
+            longitude: req.body.officeLocation.longitude || undefined,
+            address: req.body.officeLocation.address || '',
+            radius: Number(req.body.officeLocation.radius) || 200
+        } : undefined,
+        profilePhoto: req.body.profilePhoto
     });
 
     res.status(201).json(staff);
+});
+
+// @desc    Update a staff member
+// @route   PUT /api/admin/staff/:id
+// @access  Private/AdminOrExecutive
+const updateStaff = asyncHandler(async (req, res) => {
+    const { name, mobile, salary, status, monthlyLeaveAllowance, username, password } = req.body;
+    const staff = await User.findById(req.params.id);
+
+    if (staff && staff.role === 'Staff') {
+        staff.name = name || staff.name;
+        staff.mobile = mobile || staff.mobile;
+        staff.salary = salary ? Number(salary) : staff.salary;
+        staff.status = status || staff.status;
+        staff.monthlyLeaveAllowance = monthlyLeaveAllowance || staff.monthlyLeaveAllowance;
+        staff.username = username || staff.username;
+        if (password) staff.password = password;
+
+        // New fields
+        if (req.body.email) staff.email = req.body.email;
+        if (req.body.designation) staff.designation = req.body.designation;
+        if (req.body.shiftTiming) staff.shiftTiming = req.body.shiftTiming;
+        if (req.body.officeLocation) {
+            staff.officeLocation = {
+                latitude: req.body.officeLocation.latitude || undefined,
+                longitude: req.body.officeLocation.longitude || undefined,
+                address: req.body.officeLocation.address || '',
+                radius: Number(req.body.officeLocation.radius) || 200
+            };
+        }
+        if (req.body.profilePhoto) staff.profilePhoto = req.body.profilePhoto;
+
+        const updatedStaff = await staff.save();
+        res.json(updatedStaff);
+    } else {
+        res.status(404).json({ message: 'Staff member not found' });
+    }
 });
 
 // @desc    Delete a staff member
@@ -2866,10 +3006,146 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
     }
 
     const attendance = await StaffAttendance.find(query)
-        .populate('staff', 'name mobile salary')
+        .populate('staff', 'name mobile salary monthlyLeaveAllowance')
         .sort({ date: -1 });
 
+    // If month/year provided, calculate summary
+    const { month, year } = req.query;
+    if (month && year) {
+        const startStr = `${year}-${month.padStart(2, '0')}-01`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const endStr = `${year}-${month.padStart(2, '0')}-${lastDay}`;
+
+        const monthAttendance = await StaffAttendance.find({
+            company: companyId,
+            date: { $gte: startStr, $lte: endStr }
+        });
+
+        const allStaff = await User.find({ company: companyId, role: 'Staff' });
+        const report = allStaff.map(s => {
+            const staffAtt = monthAttendance.filter(a => String(a.staff) === String(s._id));
+            const presentDays = staffAtt.filter(a => a.status === 'present').length;
+            const halfDays = staffAtt.filter(a => a.status === 'half-day').length;
+            const effectivePresent = presentDays + (halfDays * 0.5);
+
+            // Calculate Sundays worked for extra pay
+            let sundaysWorked = 0;
+            staffAtt.forEach(att => {
+                if (new Date(att.date).getDay() === 0) sundaysWorked++;
+            });
+
+            // Get actual days in the selected month
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            // For current month, only calculate up to current day
+            const now = new Date();
+            const isCurrentMonth = now.getFullYear() === parseInt(year) && (now.getMonth() + 1) === parseInt(month);
+            const daysToConsider = isCurrentMonth ? now.getDate() : daysInMonth;
+
+            // Calculate actual leaves taken up to current consideration day
+            let sundaysPassed = 0;
+            for (let d = 1; d <= daysToConsider; d++) {
+                if (new Date(year, month - 1, d).getDay() === 0) sundaysPassed++;
+            }
+
+            const workingDaysPassed = daysToConsider - sundaysPassed;
+
+            // Only count absences on non-Sundays
+            const regularPresents = staffAtt.filter(a => new Date(a.date).getDay() !== 0);
+            const regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
+
+            const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
+
+            // allowance is for the WHOLE month (paid leaves)
+            const allowance = s.monthlyLeaveAllowance || 4;
+            const extraLeaves = Math.max(0, totalAbsences - allowance);
+
+            // Per day salary based on standard 26 working days
+            const perDaySalary = (s.salary || 0) / 26;
+            const deduction = extraLeaves * perDaySalary;
+            const sundayBonus = sundaysWorked * perDaySalary;
+
+            const finalSalary = Math.max(0, (s.salary || 0) - deduction + sundayBonus);
+
+            return {
+                staffId: s._id,
+                name: s.name,
+                salary: s.salary,
+                presentDays: effectivePresent,
+                sundaysWorked,
+                totalDaysPassed: daysToConsider,
+                workingDaysPassed,
+                sundaysPassed,
+                leavesTaken: totalAbsences,
+                allowance,
+                extraLeaves,
+                deduction: Math.round(deduction),
+                sundayBonus: Math.round(sundayBonus),
+                attendanceData: staffAtt,
+                finalSalary: Math.round(finalSalary)
+            };
+        });
+
+        return res.json({ attendance, report });
+    }
+
     res.json(attendance);
+});
+
+// @desc    Get pending leave requests
+// @route   GET /api/admin/leaves/pending/:companyId
+// @access  Private/AdminOrExecutive
+const getPendingLeaveRequests = asyncHandler(async (req, res) => {
+    const leaves = await LeaveRequest.find({ company: req.params.companyId, status: 'Pending' })
+        .populate('staff', 'name mobile');
+    res.json(leaves);
+});
+
+// @desc    Approve or Reject leave request
+// @route   PATCH /api/admin/leaves/:id
+// @access  Private/AdminOrExecutive
+const approveRejectLeave = asyncHandler(async (req, res) => {
+    const { status } = req.body;
+    const leave = await LeaveRequest.findById(req.params.id);
+
+    if (leave) {
+        leave.status = status;
+        leave.approvedAt = new Date();
+        leave.approvedBy = req.user._id;
+        await leave.save();
+
+        // If approved, create entry in StaffAttendance as 'absent' to block punch-in
+        if (status === 'Approved') {
+            // Helper to generate dates between startDate and endDate
+            const getDatesInRange = (start, end) => {
+                const dates = [];
+                let curr = DateTime.fromFormat(start, 'yyyy-MM-dd');
+                const last = DateTime.fromFormat(end, 'yyyy-MM-dd');
+                while (curr <= last) {
+                    dates.push(curr.toFormat('yyyy-MM-dd'));
+                    curr = curr.plus({ days: 1 });
+                }
+                return dates;
+            };
+
+            const dates = getDatesInRange(leave.startDate, leave.endDate);
+            for (const date of dates) {
+                try {
+                    await StaffAttendance.findOneAndUpdate(
+                        { staff: leave.staff, date },
+                        { status: 'absent', company: leave.company },
+                        { upsert: true }
+                    );
+                } catch (err) {
+                    console.log(`Entry for ${date} already exists or error:`, err.message);
+                }
+            }
+        }
+
+        res.json(leave);
+    } else {
+        res.status(404).json({ message: 'Leave request not found' });
+    }
 });
 
 // @desc    Add Accident/Incident Log
@@ -2944,50 +3220,53 @@ const updateAttendance = asyncHandler(async (req, res) => {
 
     const {
         vehicleId,
+        driverId,
+        date,
         startKm,
+        endKm,
+        punchInTime,
+        punchOutTime,
         status,
         remarks,
-        driverId,
+        pickUpLocation,
+        dropLocation,
+        dailyWage,
+        fuelAmount,
+        parkingAmount,
         allowanceTA,
         nightStayAmount,
         bonusAmount
     } = req.body;
 
-    // Helper: If updating vehicle, we might want to update the vehicle reference
-    if (vehicleId) {
-        attendance.vehicle = vehicleId;
+    console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}, DailyWage: ${dailyWage}, Veh: ${vehicleId}`);
+
+    if (vehicleId) attendance.vehicle = vehicleId;
+    if (driverId) attendance.driver = driverId;
+    if (date) attendance.date = date;
+    if (pickUpLocation !== undefined) attendance.pickUpLocation = pickUpLocation;
+    if (dropLocation !== undefined) attendance.dropLocation = dropLocation;
+    if (dailyWage !== undefined && dailyWage !== '') attendance.dailyWage = Number(dailyWage);
+
+    if (!attendance.punchIn) attendance.punchIn = {};
+    if (startKm !== undefined) attendance.punchIn.km = Number(startKm);
+    if (punchInTime !== undefined) {
+        attendance.punchIn.time = punchInTime ? new Date(punchInTime) : undefined;
     }
 
-    if (driverId) {
-        attendance.driver = driverId;
+    if (!attendance.punchOut) attendance.punchOut = {};
+    if (endKm !== undefined) attendance.punchOut.km = Number(endKm);
+    if (punchOutTime !== undefined) {
+        attendance.punchOut.time = punchOutTime ? new Date(punchOutTime) : undefined;
     }
+    if (remarks !== undefined) attendance.punchOut.remarks = remarks;
+    if (parkingAmount !== undefined) attendance.punchOut.tollParkingAmount = Number(parkingAmount);
+    if (allowanceTA !== undefined) attendance.punchOut.allowanceTA = Number(allowanceTA);
+    if (nightStayAmount !== undefined) attendance.punchOut.nightStayAmount = Number(nightStayAmount);
 
-    if (startKm) {
-        attendance.punchIn.km = Number(startKm);
-    }
-
-    // Allow status override (e.g. force complete)
-    if (status) {
-        attendance.status = status;
-        if (status === 'completed' && !attendance.punchOut.time) {
-            attendance.punchOut.time = new Date();
-        }
-    }
-
-    if (!attendance.punchOut) {
-        attendance.punchOut = {};
-    }
-
-    if (remarks) {
-        attendance.punchOut.remarks = remarks;
-    }
-
-    if (allowanceTA !== undefined) {
-        attendance.punchOut.allowanceTA = Number(allowanceTA);
-    }
-
-    if (nightStayAmount !== undefined) {
-        attendance.punchOut.nightStayAmount = Number(nightStayAmount);
+    if (fuelAmount !== undefined) {
+        if (!attendance.fuel) attendance.fuel = { filled: true, entries: [] };
+        attendance.fuel.amount = Number(fuelAmount);
+        attendance.fuel.filled = Number(fuelAmount) > 0;
     }
 
     if (bonusAmount !== undefined) {
@@ -2997,9 +3276,27 @@ const updateAttendance = asyncHandler(async (req, res) => {
         attendance.outsideTrip.bonusAmount = Number(bonusAmount);
     }
 
+    if (status) {
+        attendance.status = status;
+    }
+
+    // Recalculate totalKM if both KMs are present
+    if (attendance.punchIn?.km !== undefined && attendance.punchOut?.km !== undefined) {
+        attendance.totalKM = attendance.punchOut.km - attendance.punchIn.km;
+    }
+
+    // Explicitly mark all possible modified fields
+    attendance.markModified('punchIn');
     attendance.markModified('punchOut');
+    attendance.markModified('fuel');
     attendance.markModified('outsideTrip');
+    attendance.markModified('dailyWage');
+    attendance.markModified('pickUpLocation');
+    attendance.markModified('dropLocation');
+    attendance.markModified('date');
+
     const updatedAttendance = await attendance.save();
+    console.log(`[ATTENDANCE_UPDATE] Success. New Daily Wage: ${updatedAttendance.dailyWage}`);
     res.json(updatedAttendance);
 });
 
@@ -3198,7 +3495,10 @@ module.exports = {
     getAllStaff,
     createStaff,
     deleteStaff,
+    updateStaff,
     getStaffAttendanceReports,
+    getPendingLeaveRequests,
+    approveRejectLeave,
     addManualDuty,
     deleteAttendance,
     updateAttendance,

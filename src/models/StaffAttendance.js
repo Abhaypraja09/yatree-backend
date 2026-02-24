@@ -21,7 +21,8 @@ const staffAttendanceSchema = new mongoose.Schema({
             latitude: { type: Number },
             longitude: { type: Number },
             address: { type: String }
-        }
+        },
+        photo: { type: String }
     },
     punchOut: {
         time: { type: Date },
@@ -29,7 +30,8 @@ const staffAttendanceSchema = new mongoose.Schema({
             latitude: { type: Number },
             longitude: { type: Number },
             address: { type: String }
-        }
+        },
+        photo: { type: String }
     },
     status: {
         type: String,

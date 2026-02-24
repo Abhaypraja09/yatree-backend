@@ -1,0 +1,78 @@
+{
+  "punchIn": {
+    "location": {
+      "latitude": 0,
+      "longitude": 0,
+      "address": "Location Disabled"
+    },
+    "km": 119668,
+    "selfie": "https://res.cloudinary.com/doaymwjki/image/upload/v1771890286/taxi-fleet-crm/documents/selfie-1771890284813-477764606.jpg",
+    "kmPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771890287/taxi-fleet-crm/documents/kmPhoto-1771890284814-305240943.jpg",
+    "carSelfie": "https://res.cloudinary.com/doaymwjki/image/upload/v1771890287/taxi-fleet-crm/documents/carSelfie-1771890284814-367619683.jpg",
+    "time": "2026-02-23T23:44:48.014Z"
+  },
+  "punchOut": {
+    "tollParkingAmount": 0,
+    "allowanceTA": 0,
+    "nightStayAmount": 0
+  },
+  "fuel": {
+    "filled": true,
+    "amount": 2000,
+    "entries": [
+      {
+        "amount": 2000,
+        "km": 119076,
+        "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771896926/taxi-fleet-crm/documents/slip_0-1771896924035-262112374.jpg",
+        "fuelType": "Diesel",
+        "paymentSource": "Yatree Office",
+        "_id": "699d4b0a2e9c311dcb665cea"
+      }
+    ]
+  },
+  "outsideTrip": {
+    "occurred": false,
+    "bonusAmount": 0
+  },
+  "_id": "699ce670830edb7297a963c7",
+  "driver": "698b1364c64b8814fd74c43e",
+  "company": "6982e8b7d0b069a49db197b9",
+  "vehicle": "6982f3b2508a22188c61892e",
+  "date": "2026-02-24",
+  "totalKM": 0,
+  "status": "incomplete",
+  "dailyWage": 400,
+  "dutyCount": 1,
+  "parking": [],
+  "pendingExpenses": [
+    {
+      "type": "fuel",
+      "fuelType": "Diesel",
+      "amount": 2000,
+      "quantity": 90.61,
+      "rate": 22.07,
+      "km": 119076,
+      "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771896926/taxi-fleet-crm/documents/slip_0-1771896924035-262112374.jpg",
+      "paymentSource": "Yatree Office",
+      "status": "approved",
+      "_id": "699d005f8fdde45597cda094",
+      "createdAt": "2026-02-24T01:35:27.506Z"
+    },
+    {
+      "type": "parking",
+      "fuelType": null,
+      "amount": 30,
+      "quantity": 0,
+      "rate": 0,
+      "km": 0,
+      "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771915229/taxi-fleet-crm/documents/slip_0-1771915226024-515031141.jpg",
+      "paymentSource": "Yatree Office",
+      "status": "pending",
+      "_id": "699d47dda6b46d68d1626feb",
+      "createdAt": "2026-02-24T06:40:29.882Z"
+    }
+  ],
+  "createdAt": "2026-02-23T23:44:48.019Z",
+  "updatedAt": "2026-02-24T06:54:02.967Z",
+  "__v": 3
+}

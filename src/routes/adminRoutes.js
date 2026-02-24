@@ -57,7 +57,10 @@ const {
     getAccidentLogs,
     deleteAccidentLog,
     updateAttendance,
-    updateMaintenanceRecord
+    updateMaintenanceRecord,
+    updateStaff,
+    getPendingLeaveRequests,
+    approveRejectLeave
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -148,8 +151,13 @@ router.delete('/executives/:id', admin, deleteExecutive);
 // Staff Management
 router.get('/staff/:companyId', adminOrExecutive, getAllStaff);
 router.post('/staff', adminOrExecutive, createStaff);
+router.put('/staff/:id', adminOrExecutive, updateStaff);
 router.delete('/staff/:id', adminOrExecutive, deleteStaff);
 router.get('/staff-attendance/:companyId', adminOrExecutive, getStaffAttendanceReports);
+
+// Leave Requests
+router.get('/leaves/pending/:companyId', adminOrExecutive, getPendingLeaveRequests);
+router.patch('/leaves/:id', adminOrExecutive, approveRejectLeave);
 
 // Generic Upload Route
 router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {

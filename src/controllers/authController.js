@@ -126,6 +126,8 @@ const loginUser = async (req, res) => {
                 mobile: user.mobile,
                 role: user.role,
                 company: user.company,
+                salary: user.salary,
+                monthlyLeaveAllowance: user.monthlyLeaveAllowance,
                 token: generateToken(user._id),
             });
         } else {
@@ -152,6 +154,8 @@ const getUserProfile = async (req, res) => {
             mobile: user.mobile,
             role: user.role,
             company: user.company,
+            salary: user.salary,
+            monthlyLeaveAllowance: user.monthlyLeaveAllowance
         });
     } else {
         res.status(404).json({ message: 'User not found' });
