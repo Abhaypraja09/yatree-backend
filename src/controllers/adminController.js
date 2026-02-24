@@ -382,7 +382,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         Attendance.find({ // allAttendanceThisMonth
             company: companyObjectId,
             date: { $gte: monthStartStr, $lte: monthEndStr }
-        }).populate('driver', 'name mobile salary dailyWage isFreelancer'),
+        }).populate('driver', 'name mobile salary dailyWage isFreelancer').populate('vehicle', 'carNumber model'),
         BorderTax.aggregate([ // monthlyBorderTaxData
             {
                 $match: {
@@ -442,7 +442,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     // Map all drivers with their today attendance status
     const isTodaySelected = targetDate === todayIST;
 
-    const liveDriversFeed = allDrivers.flatMap(driver => {
+    const liveDriversFeed = allDrivers.map(driver => {
         const isF = driver.isFreelancer === true;
 
         let driverAttendances = attendanceToday.filter(a => {
@@ -450,25 +450,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             return attDriverId === driver._id.toString();
         });
 
-        // 1. If Company Driver and no attendance today -> Show them as "Absent"
-        if (driverAttendances.length === 0) {
-            return [{
-                _id: driver._id.toString(),
-                name: driver.name,
-                mobile: driver.mobile,
-                isFreelancer: isF,
-                status: 'Absent',
-                tripStatus: driver.tripStatus,
-                currentAttendance: null,
-                assignedVehicle: driver.assignedVehicle,
-                fuelAmount: 0
-            }];
-        }
+        let fuelAmount = 0;
 
-        // 2. If Driver has one or MORE attendances -> Create an entry for each!
-        return driverAttendances.map((att, index) => {
-            let fuelAmount = 0;
-
+        driverAttendances.forEach((att) => {
             // Fuel from this specific shift
             fuelAmount += (Number(att.fuel?.amount) || 0);
 
@@ -479,46 +463,44 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     }
                 });
             }
-
-            // Standalone Fuel: Only add to their FIRST duty of the day to avoid double counting
-            if (index === 0) {
-                const standaloneFuel = fuelEntriesToday
-                    .filter(f => f.driver === driver.name && f.source !== 'Driver')
-                    .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
-                fuelAmount += standaloneFuel;
-            }
-
-            // Determine status for this specific shift
-            let currentStatus = 'Present';
-            if (att.status === 'completed') {
-                currentStatus = 'Completed';
-            } else if (att.status === 'incomplete' && !isTodaySelected) {
-                currentStatus = 'Lapsed';
-            }
-
-            return {
-                // Must be unique for React map function if rendering multiple
-                _id: `${driver._id}_${att._id}`,
-                name: driver.name,
-                mobile: driver.mobile,
-                isFreelancer: isF,
-                status: currentStatus,
-                tripStatus: driver.tripStatus,
-                currentAttendance: att,
-                assignedVehicle: driver.assignedVehicle,
-                fuelAmount
-            };
         });
-    }).filter(driver => {
-        // 1. If Company/Permanent Driver
-        if (driver.isFreelancer === false) {
-            // If it's today, show everyone (Present or Absent)
-            if (isTodaySelected) return true;
-            // If it's a past date, ONLY show if they were Present
-            return driver.status !== 'Absent';
+
+        // Standalone Fuel: add to their total
+        const standaloneFuel = fuelEntriesToday
+            .filter(f => f.driver === driver.name && f.source !== 'Driver')
+            .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+        fuelAmount += standaloneFuel;
+
+        // Determine overall status for this driver today
+        let currentStatus = 'Absent';
+        if (driverAttendances.length > 0) {
+            const hasOngoing = driverAttendances.some(a => a.status === 'incomplete');
+            if (hasOngoing) {
+                currentStatus = !isTodaySelected ? 'Lapsed' : 'Present';
+            } else {
+                currentStatus = 'Completed';
+            }
         }
 
-        // 2. If Freelancer Driver -> ONLY show if they were Present/Worked
+        return {
+            _id: driver._id.toString(),
+            name: driver.name,
+            mobile: driver.mobile,
+            isFreelancer: isF,
+            status: currentStatus,
+            tripStatus: driver.tripStatus,
+            attendances: driverAttendances, // All shifts for the driver
+            currentAttendance: driverAttendances[driverAttendances.length - 1] || null, // Latest shift
+            assignedVehicle: driver.assignedVehicle,
+            fuelAmount
+        };
+    }).filter(driver => {
+        // 1. If Company Driver -> always show
+        if (!driver.isFreelancer) {
+            return true;
+        }
+
+        // 2. If Freelancer Driver -> ONLY show if they were Present/Worked (never show Absent)
         return driver.status !== 'Absent';
     });
 
@@ -566,15 +548,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             carNumber: vehicle.carNumber,
             model: vehicle.model,
             status,
+            attendances: vehicleAttendances,
             currentDriver: currentAttendance?.driver || null,
             fuelAmount,
             date: targetDate
         };
-    }).filter(vehicle => {
-        // If it's today, show all vehicles (including Idle)
-        if (isTodaySelected) return true;
-        // If it's a past date, ONLY show if they were active
-        return vehicle.status !== 'Idle';
     });
 
     // Dashboard totals now reflect the Approved collections to match the logs.
@@ -821,7 +799,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             count: freelancerAdvanceData[0]?.count || 0
         },
         liveDriversFeed,
-        liveVehiclesFeed
+        liveVehiclesFeed,
+        dutyHistoryThisMonth: allAttendanceThisMonth.sort((a, b) => new Date(b.date) - new Date(a.date))
     });
 });
 
@@ -1137,6 +1116,9 @@ const deleteAttendance = asyncHandler(async (req, res) => {
             await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
             await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved' });
         }
+
+        // Delete linked parking entry if it exists
+        await Parking.deleteMany({ attendanceId: attendance._id });
 
         await Attendance.deleteOne({ _id: attendance._id });
         res.json({ message: 'Attendance record deleted successfully' });
@@ -1679,7 +1661,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/freelancers/punch-out
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
-    const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation } = req.body;
+    const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
 
     const driver = await User.findById(driverId);
     if (!driver) {
@@ -1703,7 +1685,9 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
     attendance.punchOut = {
         km: km || 0,
         time: time ? new Date(time) : new Date(),
-        otherRemarks: review
+        otherRemarks: review,
+        tollParkingAmount: Number(parkingAmount) || 0,
+        parkingPaidBy: parkingPaidBy || 'Self'
     };
 
     attendance.fuel = {
@@ -1711,16 +1695,27 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         amount: fuelAmount || 0
     };
 
-    attendance.parking = [{ amount: parkingAmount || 0 }];
     attendance.dropLocation = dropLocation;
-
     attendance.totalKM = (km || 0) - (attendance.punchIn.km || 0);
     attendance.status = 'completed';
     await attendance.save();
 
-    // --- NEW: Automatically create an Advance record for the daily wage ---
-    // REMOVED: This was causing salary to be treated as a debt (Advance).
-    // --- End of NEW logic ---
+    // Create a Parking entry so it gets tracked in Settlement/Salaries
+    if (Number(parkingAmount) > 0) {
+        await Parking.create({
+            vehicle: attendance.vehicle,
+            company: driver.company,
+            driver: driver.name,
+            driverId: driverId,
+            attendanceId: attendance._id,
+            date: attendance.date ? new Date(attendance.date) : new Date(),
+            amount: Number(parkingAmount),
+            source: 'Admin',
+            notes: `Freelancer Punch-Out Parking (Paid By: ${parkingPaidBy || 'Self'})`,
+            createdBy: req.user._id,
+            isReimbursable: parkingPaidBy === 'Office' ? false : true // Only pay back if not paid by office
+        });
+    }
 
     // Update driver status
     driver.tripStatus = 'approved';
@@ -1757,7 +1752,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
         review,
         allowanceTA,
         nightStayAmount,
-        otherBonus
+        otherBonus,
+        parkingPaidBy
     } = req.body;
 
     if (!driverId || !vehicleId || !companyId || !date) {
@@ -1796,7 +1792,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
             otherRemarks: review || '',
             tollParkingAmount: Number(parkingAmount) || 0,
             allowanceTA: allowanceTA ? 100 : 0,
-            nightStayAmount: nightStayAmount ? 500 : 0
+            nightStayAmount: nightStayAmount ? 500 : 0,
+            parkingPaidBy: parkingPaidBy || 'Self'
         },
         outsideTrip: {
             bonusAmount: Number(otherBonus) || 0
@@ -1822,11 +1819,13 @@ const addManualDuty = asyncHandler(async (req, res) => {
             company: companyId,
             driver: driver.name,
             driverId: driverId,
+            attendanceId: attendance._id,
             date: new Date(date),
             amount: Number(parkingAmount),
             source: 'Admin',
-            notes: 'Manual Duty Parking',
-            createdBy: req.user._id
+            notes: `Manual Duty Parking (Paid By: ${parkingPaidBy || 'Self'})`,
+            createdBy: req.user._id,
+            isReimbursable: parkingPaidBy === 'Office' ? false : true
         });
     }
 
@@ -2610,7 +2609,7 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             parkingQuery.serviceType = { $ne: 'car_service' };
         }
 
-        const parkingEntries = await Parking.find(parkingQuery);
+        const parkingEntries = await Parking.find({ ...parkingQuery, isReimbursable: true });
 
         // 4. Calculate Earnings
         // Use maps to aggregate daily values to avoid double counting across multiple shifts
@@ -3243,7 +3242,8 @@ const updateAttendance = asyncHandler(async (req, res) => {
         parkingAmount,
         allowanceTA,
         nightStayAmount,
-        bonusAmount
+        bonusAmount,
+        parkingPaidBy
     } = req.body;
 
     console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}, DailyWage: ${dailyWage}, Veh: ${vehicleId}`);
@@ -3304,6 +3304,47 @@ const updateAttendance = asyncHandler(async (req, res) => {
     attendance.markModified('date');
 
     const updatedAttendance = await attendance.save();
+
+    // Sync Parking Entry
+    if (parkingAmount !== undefined) {
+        const amt = Number(parkingAmount);
+        const existingParking = await Parking.findOne({ attendanceId: attendance._id });
+
+        if (amt > 0) {
+            if (existingParking) {
+                existingParking.amount = amt;
+                existingParking.date = attendance.date ? new Date(attendance.date) : existingParking.date;
+                existingParking.vehicle = attendance.vehicle || existingParking.vehicle;
+                existingParking.isReimbursable = parkingPaidBy === 'Office' ? false : (parkingPaidBy === 'Self' ? true : existingParking.isReimbursable);
+                existingParking.notes = `Updated Attendance Parking (Paid By: ${parkingPaidBy || 'Unknown'})`;
+                await existingParking.save();
+            } else {
+                // Create new parking entry
+                const driverDoc = await User.findById(attendance.driver);
+                await Parking.create({
+                    vehicle: attendance.vehicle,
+                    company: attendance.company,
+                    driver: driverDoc?.name || 'Unknown',
+                    driverId: attendance.driver,
+                    attendanceId: attendance._id,
+                    date: attendance.date ? new Date(attendance.date) : new Date(),
+                    amount: amt,
+                    source: 'Admin',
+                    notes: `Updated Attendance Parking (Paid By: ${parkingPaidBy || 'Self'})`,
+                    createdBy: req.user._id,
+                    isReimbursable: parkingPaidBy === 'Office' ? false : true
+                });
+            }
+        } else if (existingParking) {
+            // Amount set to 0, delete the parking entry
+            await existingParking.deleteOne();
+        }
+    }
+
+    if (parkingPaidBy !== undefined) {
+        attendance.punchOut.parkingPaidBy = parkingPaidBy;
+    }
+
     console.log(`[ATTENDANCE_UPDATE] Success. New Daily Wage: ${updatedAttendance.dailyWage}`);
     res.json(updatedAttendance);
 });
@@ -3362,7 +3403,8 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 { driver: { $regex: new RegExp(`^${driver.name.trim()}$`, 'i') } }
             ],
             date: { $gte: startOfMonth, $lte: endOfMonth },
-            serviceType: { $ne: 'car_service' }
+            serviceType: { $ne: 'car_service' },
+            isReimbursable: { $ne: false } // Default to true or missing
         }).sort({ date: 1 });
 
         // 3. Fetch Advances

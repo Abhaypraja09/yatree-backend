@@ -19,6 +19,10 @@ const parkingSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    attendanceId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Attendance'
+    },
     date: {
         type: Date,
         default: Date.now,
@@ -55,6 +59,10 @@ const parkingSchema = new mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    isReimbursable: {
+        type: Boolean,
+        default: true
     }
 }, {
     timestamps: true

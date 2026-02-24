@@ -13,8 +13,7 @@ const maintenanceSchema = new mongoose.Schema({
     },
     maintenanceType: {
         type: String,
-        required: true,
-        enum: ['Regular Service', 'Engine & Mechanical', 'Tyres & Wheels', 'Brake System', 'Electrical & Battery', 'AC & Cooling', 'Body & Interior', 'Other']
+        required: true
     },
     category: {
         type: String, // Sub-category like 'Engine oil change', 'New tyre purchase' etc.

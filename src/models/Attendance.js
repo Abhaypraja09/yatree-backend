@@ -47,7 +47,8 @@ const attendanceSchema = new mongoose.Schema({
         tollParkingAmount: { type: Number, default: 0 },
         allowanceTA: { type: Number, default: 0 }, // 100 bonus
         nightStayAmount: { type: Number, default: 0 }, // 500 bonus
-        otherRemarks: { type: String } // Puncture etc.
+        otherRemarks: { type: String }, // Puncture etc.
+        parkingPaidBy: { type: String, enum: ['Self', 'Office'], default: 'Self' }
     },
 
     // Legacy / Structured Fields (Required for detailed tracking and images)
