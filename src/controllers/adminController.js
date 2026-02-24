@@ -442,65 +442,73 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     // Map all drivers with their today attendance status
     const isTodaySelected = targetDate === todayIST;
 
-    const liveDriversFeed = allDrivers.map(driver => {
-        const attendance = attendanceToday.find(a => {
+    const liveDriversFeed = allDrivers.flatMap(driver => {
+        const isF = driver.isFreelancer === true;
+
+        let driverAttendances = attendanceToday.filter(a => {
             const attDriverId = a.driver?._id ? a.driver._id.toString() : a.driver?.toString();
             return attDriverId === driver._id.toString();
         });
 
-        // Calculate Fuel: Use Attendance (Approved + Pending) + Standalone Admin Fuel
-        let fuelAmount = 0;
-        const driverAttendances = attendanceToday.filter(a => {
-            const attDriverId = a.driver?._id ? a.driver._id.toString() : a.driver?.toString();
-            return attDriverId === driver._id.toString();
-        });
+        // 1. If Company Driver and no attendance today -> Show them as "Absent"
+        if (driverAttendances.length === 0) {
+            return [{
+                _id: driver._id.toString(),
+                name: driver.name,
+                mobile: driver.mobile,
+                isFreelancer: isF,
+                status: 'Absent',
+                tripStatus: driver.tripStatus,
+                currentAttendance: null,
+                assignedVehicle: driver.assignedVehicle,
+                fuelAmount: 0
+            }];
+        }
 
-        const processedAttIds = new Set();
-        driverAttendances.forEach(a => {
-            const attId = a._id.toString();
-            if (processedAttIds.has(attId)) return;
-            processedAttIds.add(attId);
+        // 2. If Driver has one or MORE attendances -> Create an entry for each!
+        return driverAttendances.map((att, index) => {
+            let fuelAmount = 0;
 
-            // 1. Sum up approved/verified fuel in this shift
-            fuelAmount += (Number(a.fuel?.amount) || 0);
+            // Fuel from this specific shift
+            fuelAmount += (Number(att.fuel?.amount) || 0);
 
-            // 2. Sum up pending fuel in this shift
-            if (a.pendingExpenses && Array.isArray(a.pendingExpenses)) {
-                a.pendingExpenses.forEach(e => {
+            if (att.pendingExpenses && Array.isArray(att.pendingExpenses)) {
+                att.pendingExpenses.forEach(e => {
                     if (e.type === 'fuel' && e.amount > 0 && e.status === 'pending') {
                         fuelAmount += Number(e.amount);
                     }
                 });
             }
+
+            // Standalone Fuel: Only add to their FIRST duty of the day to avoid double counting
+            if (index === 0) {
+                const standaloneFuel = fuelEntriesToday
+                    .filter(f => f.driver === driver.name && f.source !== 'Driver')
+                    .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+                fuelAmount += standaloneFuel;
+            }
+
+            // Determine status for this specific shift
+            let currentStatus = 'Present';
+            if (att.status === 'completed') {
+                currentStatus = 'Completed';
+            } else if (att.status === 'incomplete' && !isTodaySelected) {
+                currentStatus = 'Lapsed';
+            }
+
+            return {
+                // Must be unique for React map function if rendering multiple
+                _id: `${driver._id}_${att._id}`,
+                name: driver.name,
+                mobile: driver.mobile,
+                isFreelancer: isF,
+                status: currentStatus,
+                tripStatus: driver.tripStatus,
+                currentAttendance: att,
+                assignedVehicle: driver.assignedVehicle,
+                fuelAmount
+            };
         });
-
-        // 3. Add standalone manual fuel entries (Source: Admin / Not Driver)
-        // These are entries added via "Add Fuel" button and not linked to a shift approval.
-        const standaloneFuel = fuelEntriesToday
-            .filter(f => f.driver === driver.name && f.source !== 'Driver')
-            .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
-
-        fuelAmount += standaloneFuel;
-
-        const isF = driver.isFreelancer === true;
-        const isP = !!attendance;
-
-        let currentStatus = isP ? 'Present' : 'Absent';
-        if (isP && attendance.status === 'incomplete' && !isTodaySelected) {
-            currentStatus = 'Lapsed';
-        }
-
-        return {
-            _id: driver._id,
-            name: driver.name,
-            mobile: driver.mobile,
-            isFreelancer: isF,
-            status: currentStatus,
-            tripStatus: driver.tripStatus,
-            currentAttendance: attendance || null,
-            assignedVehicle: driver.assignedVehicle,
-            fuelAmount
-        };
     }).filter(driver => {
         // 1. If Company/Permanent Driver
         if (driver.isFreelancer === false) {
