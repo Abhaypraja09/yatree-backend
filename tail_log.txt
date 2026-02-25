@@ -1,0 +1,50 @@
+﻿[2026-02-24T09:14:20.125Z] Password matched
+[2026-02-24T09:36:37.398Z] CRON: Cron Jobs Initialized
+[2026-02-24T09:50:08.534Z] CRON: Cron Jobs Initialized
+[2026-02-24T09:53:02.538Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:05:23.573Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:14:27.036Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:22:26.297Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:49:42.619Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:50:14.240Z] CRON: Cron Jobs Initialized
+[2026-02-24T10:56:43.465Z] CRON: Cron Jobs Initialized
+[2026-02-24T11:00:09.877Z] CRON: Cron Jobs Initialized
+[2026-02-24T11:07:40.801Z] CRON: Cron Jobs Initialized
+[2026-02-24T11:17:38.339Z] CRON: Cron Jobs Initialized
+[2026-02-24T11:29:45.116Z] CRON: Cron Jobs Initialized
+[2026-02-24T12:00:17.838Z] CRON: Cron Jobs Initialized
+[2026-02-24T13:02:12.043Z] CRON: Cron Jobs Initialized
+[2026-02-25T04:55:27.064Z] CRON: Cron Jobs Initialized
+[2026-02-25T04:55:56.910Z] Login attempt started
+[2026-02-25T04:55:56.912Z] Login request for: 9999888877
+[2026-02-25T04:55:57.084Z] User found: System Admin (Role: Admin)
+[2026-02-25T04:55:57.262Z] Password matched
+[2026-02-25T05:00:00.763Z] CRON: Starting Daily Warranty Expiry Check
+[2026-02-25T05:00:00.842Z] CRON: Daily warranty expiry check completed. Found 0 alerts.
+[2026-02-25T05:19:51.672Z] CRON: Cron Jobs Initialized
+[2026-02-25T05:39:56.064Z] Login attempt started
+[2026-02-25T05:39:56.074Z] Login request for: admin@fleet.com
+[2026-02-25T05:39:56.097Z] Login failed: User [admin@fleet.com] not found. Tried finding by mobile or username (regex).
+[2026-02-25T05:40:07.878Z] Login attempt started
+[2026-02-25T05:40:07.879Z] Login request for: 9999888877
+[2026-02-25T05:40:07.917Z] User found: System Admin (Role: Admin)
+[2026-02-25T05:40:08.063Z] Password matched
+[2026-02-25T06:11:00.493Z] CRON: Cron Jobs Initialized
+[2026-02-25T06:13:13.053Z] CRON: Cron Jobs Initialized
+[2026-02-25T06:13:26.906Z] Login attempt started
+[2026-02-25T06:13:26.908Z] Login request for: 9999888877
+[2026-02-25T06:13:26.993Z] User found: System Admin (Role: Admin)
+[2026-02-25T06:13:27.121Z] Password matched
+[2026-02-25T06:18:41.722Z] CRON: Cron Jobs Initialized
+[2026-02-25T06:19:08.266Z] CRON: Cron Jobs Initialized
+[2026-02-25T06:19:23.865Z] Login attempt started
+[2026-02-25T06:19:23.867Z] Login request for: Abhay
+[2026-02-25T06:19:23.916Z] User found: Abhay (Role: Driver)
+[2026-02-25T06:19:24.082Z] Password matched
+[2026-02-25T06:19:25.213Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-02-25T06:19:25.268Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 5
+[2026-02-25T06:19:25.357Z] DRIVER_CTRL: getDriverDashboard - Final Status: approved, Current Car: RJ-27-TB-1387
+[2026-02-25T06:19:25.501Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-02-25T06:19:25.549Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 5
+[2026-02-25T06:19:25.608Z] DRIVER_CTRL: getDriverDashboard - Final Status: approved, Current Car: RJ-27-TB-1387
+[2026-02-25T08:40:16.079Z] CRON: Cron Jobs Initialized
