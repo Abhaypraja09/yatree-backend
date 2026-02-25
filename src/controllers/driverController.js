@@ -28,14 +28,27 @@ const getDriverDashboard = async (req, res) => {
     const companyId = driver.company?._id || driver.company;
     logToFile(`getDriverDashboard - User: ${req.user._id}, Company: ${companyId}`);
 
-    // 1. Fetch all vehicles of this company
+    // 1. Fetch available vehicles of this company
+    // First, identify vehicles currently in use by OTHER drivers
+    const activeShifts = await Attendance.find({
+        status: 'incomplete',
+        company: companyId,
+        driver: { $ne: req.user._id }
+    }).select('vehicle');
+    const occupiedVehicleIds = activeShifts.map(a => a.vehicle.toString());
+
     const availableVehicles = await Vehicle.find({
         $or: [
             { company: companyId },
             { company: companyId.toString() }
         ],
         status: 'active',
-        isOutsideCar: { $ne: true }
+        isOutsideCar: { $ne: true },
+        _id: { $nin: occupiedVehicleIds },
+        $or: [
+            { currentDriver: null },
+            { currentDriver: req.user._id }
+        ]
     }).select('carNumber model carType currentDriver');
 
     logToFile(`getDriverDashboard - User: ${req.user._id}, Comp: ${companyId}, Found: ${availableVehicles.length}`);

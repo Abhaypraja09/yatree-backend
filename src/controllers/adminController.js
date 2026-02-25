@@ -2596,7 +2596,7 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
         const parkingQuery = {
             $or: [
                 { driverId: driver._id },
-                { driver: driver.name }
+                { driver: { $regex: new RegExp(`^${driver.name.trim()}$`, 'i') } }
             ]
         };
         if (month && year) {
@@ -2609,7 +2609,7 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             parkingQuery.serviceType = { $ne: 'car_service' };
         }
 
-        const parkingEntries = await Parking.find({ ...parkingQuery, isReimbursable: true });
+        const parkingEntries = await Parking.find({ ...parkingQuery, isReimbursable: { $ne: false } });
 
         // 4. Calculate Earnings
         // Use maps to aggregate daily values to avoid double counting across multiple shifts
