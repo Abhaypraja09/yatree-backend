@@ -4,10 +4,10 @@ const dotenv = require('dotenv');
 // Version: 1.0.5 - Enhanced Logging
 const path = require('path');
 // Try loading from default CWD first, then fallback to explicit path
-const result = dotenv.config();
+const result = dotenv.config({ override: true });
 if (result.error) {
     console.log('Default .env load failed, trying explicit path...');
-    dotenv.config({ path: path.join(__dirname, '../.env') });
+    dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 }
 
 console.log('--- SERVER STARTUP ---');
@@ -20,7 +20,7 @@ console.log('PORT:', process.env.PORT);
 const app = require('./app');
 const connectDB = require('./config/db');
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5005;
 
 const { seed } = require('../scripts/seedAdmin');
 

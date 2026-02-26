@@ -249,7 +249,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }),
         Attendance.find({
             company: companyObjectId,
-            date: targetDate
+            $or: [
+                { date: targetDate },
+                { status: 'incomplete' }
+            ]
         })
             .populate({
                 path: 'driver',
@@ -1731,6 +1734,141 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
     res.json({ message: 'Duty completed and vehicle released', attendance });
 });
 
+// @desc    Admin Punch In (Manual by Admin)
+// @route   POST /api/admin/punch-in
+// @access  Private/Admin
+const adminPunchIn = asyncHandler(async (req, res) => {
+    const { driverId, vehicleId, km, time, pickUpLocation, date } = req.body;
+
+    const driver = await User.findById(driverId);
+    const vehicle = await Vehicle.findById(vehicleId);
+
+    if (!driver || !vehicle) {
+        return res.status(404).json({ message: 'Driver or Vehicle not found' });
+    }
+
+    const dutyDate = date || DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+
+    // Check if ya to active shift hai
+    const existing = await Attendance.findOne({ driver: driverId, status: 'incomplete' });
+    if (existing) {
+        return res.status(400).json({ message: `Driver is already on an active shift` });
+    }
+
+    const attendance = new Attendance({
+        driver: driverId,
+        company: driver.company,
+        vehicle: vehicleId,
+        date: dutyDate,
+        dailyWage: driver.dailyWage || 0,
+        punchIn: {
+            km: Number(km) || 0,
+            time: time ? new Date(time) : new Date(),
+        },
+        pickUpLocation: pickUpLocation || 'Office',
+        status: 'incomplete'
+    });
+
+    await attendance.save();
+
+    // Update Driver
+    driver.tripStatus = 'active';
+    driver.assignedVehicle = vehicleId;
+    await driver.save();
+
+    // Update Vehicle
+    if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driverId) {
+        await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null });
+    }
+    vehicle.currentDriver = driverId;
+    if (Number(km) > (vehicle.lastOdometer || 0)) {
+        vehicle.lastOdometer = Number(km);
+    }
+    await vehicle.save();
+
+    res.json({ message: 'Driver punched in by admin', attendance });
+});
+
+// @desc    Admin Punch Out (Manual by Admin)
+// @route   POST /api/admin/punch-out
+// @access  Private/Admin
+const adminPunchOut = asyncHandler(async (req, res) => {
+    const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
+
+    const driver = await User.findById(driverId);
+    if (!driver) {
+        return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    const attendance = await Attendance.findOne({
+        driver: driverId,
+        status: 'incomplete'
+    }).sort({ createdAt: -1 });
+
+    if (!attendance) {
+        return res.status(400).json({ message: 'No active shift found to punch out' });
+    }
+
+    if (dailyWage) attendance.dailyWage = Number(dailyWage);
+
+    attendance.punchOut = {
+        km: Number(km) || 0,
+        time: time ? new Date(time) : new Date(),
+        otherRemarks: review || '',
+        tollParkingAmount: Number(parkingAmount) || 0,
+        parkingPaidBy: parkingPaidBy || 'Self'
+    };
+
+    if (fuelAmount) {
+        attendance.fuel = {
+            filled: true,
+            amount: Number(fuelAmount) || 0,
+            entries: [{ amount: Number(fuelAmount), paymentSource: 'Yatree Office' }]
+        };
+    }
+
+    attendance.dropLocation = dropLocation || 'Office';
+    attendance.totalKM = (Number(km) || 0) - (attendance.punchIn.km || 0);
+    attendance.status = 'completed';
+    await attendance.save();
+
+    // Create Parking entry
+    if (Number(parkingAmount) > 0) {
+        await Parking.create({
+            vehicle: attendance.vehicle,
+            company: driver.company,
+            driver: driver.name,
+            driverId: driverId,
+            attendanceId: attendance._id,
+            date: attendance.date ? new Date(attendance.date) : new Date(),
+            amount: Number(parkingAmount),
+            source: 'Admin',
+            notes: `Admin Punch-Out Parking (Paid By: ${parkingPaidBy || 'Self'})`,
+            createdBy: req.user._id,
+            isReimbursable: parkingPaidBy === 'Office' ? false : true
+        });
+    }
+
+    // Update driver status
+    driver.tripStatus = 'completed';
+    driver.assignedVehicle = null;
+    await driver.save();
+
+    // Release vehicle
+    if (attendance.vehicle) {
+        const vehicle = await Vehicle.findById(attendance.vehicle);
+        if (vehicle) {
+            vehicle.currentDriver = null;
+            if (Number(km) > (vehicle.lastOdometer || 0)) {
+                vehicle.lastOdometer = Number(km);
+            }
+            await vehicle.save();
+        }
+    }
+
+    res.json({ message: 'Driver punched out by admin', attendance });
+});
+
 // @desc    Add manual duty entry for a driver
 // @route   POST /api/admin/manual-duty
 // @access  Private/Admin
@@ -2232,10 +2370,11 @@ const getPendingFuelExpenses = asyncHandler(async (req, res) => {
 const getPendingParkingExpenses = asyncHandler(async (req, res) => {
     try {
         const { companyId } = req.params;
+        const statusFilter = req.query.status || 'pending'; // 'pending' or 'rejected'
         // Fetch docs that have parking OR other (car wash, puncture) pending expenses
         const pendingDocs = await Attendance.find({
             company: companyId,
-            'pendingExpenses.status': 'pending',
+            'pendingExpenses.status': statusFilter,
             'pendingExpenses.type': { $in: ['parking', 'other'] }
         })
             .populate('driver', 'name')
@@ -2248,8 +2387,8 @@ const getPendingParkingExpenses = asyncHandler(async (req, res) => {
             if (!doc.pendingExpenses) return;
 
             doc.pendingExpenses.forEach(exp => {
-                // Include both 'parking' and 'other' (Car Wash, Puncture) pending expenses
-                if ((exp.type === 'parking' || exp.type === 'other') && exp.status === 'pending') {
+                // Include both 'parking' and 'other' (Car Wash, Puncture) expenses matching status
+                if ((exp.type === 'parking' || exp.type === 'other') && exp.status === statusFilter) {
                     formattedExpenses.push({
                         ...exp.toObject(),
                         attendanceId: doc._id,
@@ -2263,8 +2402,8 @@ const getPendingParkingExpenses = asyncHandler(async (req, res) => {
 
         res.json(formattedExpenses);
     } catch (error) {
-        console.error("Error fetching pending parking/other expenses:", error);
-        res.status(500).json({ message: 'Error fetching pending parking expenses' });
+        console.error("Error fetching parking/other expenses:", error);
+        res.status(500).json({ message: 'Error fetching parking expenses' });
     }
 });
 
@@ -2291,11 +2430,11 @@ const deleteFuelEntry = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const approveRejectExpense = asyncHandler(async (req, res) => {
     const { attendanceId, expenseId } = req.params;
-    const { status } = req.body; // 'approved' or 'rejected'
+    const { status } = req.body; // 'approved', 'rejected', or 'deleted'
 
     console.log(`[approveRejectExpense] Processing: attendanceId=${attendanceId}, expenseId=${expenseId}, status=${status}`);
 
-    if (!['approved', 'rejected'].includes(status)) {
+    if (!['approved', 'rejected', 'deleted'].includes(status)) {
         res.status(400);
         throw new Error('Invalid status');
     }
@@ -2323,9 +2462,19 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
     }
 
     const expense = attendance.pendingExpenses[expenseIndex];
-    if (expense.status !== 'pending') {
+
+    // Allow re-approving rejected entries, but not re-processing already approved ones
+    if (expense.status === 'approved' && status !== 'deleted') {
         res.status(400);
-        throw new Error('Expense has already been processed');
+        throw new Error('This expense has already been approved');
+    }
+
+    // Handle permanent deletion
+    if (status === 'deleted') {
+        attendance.pendingExpenses.splice(expenseIndex, 1);
+        await attendance.save();
+        console.log(`[approveRejectExpense] Expense permanently deleted from attendance ${attendanceId}`);
+        return res.json({ message: 'Expense permanently deleted' });
     }
 
     expense.status = status;
@@ -2614,9 +2763,17 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
         // 4. Calculate Earnings
         // Use maps to aggregate daily values to avoid double counting across multiple shifts
         const dailyAggs = new Map();
+        const datesProcessed = new Set();
         attendance.forEach(att => {
             const dateStr = att.date;
-            const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
+
+            // Apply wage only ONCE per day (first shift found)
+            let wage = 0;
+            if (!datesProcessed.has(dateStr)) {
+                wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
+                datesProcessed.add(dateStr);
+            }
+
             const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
                 (Number(att.punchOut?.nightStayAmount) || 0) +
                 (Number(att.outsideTrip?.bonusAmount) || 0);
@@ -2682,15 +2839,9 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             totalAdvances: totalAdvancesThisMonth, // Show monthly activity
             totalRecovered: totalRecoveredThisMonth, // Show monthly activity
             pendingAdvance, // Show cumulative balance
-            netPayable: totalEarned - pendingAdvance, // Net payable considers cumulative debt? 
-            // Usually Net Payable = Earnings - Recoveries (Deductions). 
-            // If we subtract 'pendingAdvance', we are saying "Pay off entire debt from this salary".
-            // If the intention is "Pay off debt from salary", then yes.
-            // But usually Net Payable = Earnings - (Advances Taken This Month + Recoveries).
-            // Let's stick to the previous logic: Total Earned - Pending Advance.
-            // If Pending Advance is large, Net Payable might be negative (Driver owes money).
             netPayable: totalEarned - pendingAdvance,
-            workingDays: attendance.length,
+            netPayable: totalEarned - pendingAdvance,
+            workingDays: datesProcessed.size,
             nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
             sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
             dailyWage: driver.dailyWage || 0 // Added Daily Wage
@@ -2943,7 +3094,8 @@ const createStaff = asyncHandler(async (req, res) => {
             address: req.body.officeLocation.address || '',
             radius: Number(req.body.officeLocation.radius) || 200
         } : undefined,
-        profilePhoto: req.body.profilePhoto
+        profilePhoto: req.body.profilePhoto,
+        joiningDate: req.body.joiningDate ? new Date(req.body.joiningDate) : new Date()
     });
 
     res.status(201).json(staff);
@@ -2978,6 +3130,7 @@ const updateStaff = asyncHandler(async (req, res) => {
             };
         }
         if (req.body.profilePhoto) staff.profilePhoto = req.body.profilePhoto;
+        if (req.body.joiningDate) staff.joiningDate = new Date(req.body.joiningDate);
 
         const updatedStaff = await staff.save();
         res.json(updatedStaff);
@@ -3000,6 +3153,42 @@ const deleteStaff = asyncHandler(async (req, res) => {
     }
 });
 
+// @desc    Add backdated attendance for staff (admin only)
+// @route   POST /api/admin/staff-attendance/backdate
+// @access  Private/AdminOrExecutive
+const addBackdatedAttendance = asyncHandler(async (req, res) => {
+    const { staffId, companyId, date, status, punchInTime, punchOutTime } = req.body;
+
+    if (!staffId || !companyId || !date) {
+        return res.status(400).json({ message: 'staffId, companyId, and date are required' });
+    }
+
+    // Check if attendance already exists for this day
+    const existing = await StaffAttendance.findOne({ staff: staffId, date });
+    if (existing) {
+        existing.status = status || existing.status;
+        if (punchInTime) existing.punchIn = { time: new Date(punchInTime), location: { address: 'Admin Added' } };
+        if (punchOutTime) existing.punchOut = { time: new Date(punchOutTime), location: { address: 'Admin Added' } };
+        await existing.save();
+        return res.json({ message: 'Attendance updated', attendance: existing });
+    }
+
+    const attendance = await StaffAttendance.create({
+        staff: staffId,
+        company: companyId,
+        date,
+        status: status || 'present',
+        punchIn: punchInTime
+            ? { time: new Date(punchInTime), location: { address: 'Admin Added' } }
+            : { time: new Date(`${date}T09:00:00`), location: { address: 'Admin Added' } },
+        punchOut: punchOutTime
+            ? { time: new Date(punchOutTime), location: { address: 'Admin Added' } }
+            : undefined
+    });
+
+    res.status(201).json({ message: 'Backdated attendance added', attendance });
+});
+
 // @desc    Get Staff Attendance Reports
 // @route   GET /api/admin/staff-attendance/:companyId
 // @access  Private/AdminOrExecutive
@@ -3019,55 +3208,77 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
     // If month/year provided, calculate summary
     const { month, year } = req.query;
     if (month && year) {
-        const startStr = `${year}-${month.padStart(2, '0')}-01`;
-        const lastDay = new Date(year, month, 0).getDate();
-        const endStr = `${year}-${month.padStart(2, '0')}-${lastDay}`;
+        const reqMonth = parseInt(month, 10);
+        const reqYear = parseInt(year, 10);
 
-        const monthAttendance = await StaffAttendance.find({
+        // Fetch 2 months of data to ensure we hit all variations of cycle starts and ends
+        const searchStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).minus({ days: 31 });
+        const searchEndDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).plus({ months: 2 });
+        const startStrQuery = searchStartDT.toFormat('yyyy-MM-dd');
+        const endStrQuery = searchEndDT.toFormat('yyyy-MM-dd');
+
+        const rangeAttendance = await StaffAttendance.find({
             company: companyId,
-            date: { $gte: startStr, $lte: endStr }
+            date: { $gte: startStrQuery, $lte: endStrQuery }
         });
 
         const allStaff = await User.find({ company: companyId, role: 'Staff' });
+        const now = DateTime.now().setZone('Asia/Kolkata');
+        const todayStr = now.toFormat('yyyy-MM-dd');
+
         const report = allStaff.map(s => {
-            const staffAtt = monthAttendance.filter(a => String(a.staff) === String(s._id));
+            const joiningDate = s.joiningDate ? new Date(s.joiningDate) : new Date(s.createdAt);
+            const joinDay = DateTime.fromJSDate(joiningDate).setZone('Asia/Kolkata').day;
+
+            // Cycle for the requested month starts in that month on the joinDay
+            // E.g. req=Feb, join=5th => cycle is Feb 5 to Mar 4
+            let cycleStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: joinDay }, { zone: 'Asia/Kolkata' });
+
+            // If the joinDay is 31 but requested month only has 28 days, luxon pushes it to Mar 3rd. We need to clamp it.
+            if (cycleStartDT.month !== reqMonth) {
+                cycleStartDT = cycleStartDT.set({ day: 0 }); // last day of reqMonth
+            }
+
+            const cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
+            const cycleStart = cycleStartDT.toFormat('yyyy-MM-dd');
+            const cycleEnd = cycleEndDT.toFormat('yyyy-MM-dd');
+
+            const effectiveEnd = cycleEnd > todayStr ? todayStr : cycleEnd;
+
+            // Filter specific to this staff's cycle
+            const staffAtt = rangeAttendance.filter(a =>
+                String(a.staff) === String(s._id) &&
+                a.date >= cycleStart &&
+                a.date <= effectiveEnd
+            );
+
+            // Calculations
+            let workingDaysPassed = 0;
+            let sundaysPassed = 0;
+            let d = cycleStartDT;
+            const eDT = DateTime.fromISO(effectiveEnd);
+            while (d <= eDT) {
+                if (d.weekday === 7) sundaysPassed++;
+                else workingDaysPassed++;
+                d = d.plus({ days: 1 });
+            }
+
             const presentDays = staffAtt.filter(a => a.status === 'present').length;
             const halfDays = staffAtt.filter(a => a.status === 'half-day').length;
             const effectivePresent = presentDays + (halfDays * 0.5);
 
-            // Calculate Sundays worked for extra pay
-            let sundaysWorked = 0;
-            staffAtt.forEach(att => {
-                if (new Date(att.date).getDay() === 0) sundaysWorked++;
-            });
+            // Sundays worked
+            const sundaysWorked = staffAtt.filter(a => {
+                return DateTime.fromISO(a.date).weekday === 7 && a.status === 'present';
+            }).length;
 
-            // Get actual days in the selected month
-            const daysInMonth = new Date(year, month, 0).getDate();
-
-            // For current month, only calculate up to current day
-            const now = new Date();
-            const isCurrentMonth = now.getFullYear() === parseInt(year) && (now.getMonth() + 1) === parseInt(month);
-            const daysToConsider = isCurrentMonth ? now.getDate() : daysInMonth;
-
-            // Calculate actual leaves taken up to current consideration day
-            let sundaysPassed = 0;
-            for (let d = 1; d <= daysToConsider; d++) {
-                if (new Date(year, month - 1, d).getDay() === 0) sundaysPassed++;
-            }
-
-            const workingDaysPassed = daysToConsider - sundaysPassed;
-
-            // Only count absences on non-Sundays
-            const regularPresents = staffAtt.filter(a => new Date(a.date).getDay() !== 0);
+            const regularPresents = staffAtt.filter(a => DateTime.fromISO(a.date).weekday !== 7);
             const regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
 
             const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
-
-            // allowance is for the WHOLE month (paid leaves)
             const allowance = s.monthlyLeaveAllowance || 4;
             const extraLeaves = Math.max(0, totalAbsences - allowance);
 
-            // Per day salary based on standard 26 working days
             const perDaySalary = (s.salary || 0) / 26;
             const deduction = extraLeaves * perDaySalary;
             const sundayBonus = sundaysWorked * perDaySalary;
@@ -3077,10 +3288,11 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             return {
                 staffId: s._id,
                 name: s.name,
+                designation: s.designation,
                 salary: s.salary,
                 presentDays: effectivePresent,
                 sundaysWorked,
-                totalDaysPassed: daysToConsider,
+                totalDaysPassed: workingDaysPassed + sundaysPassed,
                 workingDaysPassed,
                 sundaysPassed,
                 leavesTaken: totalAbsences,
@@ -3089,7 +3301,9 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 deduction: Math.round(deduction),
                 sundayBonus: Math.round(sundayBonus),
                 attendanceData: staffAtt,
-                finalSalary: Math.round(finalSalary)
+                finalSalary: Math.round(finalSalary),
+                cycleStart,
+                cycleEnd
             };
         });
 
@@ -3424,11 +3638,18 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         // Group internal totals not needed anymore as we use Parking section only
         const internalByDay = new Map();
 
-        // Track which date's surplus we have already distributed
-        const surplusUsed = new Set();
+        // Track which date's wage and parking we have already distributed
+        const wageUsed = new Set();
+        const parkingUsed = new Set();
 
         const dailyBreakdown = attendance.map(att => {
-            const wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
+            // Apply wage only ONCE per day (first duty of the day)
+            let wage = 0;
+            if (!wageUsed.has(att.date)) {
+                wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
+                wageUsed.add(att.date);
+            }
+
             const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
             const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
             const otherBonuses = Number(att.outsideTrip?.bonusAmount) || 0;
@@ -3439,9 +3660,9 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
 
             // We only add the parking amount TO THE FIRST shift encountered for that day
             let finalParkingCell = 0;
-            if (!surplusUsed.has(att.date)) {
+            if (!parkingUsed.has(att.date)) {
                 finalParkingCell = totalExternalForDay;
-                surplusUsed.add(att.date);
+                parkingUsed.add(att.date);
             }
             const isManualEntry = att.punchOut?.remarks === 'Manual Entry';
 
@@ -3476,6 +3697,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         const netPayable = grandTotal - totalAdvances;
 
         res.json({
+            vID: "WAGE_FIX_V1", // VERIFICATION TAG
             driver,
             breakdown: dailyBreakdown,
             advances,
@@ -3486,13 +3708,147 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 totalAdvances,
                 grandTotal,
                 netPayable,
-                workingDays: attendance.length
+                workingDays: attendanceDates.size
             }
         });
     } catch (error) {
         console.error('Error in getDriverSalaryDetails:', error);
         res.status(500).json({ message: error.message });
     }
+});
+
+// @desc    Get monthly vehicle activity details
+// @route   GET /api/admin/vehicle-monthly-details/:companyId
+// @access  Private/AdminOrExecutive
+const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const { month, year } = req.query;
+
+    if (!month || !year) {
+        return res.status(400).json({ message: 'Month and Year are required' });
+    }
+
+    const m = parseInt(month);
+    const y = parseInt(year);
+    const monthStart = new Date(y, m - 1, 1);
+    const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+    const monthStartStr = DateTime.fromJSDate(monthStart).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+    const monthEndStr = DateTime.fromJSDate(monthEnd).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+
+    // 1. Get all fleet vehicles
+    const vehicles = await Vehicle.find({
+        company: companyId,
+        isOutsideCar: { $ne: true }
+    }).select('carNumber model');
+
+    // 2. Fetch all related data for the month concurrently
+    const [fuelData, maintenanceData, parkingData, attendanceData] = await Promise.all([
+        Fuel.find({
+            company: companyId,
+            date: { $gte: monthStart, $lte: monthEnd }
+        }),
+        Maintenance.find({
+            company: companyId,
+            billDate: { $gte: monthStart, $lte: monthEnd }
+        }),
+        Parking.find({
+            company: companyId,
+            date: { $gte: monthStart, $lte: monthEnd },
+            serviceType: 'car_service'
+        }),
+        Attendance.find({
+            company: companyId,
+            date: { $gte: monthStartStr, $lte: monthEndStr }
+        }).populate('driver', 'name')
+    ]);
+
+    // 3. Process data per vehicle
+    const vehicleDetails = vehicles.map(v => {
+        const vId = v._id.toString();
+
+        // Fuel
+        const vFuel = fuelData.filter(f => f.vehicle?.toString() === vId);
+        const totalFuelAmount = vFuel.reduce((sum, f) => sum + (f.amount || 0), 0);
+        const totalFuelQuantity = vFuel.reduce((sum, f) => sum + (f.quantity || 0), 0);
+
+        // Maintenance
+        const vMaint = maintenanceData.filter(m => m.vehicle?.toString() === vId);
+        const totalMaintAmount = vMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
+
+        // Wash & Puncture (from car_service parking)
+        const vServices = parkingData.filter(p => p.vehicle?.toString() === vId);
+        let washCount = 0;
+        let punctureCount = 0;
+        let washAmount = 0;
+        let punctureAmount = 0;
+        let vServicesArray = { wash: [], puncture: [] };
+
+        vServices.forEach(s => {
+            const notes = (s.notes || '').toLowerCase();
+            if (notes.includes('wash')) {
+                washCount++;
+                washAmount += (s.amount || 0);
+                vServicesArray.wash.push({ date: s.date, amount: s.amount, id: s._id });
+            }
+            if (notes.includes('puncture') || notes.includes('puncher')) {
+                punctureCount++;
+                punctureAmount += (s.amount || 0);
+                vServicesArray.puncture.push({ date: s.date, amount: s.amount, id: s._id });
+            }
+        });
+
+        // Unique Drivers and Salary Breakdown
+        const vAtt = attendanceData.filter(a => a.vehicle?.toString() === vId);
+        const driversMap = new Map();
+        let totalDriverSalary = 0;
+
+        vAtt.forEach(a => {
+            const driverName = a.driver?.name || 'Unknown';
+            const wage = (a.dailyWage || 0) +
+                (a.outsideTrip?.bonusAmount || 0) +
+                (a.punchOut?.allowanceTA || 0) +
+                (a.punchOut?.nightStayAmount || 0);
+
+            if (driversMap.has(driverName)) {
+                driversMap.set(driverName, driversMap.get(driverName) + wage);
+            } else {
+                driversMap.set(driverName, wage);
+            }
+            totalDriverSalary += wage;
+        });
+
+        return {
+            vehicleId: vId,
+            carNumber: v.carNumber,
+            model: v.model,
+            driverSalary: totalDriverSalary,
+            drivers: Array.from(driversMap.keys()),
+            driverBreakdown: Array.from(driversMap).map(([name, salary]) => ({ name, salary })),
+            fuel: {
+                totalAmount: totalFuelAmount,
+                totalQuantity: totalFuelQuantity,
+                count: vFuel.length,
+                records: vFuel.map(f => ({ date: f.date, amount: f.amount, quantity: f.quantity, receipt: f.receiptNumber }))
+            },
+            maintenance: {
+                totalAmount: totalMaintAmount,
+                count: vMaint.length,
+                records: vMaint.map(m => ({
+                    type: m.maintenanceType,
+                    category: m.category,
+                    amount: m.amount,
+                    date: m.billDate,
+                    description: m.description
+                }))
+            },
+            services: {
+                wash: { count: washCount, amount: washAmount, records: vServicesArray.wash },
+                puncture: { count: punctureCount, amount: punctureAmount, records: vServicesArray.puncture }
+            }
+        };
+    });
+
+    res.json(vehicleDetails);
 });
 
 module.exports = {
@@ -3549,11 +3905,15 @@ module.exports = {
     getStaffAttendanceReports,
     getPendingLeaveRequests,
     approveRejectLeave,
+    adminPunchIn,
+    adminPunchOut,
     addManualDuty,
     deleteAttendance,
     updateAttendance,
     addAccidentLog,
     getAccidentLogs,
     deleteAccidentLog,
-    updateMaintenanceRecord
+    updateMaintenanceRecord,
+    getVehicleMonthlyDetails,  // New export
+    addBackdatedAttendance
 };

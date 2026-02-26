@@ -7,7 +7,8 @@ const {
     getStaffHistory,
     requestLeave,
     getStaffLeaves,
-    getStaffReport
+    getStaffReport,
+    getStaffSalaryCycles
 } = require('../controllers/staffController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -20,5 +21,6 @@ router.get('/history', getStaffHistory);
 router.post('/leave', requestLeave);
 router.get('/leaves', getStaffLeaves);
 router.get('/report', getStaffReport);
+router.get('/salary-cycles', getStaffSalaryCycles);
 
 module.exports = router;

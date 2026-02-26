@@ -52,6 +52,8 @@ const {
     deleteStaff,
     getStaffAttendanceReports,
     addManualDuty,
+    adminPunchIn,
+    adminPunchOut,
     deleteAttendance,
     addAccidentLog,
     getAccidentLogs,
@@ -60,7 +62,9 @@ const {
     updateMaintenanceRecord,
     updateStaff,
     getPendingLeaveRequests,
-    approveRejectLeave
+    approveRejectLeave,
+    getVehicleMonthlyDetails,
+    addBackdatedAttendance
 } = require('../controllers/adminController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -87,6 +91,7 @@ const vehicleUpload = upload.fields([
 
 // Shared Routes (Admin & Executive)
 router.get('/dashboard/:companyId', adminOrExecutive, getDashboardStats);
+router.get('/vehicle-monthly-details/:companyId', adminOrExecutive, getVehicleMonthlyDetails);
 router.get('/reports/:companyId', adminOrExecutive, getDailyReports);
 router.get('/vehicles/:companyId', adminOrExecutive, getAllVehicles);
 router.get('/drivers/:companyId', adminOrExecutive, getAllDrivers);
@@ -154,6 +159,7 @@ router.post('/staff', adminOrExecutive, createStaff);
 router.put('/staff/:id', adminOrExecutive, updateStaff);
 router.delete('/staff/:id', adminOrExecutive, deleteStaff);
 router.get('/staff-attendance/:companyId', adminOrExecutive, getStaffAttendanceReports);
+router.post('/staff-attendance/backdate', adminOrExecutive, addBackdatedAttendance);
 
 // Leave Requests
 router.get('/leaves/pending/:companyId', adminOrExecutive, getPendingLeaveRequests);
@@ -168,6 +174,8 @@ router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {
 });
 
 router.post('/manual-duty', adminOrExecutive, addManualDuty);
+router.post('/punch-in', adminOrExecutive, adminPunchIn);
+router.post('/punch-out', adminOrExecutive, adminPunchOut);
 router.get('/accident-logs/:companyId', adminOrExecutive, getAccidentLogs);
 router.post('/accident-logs', adminOrExecutive, upload.array('photos', 5), addAccidentLog);
 router.delete('/accident-logs/:id', adminOrExecutive, deleteAccidentLog);
