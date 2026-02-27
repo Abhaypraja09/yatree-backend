@@ -190,7 +190,7 @@ const toggleDriverStatus = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date } = req.query; // Optional date query
+    const { date, period } = req.query; // Optional date query
 
     if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
         return res.status(400).json({ message: 'Invalid Company ID' });
@@ -204,10 +204,31 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
     const alertThreshold = baseDate.plus({ days: 30 });
-    const monthStart = baseDate.startOf('month').toJSDate();
-    const monthEnd = baseDate.endOf('month').toJSDate();
-    const monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
-    const monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
+
+    let monthStart, monthEnd, monthStartStr, monthEndStr;
+
+    if (period === '1m') {
+        monthStart = baseDate.minus({ months: 1 }).startOf('day').toJSDate();
+        monthEnd = baseDate.endOf('day').toJSDate();
+        monthStartStr = baseDate.minus({ months: 1 }).toFormat('yyyy-MM-dd');
+        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
+    } else if (period === '3m') {
+        monthStart = baseDate.minus({ months: 3 }).startOf('day').toJSDate();
+        monthEnd = baseDate.endOf('day').toJSDate();
+        monthStartStr = baseDate.minus({ months: 3 }).toFormat('yyyy-MM-dd');
+        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
+    } else if (period === '5m') {
+        monthStart = baseDate.minus({ months: 5 }).startOf('day').toJSDate();
+        monthEnd = baseDate.endOf('day').toJSDate();
+        monthStartStr = baseDate.minus({ months: 5 }).toFormat('yyyy-MM-dd');
+        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
+    } else {
+        // Default to the current month of the selected date
+        monthStart = baseDate.startOf('month').toJSDate();
+        monthEnd = baseDate.endOf('month').toJSDate();
+        monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
+        monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
+    }
 
     const isTodaySelected = targetDate === todayIST;
 
