@@ -209,6 +209,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
     const monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
 
+    const isTodaySelected = targetDate === todayIST;
+
     // Run independent heavy queries concurrently
     const [
         totalVehicles,
@@ -446,7 +448,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ]);
 
     // Map all drivers with their today attendance status
-    const isTodaySelected = targetDate === todayIST;
 
     const liveDriversFeed = allDrivers.map(driver => {
         const isF = driver.isFreelancer === true;
