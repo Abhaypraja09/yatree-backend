@@ -37,9 +37,11 @@ const getEvents = asyncHandler(async (req, res) => {
 
     let matchQuery = { company: companyObjectId };
     if (from && to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
         matchQuery.date = {
             $gte: new Date(from),
-            $lte: new Date(to)
+            $lte: toDate
         };
     }
 
