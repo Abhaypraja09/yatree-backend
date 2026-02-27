@@ -198,16 +198,13 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         date: { $gte: cycleStart, $lte: effectiveEnd }
     });
 
-    // Count working days in cycle (exclude Sundays)
     const csDate = DateTime.fromISO(cycleStart);
     const ceDate = DateTime.fromISO(effectiveEnd);
 
     let workingDaysPassed = 0;
-    let sundaysPassed = 0;
     let d = csDate;
     while (d <= ceDate) {
-        if (d.weekday === 7) sundaysPassed++;
-        else workingDaysPassed++;
+        if (d.weekday !== 7) workingDaysPassed++;
         d = d.plus({ days: 1 });
     }
 
@@ -215,25 +212,31 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     const halfDays = attendance.filter(a => a.status === 'half-day').length;
     const effectivePresent = presentDays + (halfDays * 0.5);
 
-    // Sundays worked (bonus)
+    // Regular attendance (excluding Sundays)
+    const regularAttendance = attendance.filter(a => DateTime.fromISO(a.date).weekday !== 7);
+    const regularEffectivePresent = regularAttendance.filter(a => a.status === 'present').length +
+        (regularAttendance.filter(a => a.status === 'half-day').length * 0.5);
+
+    // Sundays Worked (Bonus)
     const sundaysWorked = attendance.filter(a => {
         const day = DateTime.fromISO(a.date).weekday;
         return day === 7 && a.status === 'present';
     }).length;
 
-    // Absences = working days passed - regular days present
-    const regularPresents = attendance.filter(a => DateTime.fromISO(a.date).weekday !== 7);
-    const regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
     const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
-
     const allowance = staffUser.monthlyLeaveAllowance || 4;
-    // Only deduct if absences > allowance
+
+    // Paid leaves used so far
+    const paidLeavesUsed = Math.min(totalAbsences, allowance);
     const extraLeaves = Math.max(0, totalAbsences - allowance);
 
-    const perDaySalary = (staffUser.salary || 0) / 26;
-    const deduction = extraLeaves * perDaySalary;
-    const sundayBonus = sundaysWorked * perDaySalary;
-    const finalSalary = Math.max(0, (staffUser.salary || 0) - deduction + sundayBonus);
+    const baseSalary = staffUser.salary || 0;
+    const perDaySalary = baseSalary / 30; // 30 day basis
+
+    // Positive Accrual Logic: 
+    // Salary = (Days Worked + Paid Leaves + Sunday Bonus) * Daily Rate
+    // This ensures that Every Present Day Adds to the total.
+    const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysWorked) * perDaySalary;
 
     return {
         cycleStart,
@@ -243,15 +246,16 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         halfDays,
         sundaysWorked,
         workingDaysPassed,
-        sundaysPassed,
         leavesTaken: totalAbsences,
         allowance,
+        paidLeavesUsed,
         extraLeaves,
-        salary: staffUser.salary,
-        deduction: Math.round(deduction),
-        sundayBonus: Math.round(sundayBonus),
-        finalSalary: Math.round(finalSalary),
-        remainingLeaves: Math.max(0, allowance - totalAbsences),
+        salary: baseSalary,
+        perDaySalary: Math.round(perDaySalary),
+        totalEarned: Math.round(finalSalary),
+        finalSalary: Math.round(finalSalary), // For backward compatibility
+        deduction: Math.round(extraLeaves * perDaySalary),
+        sundayBonus: Math.round(sundaysWorked * perDaySalary),
         attendanceData: attendance
     };
 }
@@ -327,11 +331,11 @@ const getStaffSalaryCycles = asyncHandler(async (req, res) => {
     const cyclesToShow = Math.min(totalCyclesElapsed + 1, 12);
 
     for (let i = 0; i < cyclesToShow; i++) {
-        const cStart = cycleStartDT.minus({ months: i });
-        const cEnd = cStart.plus({ months: 1 }).minus({ days: 1 });
+        const cStart = cycleStartDT.minus({ months: i }).startOf('day');
+        const cEnd = cStart.plus({ months: 1 }).minus({ days: 1 }).endOf('day');
 
-        // Don't show cycles before joining date
-        if (cStart < joinDT) break;
+        // Don't show cycles before joining date (compare only dates)
+        if (cStart.toISODate() < joinDT.toISODate()) break;
 
         const data = await calculateSalaryForCycle(s, cStart.toFormat('yyyy-MM-dd'), cEnd.toFormat('yyyy-MM-dd'));
         cycles.push({

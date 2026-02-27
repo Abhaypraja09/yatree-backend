@@ -3059,10 +3059,63 @@ const deleteParkingEntry = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/staff/:companyId
 // @access  Private/Admin
 const getAllStaff = asyncHandler(async (req, res) => {
+    const { DateTime } = require('luxon');
     const staff = await User.find({ company: req.params.companyId, role: 'Staff' })
         .select('-password')
         .sort({ name: 1 });
-    res.json(staff);
+
+    // For better UI, we'll calculate current month stats for each staff member
+    const now = DateTime.now().setZone('Asia/Kolkata');
+    const enhancedStaff = await Promise.all(staff.map(async (s) => {
+        const staffObj = s.toObject();
+
+        // Calculate current cycle dates
+        const joiningDate = s.joiningDate || s.createdAt;
+        const cycleStartDay = new Date(joiningDate).getDate();
+
+        let start = now.set({ day: cycleStartDay }).startOf('day');
+        if (now.day < cycleStartDay) {
+            start = start.minus({ months: 1 });
+        }
+        const end = start.plus({ months: 1 }).minus({ days: 1 }).endOf('day');
+
+        // StaffAttendance uses YYYY-MM-DD strings for 'date'
+        const attendance = await StaffAttendance.find({
+            staff: s._id,
+            date: {
+                $gte: start.toFormat('yyyy-MM-dd'),
+                $lte: end.toFormat('yyyy-MM-dd')
+            },
+            status: 'present'
+        });
+
+        // Calculate working days passed so far in this cycle
+        let workingDaysPassed = 0;
+        let d = start;
+        const effectiveEnd = end > now ? now : end;
+        while (d <= effectiveEnd) {
+            if (d.weekday !== 7) workingDaysPassed++;
+            d = d.plus({ days: 1 });
+        }
+
+        const totalAbsences = Math.max(0, workingDaysPassed - attendance.length);
+        const allowance = s.monthlyLeaveAllowance || 4;
+        const paidLeavesUsed = Math.min(totalAbsences, allowance);
+        const perDaySalary = (s.salary || 0) / 30; // Dividing by 30 for day-wise hisab
+        const earnedSalary = (attendance.length + paidLeavesUsed) * perDaySalary;
+
+        staffObj.currentCycle = {
+            presentDays: attendance.length,
+            earnedSalary: Math.round(earnedSalary),
+            startDate: start.toFormat('dd MMM'),
+            endDate: end.toFormat('dd MMM'),
+            cycleDay: cycleStartDay
+        };
+
+        return staffObj;
+    }));
+
+    res.json(enhancedStaff);
 });
 
 // @desc    Create a new staff member
@@ -3167,8 +3220,8 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
     const existing = await StaffAttendance.findOne({ staff: staffId, date });
     if (existing) {
         existing.status = status || existing.status;
-        if (punchInTime) existing.punchIn = { time: new Date(punchInTime), location: { address: 'Admin Added' } };
-        if (punchOutTime) existing.punchOut = { time: new Date(punchOutTime), location: { address: 'Admin Added' } };
+        if (punchInTime) existing.punchIn = { time: new Date(`${date}T${punchInTime}:00`), location: { address: 'Admin Added' } };
+        if (punchOutTime) existing.punchOut = { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Added' } };
         await existing.save();
         return res.json({ message: 'Attendance updated', attendance: existing });
     }
@@ -3178,11 +3231,12 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
         company: companyId,
         date,
         status: status || 'present',
-        punchIn: punchInTime
-            ? { time: new Date(punchInTime), location: { address: 'Admin Added' } }
-            : { time: new Date(`${date}T09:00:00`), location: { address: 'Admin Added' } },
+        punchIn: {
+            time: punchInTime ? new Date(`${date}T${punchInTime}:00`) : new Date(`${date}T09:00:00`),
+            location: { address: 'Admin Added' }
+        },
         punchOut: punchOutTime
-            ? { time: new Date(punchOutTime), location: { address: 'Admin Added' } }
+            ? { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Added' } }
             : undefined
     });
 
@@ -3277,19 +3331,20 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
             const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
             const allowance = s.monthlyLeaveAllowance || 4;
+            const paidLeavesUsed = Math.min(totalAbsences, allowance);
             const extraLeaves = Math.max(0, totalAbsences - allowance);
 
-            const perDaySalary = (s.salary || 0) / 26;
-            const deduction = extraLeaves * perDaySalary;
-            const sundayBonus = sundaysWorked * perDaySalary;
+            const baseSalary = s.salary || 0;
+            const perDaySalary = baseSalary / 30; // 30 day basis
 
-            const finalSalary = Math.max(0, (s.salary || 0) - deduction + sundayBonus);
+            // Positive Accrual Logic: Salary = (Actual Progress + Paid Buffer Days) * Rate
+            const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysWorked) * perDaySalary;
 
             return {
                 staffId: s._id,
                 name: s.name,
                 designation: s.designation,
-                salary: s.salary,
+                salary: baseSalary,
                 presentDays: effectivePresent,
                 sundaysWorked,
                 totalDaysPassed: workingDaysPassed + sundaysPassed,
@@ -3297,9 +3352,11 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 sundaysPassed,
                 leavesTaken: totalAbsences,
                 allowance,
+                paidLeavesUsed,
                 extraLeaves,
-                deduction: Math.round(deduction),
-                sundayBonus: Math.round(sundayBonus),
+                perDaySalary: Math.round(perDaySalary),
+                deduction: Math.round(extraLeaves * perDaySalary), // Keep for UI showing "loss"
+                sundayBonus: Math.round(sundaysWorked * perDaySalary),
                 attendanceData: staffAtt,
                 finalSalary: Math.round(finalSalary),
                 cycleStart,
