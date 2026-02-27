@@ -250,9 +250,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }),
         Attendance.find({
             company: companyObjectId,
-            $or: [
+            $or: isTodaySelected ? [
                 { date: targetDate },
                 { status: 'incomplete' }
+            ] : [
+                { date: targetDate }
             ]
         })
             .populate({
