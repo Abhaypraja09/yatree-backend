@@ -190,7 +190,7 @@ const toggleDriverStatus = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date, period, fromDate, toDate } = req.query; // Optional date/range query
+    const { date } = req.query; // Optional date query
 
     if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
         return res.status(400).json({ message: 'Invalid Company ID' });
@@ -204,40 +204,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
     const alertThreshold = baseDate.plus({ days: 30 });
-
-    let monthStart, monthEnd, monthStartStr, monthEndStr;
-
-    if (fromDate && toDate) {
-        // Custom date range (e.g., 2026-01-01 to 2026-03-01)
-        monthStart = DateTime.fromFormat(fromDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day').toJSDate();
-        monthEnd = DateTime.fromFormat(toDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').endOf('day').toJSDate();
-        monthStartStr = fromDate;
-        monthEndStr = toDate;
-    } else if (period === '1m') {
-        monthStart = baseDate.minus({ months: 1 }).startOf('day').toJSDate();
-        monthEnd = baseDate.endOf('day').toJSDate();
-        monthStartStr = baseDate.minus({ months: 1 }).toFormat('yyyy-MM-dd');
-        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
-    } else if (period === '3m') {
-        monthStart = baseDate.minus({ months: 3 }).startOf('day').toJSDate();
-        monthEnd = baseDate.endOf('day').toJSDate();
-        monthStartStr = baseDate.minus({ months: 3 }).toFormat('yyyy-MM-dd');
-        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
-    } else if (period === '5m') {
-        monthStart = baseDate.minus({ months: 5 }).startOf('day').toJSDate();
-        monthEnd = baseDate.endOf('day').toJSDate();
-        monthStartStr = baseDate.minus({ months: 5 }).toFormat('yyyy-MM-dd');
-        monthEndStr = baseDate.toFormat('yyyy-MM-dd');
-    } else {
-        // Default: current calendar month of the selected date
-        monthStart = baseDate.startOf('month').toJSDate();
-        monthEnd = baseDate.endOf('month').toJSDate();
-        monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
-        monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
-    }
-
-    // Also return range info to frontend
-    const rangeInfo = { fromDate: monthStartStr, toDate: monthEndStr };
+    const monthStart = baseDate.startOf('month').toJSDate();
+    const monthEnd = baseDate.endOf('month').toJSDate();
+    const monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
+    const monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
 
     const isTodaySelected = targetDate === todayIST;
 
@@ -799,7 +769,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     res.json({
         date: targetDate,
-        rangeInfo,
         totalVehicles,
         totalDrivers: liveDriversFeed.length,
         countPunchIns: uniqueDriversToday.size,
