@@ -66,6 +66,13 @@ const {
     getVehicleMonthlyDetails,
     addBackdatedAttendance
 } = require('../controllers/adminController');
+const {
+    createEvent,
+    getEvents,
+    getEventDetails,
+    updateEvent,
+    deleteEvent
+} = require('../controllers/eventController');
 const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
 const multer = require('multer');
@@ -179,5 +186,12 @@ router.post('/punch-out', adminOrExecutive, adminPunchOut);
 router.get('/accident-logs/:companyId', adminOrExecutive, getAccidentLogs);
 router.post('/accident-logs', adminOrExecutive, upload.array('photos', 5), addAccidentLog);
 router.delete('/accident-logs/:id', adminOrExecutive, deleteAccidentLog);
+
+// Event Management
+router.post('/events', adminOrExecutive, createEvent);
+router.get('/events/:companyId', adminOrExecutive, getEvents);
+router.get('/events/details/:eventId', adminOrExecutive, getEventDetails);
+router.put('/events/:id', adminOrExecutive, updateEvent);
+router.delete('/events/:id', adminOrExecutive, deleteEvent);
 
 module.exports = router;

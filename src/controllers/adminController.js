@@ -76,7 +76,7 @@ const createDriver = async (req, res, next) => {
 // @access  Private/Admin
 const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, ownerName, dropLocation, property } = req.body;
+    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, ownerName, dropLocation, property, eventId } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
     const vehicleExists = await Vehicle.findOne({ carNumber: formattedCarNumber });
@@ -113,6 +113,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         ownerName,
         dropLocation,
         property,
+        eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
         documents
     });
 
