@@ -105,8 +105,12 @@ const vehicleSchema = new mongoose.Schema({
 });
 
 // Indexes for faster dashboard queries
-vehicleSchema.index({ company: 1 });
+vehicleSchema.index({ company: 1, isOutsideCar: 1 });
+vehicleSchema.index({ "fastagHistory.date": 1 });
 vehicleSchema.index({ isOutsideCar: 1 });
+// Indexes for faster dashboard and listing queries
+vehicleSchema.index({ company: 1, status: 1 }); // Added compound index for company and status
+vehicleSchema.index({ company: 1, carType: 1 }); // Added compound index for company and carType
 
 // Virtual for document statuses
 vehicleSchema.virtual('documentStatuses').get(function () {

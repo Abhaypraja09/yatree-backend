@@ -242,21 +242,24 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     }).length;
 
     // Absences: Compared against required working days
-    // For Hotel staff, workingDaysPassed includes Sundays.
-    // For Company staff, workingDaysPassed excludes Sundays.
     const totalAbsences = Math.max(0, workingDaysPassed - totalEffectivePresent);
 
+    // Filter only APPROVED leave requests that fall within this cycle
+    const approvedLeaveDays = await LeaveRequest.countDocuments({
+        staff: staffUser._id,
+        status: 'Approved',
+        startDate: { $gte: cycleStart },
+        endDate: { $lte: effectiveEnd }
+    });
+
     const allowance = staffUser.monthlyLeaveAllowance || 4;
-    const paidLeavesUsed = Math.min(totalAbsences, allowance);
-    const unpaidLeaves = Math.max(0, totalAbsences - allowance);
+    const paidLeavesUsed = Math.min(approvedLeaveDays, allowance);
+    const unpaidLeaves = Math.max(0, totalAbsences - paidLeavesUsed);
 
     const baseSalary = staffUser.salary || 0;
     const perDaySalary = baseSalary / 30; // 30 day basis
 
-    // New Calculation Logic:
-    // If Hotel staff: Worked days (all) + Paid Leaves allowance
-    // If Company staff: Worked days (Mon-Sat) + Paid Leaves allowance + Sunday Bonus
-    // Actually, (totalEffectivePresent + paidLeavesUsed) covers it for both if workingDaysPassed is correct.
+    // Total Pay = Worked Days + Limited Approved Paid Leaves
     const finalSalary = (totalEffectivePresent + paidLeavesUsed) * perDaySalary;
 
     return {
