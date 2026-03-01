@@ -279,13 +279,19 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             role: 'Driver',
             'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
         }).select('name documents'),
+        // Fastag Recharge this month instead of total balance (User request 01st March = 0)
         Vehicle.aggregate([
+            { $match: { company: companyObjectId } },
+            { $unwind: '$fastagHistory' },
             {
-                $match: { company: companyObjectId }
+                $match: {
+                    'fastagHistory.date': { $gte: monthStart, $lte: monthEnd }
+                }
             },
-            { $group: { _id: null, total: { $sum: '$fastagBalance' } } }
+            { $group: { _id: null, total: { $sum: '$fastagHistory.amount' } } }
         ]),
-        Advance.aggregate([ // advanceData (for non-freelancer total pending)
+        // Advances given this month instead of total pending (User request 01st March = 0)
+        Advance.aggregate([
             {
                 $lookup: {
                     from: 'users',
@@ -299,8 +305,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 $match: {
                     company: companyObjectId,
                     'driverInfo.isFreelancer': { $ne: true },
-                    status: 'Pending',
-                    remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
+                    date: { $gte: monthStart, $lte: monthEnd } // Changed to filter by month
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -694,15 +699,19 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
             // We only count regular drivers here (isFreelancer !== true)
             if (att.driver.isFreelancer !== true && att.isFreelancer !== true) {
-                if (!monthlyWorkedDrivers.has(key)) {
-                    const wage = (Number(att.dailyWage) || 0) ||
-                        (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) ||
-                        (att.driver.salary ? Number(att.driver.salary) : 0) || 500;
+                const wage = (Number(att.dailyWage) || 0) ||
+                    (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) ||
+                    (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
 
-                    const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
-                        (Number(att.punchOut?.nightStayAmount) || 0) +
-                        (Number(att.outsideTrip?.bonusAmount) || 0);
+                const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
+                    (Number(att.punchOut?.nightStayAmount) || 0) +
+                    (Number(att.outsideTrip?.bonusAmount) || 0);
 
+                if (monthlyWorkedDrivers.has(key)) {
+                    const existing = monthlyWorkedDrivers.get(key);
+                    // Add only bonuses for subsequent shifts, keep wage constant for the day
+                    monthlyWorkedDrivers.set(key, existing + bonuses);
+                } else {
                     monthlyWorkedDrivers.set(key, wage + bonuses);
                 }
             }
@@ -3084,32 +3093,39 @@ const getAllStaff = asyncHandler(async (req, res) => {
         const end = start.plus({ months: 1 }).minus({ days: 1 }).endOf('day');
 
         // StaffAttendance uses YYYY-MM-DD strings for 'date'
-        const attendance = await StaffAttendance.find({
+        const attendanceRecords = await StaffAttendance.find({
             staff: s._id,
             date: {
                 $gte: start.toFormat('yyyy-MM-dd'),
                 $lte: end.toFormat('yyyy-MM-dd')
             },
-            status: 'present'
+            status: { $in: ['present', 'half-day'] }
         });
+
+        const effectivePresent = attendanceRecords.reduce((acc, rec) => {
+            return acc + (rec.status === 'half-day' ? 0.5 : 1);
+        }, 0);
 
         // Calculate working days passed so far in this cycle
         let workingDaysPassed = 0;
         let d = start;
         const effectiveEnd = end > now ? now : end;
         while (d <= effectiveEnd) {
-            if (d.weekday !== 7) workingDaysPassed++;
+            // For Hotel staff, Sundays are working days. For Company staff, they are off.
+            if (s.staffType === 'Hotel' || d.weekday !== 7) {
+                workingDaysPassed++;
+            }
             d = d.plus({ days: 1 });
         }
 
-        const totalAbsences = Math.max(0, workingDaysPassed - attendance.length);
+        const totalAbsences = Math.max(0, workingDaysPassed - effectivePresent);
         const allowance = s.monthlyLeaveAllowance || 4;
         const paidLeavesUsed = Math.min(totalAbsences, allowance);
         const perDaySalary = (s.salary || 0) / 30; // Dividing by 30 for day-wise hisab
-        const earnedSalary = (attendance.length + paidLeavesUsed) * perDaySalary;
+        const earnedSalary = (effectivePresent + paidLeavesUsed) * perDaySalary;
 
         staffObj.currentCycle = {
-            presentDays: attendance.length,
+            presentDays: effectivePresent,
             earnedSalary: Math.round(earnedSalary),
             startDate: start.toFormat('dd MMM'),
             endDate: end.toFormat('dd MMM'),
@@ -3152,7 +3168,8 @@ const createStaff = asyncHandler(async (req, res) => {
             radius: Number(req.body.officeLocation.radius) || 200
         } : undefined,
         profilePhoto: req.body.profilePhoto,
-        joiningDate: req.body.joiningDate ? new Date(req.body.joiningDate) : new Date()
+        joiningDate: req.body.joiningDate ? new Date(req.body.joiningDate) : new Date(),
+        staffType: req.body.staffType || 'Company'
     });
 
     res.status(201).json(staff);
@@ -3188,6 +3205,7 @@ const updateStaff = asyncHandler(async (req, res) => {
         }
         if (req.body.profilePhoto) staff.profilePhoto = req.body.profilePhoto;
         if (req.body.joiningDate) staff.joiningDate = new Date(req.body.joiningDate);
+        if (req.body.staffType) staff.staffType = req.body.staffType;
 
         const updatedStaff = await staff.save();
         res.json(updatedStaff);
@@ -3281,6 +3299,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         });
 
         const allStaff = await User.find({ company: companyId, role: 'Staff' });
+        const allApprovedLeaves = await LeaveRequest.find({ company: companyId, status: 'Approved' });
         const now = DateTime.now().setZone('Asia/Kolkata');
         const todayStr = now.toFormat('yyyy-MM-dd');
 
@@ -3292,9 +3311,20 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             // E.g. req=Feb, join=5th => cycle is Feb 5 to Mar 4
             let cycleStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: joinDay }, { zone: 'Asia/Kolkata' });
 
-            // If the joinDay is 31 but requested month only has 28 days, luxon pushes it to Mar 3rd. We need to clamp it.
+            // VALIDATION: If the joinDay is 31 but requested month only has 28 days, luxon pushes it to Mar 3rd.
             if (cycleStartDT.month !== reqMonth) {
                 cycleStartDT = cycleStartDT.set({ day: 0 }); // last day of reqMonth
+            }
+
+            // DYNAMIC CYCLE SHIFT: If we are in the requested month but the joinDay hasn't arrived yet, 
+            // the active cycle is actually the one that started in the previous month.
+            const isCurrentMonth = reqMonth === now.month && reqYear === now.year;
+            if (isCurrentMonth && now.day < joinDay) {
+                cycleStartDT = cycleStartDT.minus({ months: 1 });
+                // Re-clamp for the previous month
+                if (cycleStartDT.day !== joinDay && cycleStartDT.plus({ days: 1 }).day === 1) {
+                    // It was clamped or should be clamped
+                }
             }
 
             const cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
@@ -3315,9 +3345,14 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             let sundaysPassed = 0;
             let d = cycleStartDT;
             const eDT = DateTime.fromISO(effectiveEnd);
+
             while (d <= eDT) {
-                if (d.weekday === 7) sundaysPassed++;
-                else workingDaysPassed++;
+                if (s.staffType === 'Hotel') {
+                    workingDaysPassed++;
+                } else {
+                    if (d.weekday === 7) sundaysPassed++;
+                    else workingDaysPassed++;
+                }
                 d = d.plus({ days: 1 });
             }
 
@@ -3326,23 +3361,75 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             const effectivePresent = presentDays + (halfDays * 0.5);
 
             // Sundays worked
-            const sundaysWorked = staffAtt.filter(a => {
-                return DateTime.fromISO(a.date).weekday === 7 && a.status === 'present';
-            }).length;
+            let sundaysWorked = 0;
+            let regularEffectivePresent = 0;
 
-            const regularPresents = staffAtt.filter(a => DateTime.fromISO(a.date).weekday !== 7);
-            const regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
+            if (s.staffType === 'Hotel') {
+                regularEffectivePresent = effectivePresent;
+            } else {
+                sundaysWorked = staffAtt.filter(a => {
+                    return DateTime.fromISO(a.date).weekday === 7 && a.status === 'present';
+                }).length;
+
+                const regularPresents = staffAtt.filter(a => DateTime.fromISO(a.date).weekday !== 7);
+                regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
+            }
 
             const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
-            const allowance = s.monthlyLeaveAllowance || 4;
-            const paidLeavesUsed = Math.min(totalAbsences, allowance);
-            const extraLeaves = Math.max(0, totalAbsences - allowance);
+
+            // VERIFIED LEAVE LOGIC: Only count absences as 'paid' if there is an approved LeaveRequest for that day
+            const myLeaves = allApprovedLeaves.filter(l => String(l.staff) === String(s._id));
+            let verifiedPaidLeaves = 0;
+
+            // We check each day in the cycle for an approved leave
+            let cursor = cycleStartDT;
+            const allowance = s.monthlyLeaveAllowance || 4; // Default 4 days
+
+            while (cursor <= eDT && verifiedPaidLeaves < allowance) {
+                const cStr = cursor.toFormat('yyyy-MM-dd');
+                const attRec = staffAtt.find(a => a.date === cStr);
+
+                // Absence = No record OR record marked as 'absent'
+                const isAbsence = !attRec || attRec.status === 'absent';
+                const isWorkDay = s.staffType === 'Hotel' || cursor.weekday !== 7;
+
+                if (isAbsence && isWorkDay) {
+                    const hasApprovedLeave = myLeaves.find(l => cStr >= l.startDate && cStr <= l.endDate);
+                    if (hasApprovedLeave) {
+                        verifiedPaidLeaves++;
+                    }
+                }
+                cursor = cursor.plus({ days: 1 });
+            }
+
+            const paidLeavesUsed = verifiedPaidLeaves;
+            const extraLeaves = Math.max(0, totalAbsences - paidLeavesUsed);
 
             const baseSalary = s.salary || 0;
             const perDaySalary = baseSalary / 30; // 30 day basis
 
             // Positive Accrual Logic: Salary = (Actual Progress + Paid Buffer Days) * Rate
             const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysWorked) * perDaySalary;
+
+            // Cycle Metadata for UI Heatmap
+            const fullCycleAttendance = [];
+            let tempDate = cycleStartDT;
+            while (tempDate <= cycleEndDT) {
+                const dateStr = tempDate.toFormat('yyyy-MM-dd');
+                const exist = staffAtt.find(a => a.date === dateStr);
+                const isSunday = tempDate.weekday === 7;
+
+                fullCycleAttendance.push({
+                    date: dateStr,
+                    day: tempDate.day,
+                    status: exist ? exist.status : (dateStr > todayStr ? 'upcoming' : 'absent'),
+                    isSunday,
+                    punchIn: exist?.punchIn,
+                    punchOut: exist?.punchOut,
+                    _id: exist?._id || `empty-${dateStr}`
+                });
+                tempDate = tempDate.plus({ days: 1 });
+            }
 
             return {
                 staffId: s._id,
@@ -3359,12 +3446,13 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 paidLeavesUsed,
                 extraLeaves,
                 perDaySalary: Math.round(perDaySalary),
-                deduction: Math.round(extraLeaves * perDaySalary), // Keep for UI showing "loss"
+                deduction: Math.round(extraLeaves * perDaySalary),
                 sundayBonus: Math.round(sundaysWorked * perDaySalary),
-                attendanceData: staffAtt,
+                attendanceData: fullCycleAttendance, // Now returns full cycle for UI
                 finalSalary: Math.round(finalSalary),
                 cycleStart,
-                cycleEnd
+                cycleEnd,
+                joiningDate: s.joiningDate
             };
         });
 

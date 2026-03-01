@@ -16,8 +16,8 @@ const app = express();
 // 1. Performance Middlewares
 app.use(compression()); // Compresses JS/CSS to load much faster
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // --- API ROUTES ---
 const authRoutes = require('./routes/authRoutes');

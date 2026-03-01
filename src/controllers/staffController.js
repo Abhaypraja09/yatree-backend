@@ -79,14 +79,17 @@ const staffPunchIn = asyncHandler(async (req, res) => {
 
     const user = await User.findById(req.user._id);
 
-    // Geofencing Check
-    if (user.officeLocation && user.officeLocation.latitude) {
-        const distance = calculateDistance(latitude, longitude, user.officeLocation.latitude, user.officeLocation.longitude);
-        const radius = user.officeLocation.radius || 200;
-        if (distance > radius) {
-            return res.status(400).json({
-                message: `You are too far from the office (${Math.round(distance)}m). Distance allowed: ${radius}m.`
-            });
+    // Geofencing deactivated as per user request — auditing only
+    if (user.officeLocation && (user.officeLocation.latitude || user.officeLocation.address)) {
+        const staffLat = Number(latitude);
+        const staffLon = Number(longitude);
+        const officeLat = Number(user.officeLocation.latitude);
+        const officeLon = Number(user.officeLocation.longitude);
+        const radius = Number(user.officeLocation.radius) > 0 ? Number(user.officeLocation.radius) : 200;
+
+        if (staffLat && staffLon && officeLat && officeLon) {
+            const distance = calculateDistance(staffLat, staffLon, officeLat, officeLon);
+            console.log(`[GEO_AUDIT] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Status: ALLOWED (Restriction Disabled)`);
         }
     }
 
@@ -97,8 +100,18 @@ const staffPunchIn = asyncHandler(async (req, res) => {
         endDate: { $gte: today },
         status: 'Approved'
     });
+
     if (onLeave) {
-        return res.status(400).json({ message: 'You are on leave today and cannot punch in.', leaveType: onLeave.type });
+        console.log(`[STAFF_PUNCH] Blocking punch-in for ${req.user.name} - on approved leave (${onLeave.type})`);
+        return res.status(403).json({
+            message: `You are on approved leave (${onLeave.type}) which is active today. Punch-in restricted.`,
+            leaveType: onLeave.type
+        });
+    }
+
+    // Safety check: Even if LeaveRequest didn't catch it, check if an 'absent' record exists
+    if (attendance && attendance.status === 'absent') {
+        return res.status(403).json({ message: 'You are marked as ABSENT for today (Leave Approval). Cannot punch in.' });
     }
 
     attendance = await StaffAttendance.create({
@@ -125,13 +138,16 @@ const staffPunchOut = asyncHandler(async (req, res) => {
     }
 
     const user = await User.findById(req.user._id);
-    if (user.officeLocation && user.officeLocation.latitude) {
-        const distance = calculateDistance(latitude, longitude, user.officeLocation.latitude, user.officeLocation.longitude);
-        const radius = user.officeLocation.radius || 200;
-        if (distance > radius) {
-            return res.status(400).json({
-                message: `You are too far from the office (${Math.round(distance)}m). Distance allowed: ${radius}m.`
-            });
+    // Geofencing deactivated — checkout logic preserved for telemetry only
+    if (user.officeLocation && (user.officeLocation.latitude || user.officeLocation.address)) {
+        const staffLat = Number(latitude);
+        const staffLon = Number(longitude);
+        const officeLat = Number(user.officeLocation.latitude);
+        const officeLon = Number(user.officeLocation.longitude);
+
+        if (staffLat && staffLon && officeLat && officeLon) {
+            const distance = calculateDistance(staffLat, staffLon, officeLat, officeLon);
+            console.log(`[GEO_AUDIT_OUT] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Status: ALLOWED`);
         }
     }
 
@@ -150,7 +166,12 @@ const staffPunchOut = asyncHandler(async (req, res) => {
 const getStaffStatus = asyncHandler(async (req, res) => {
     const today = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
     const attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });
-    res.json(attendance || { message: 'Not punched in' });
+    const staff = await User.findById(req.user._id).select('-password');
+    res.json({
+        attendance,
+        staff,
+        message: attendance ? 'Already Punched' : 'Not punched in'
+    });
 });
 
 // @desc    Get Staff History (last 60 records)
@@ -204,58 +225,58 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     let workingDaysPassed = 0;
     let d = csDate;
     while (d <= ceDate) {
-        if (d.weekday !== 7) workingDaysPassed++;
+        if (staffUser.staffType === 'Hotel' || d.weekday !== 7) {
+            workingDaysPassed++;
+        }
         d = d.plus({ days: 1 });
     }
 
     const presentDays = attendance.filter(a => a.status === 'present').length;
     const halfDays = attendance.filter(a => a.status === 'half-day').length;
-    const effectivePresent = presentDays + (halfDays * 0.5);
+    const totalEffectivePresent = presentDays + (halfDays * 0.5);
 
-    // Regular attendance (excluding Sundays)
-    const regularAttendance = attendance.filter(a => DateTime.fromISO(a.date).weekday !== 7);
-    const regularEffectivePresent = regularAttendance.filter(a => a.status === 'present').length +
-        (regularAttendance.filter(a => a.status === 'half-day').length * 0.5);
-
-    // Sundays Worked (Bonus)
+    // Sundays Worked (for Company staff, this is a bonus)
     const sundaysWorked = attendance.filter(a => {
         const day = DateTime.fromISO(a.date).weekday;
         return day === 7 && a.status === 'present';
     }).length;
 
-    const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
-    const allowance = staffUser.monthlyLeaveAllowance || 4;
+    // Absences: Compared against required working days
+    // For Hotel staff, workingDaysPassed includes Sundays.
+    // For Company staff, workingDaysPassed excludes Sundays.
+    const totalAbsences = Math.max(0, workingDaysPassed - totalEffectivePresent);
 
-    // Paid leaves used so far
+    const allowance = staffUser.monthlyLeaveAllowance || 4;
     const paidLeavesUsed = Math.min(totalAbsences, allowance);
-    const extraLeaves = Math.max(0, totalAbsences - allowance);
+    const unpaidLeaves = Math.max(0, totalAbsences - allowance);
 
     const baseSalary = staffUser.salary || 0;
     const perDaySalary = baseSalary / 30; // 30 day basis
 
-    // Positive Accrual Logic: 
-    // Salary = (Days Worked + Paid Leaves + Sunday Bonus) * Daily Rate
-    // This ensures that Every Present Day Adds to the total.
-    const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysWorked) * perDaySalary;
+    // New Calculation Logic:
+    // If Hotel staff: Worked days (all) + Paid Leaves allowance
+    // If Company staff: Worked days (Mon-Sat) + Paid Leaves allowance + Sunday Bonus
+    // Actually, (totalEffectivePresent + paidLeavesUsed) covers it for both if workingDaysPassed is correct.
+    const finalSalary = (totalEffectivePresent + paidLeavesUsed) * perDaySalary;
 
     return {
         cycleStart,
         cycleEnd,
         effectiveEnd,
-        presentDays: effectivePresent,
+        presentDays: totalEffectivePresent,
         halfDays,
         sundaysWorked,
         workingDaysPassed,
         leavesTaken: totalAbsences,
         allowance,
         paidLeavesUsed,
-        extraLeaves,
+        extraLeaves: unpaidLeaves,
         salary: baseSalary,
         perDaySalary: Math.round(perDaySalary),
         totalEarned: Math.round(finalSalary),
-        finalSalary: Math.round(finalSalary), // For backward compatibility
-        deduction: Math.round(extraLeaves * perDaySalary),
-        sundayBonus: Math.round(sundaysWorked * perDaySalary),
+        finalSalary: Math.round(finalSalary),
+        deduction: Math.round(unpaidLeaves * perDaySalary),
+        sundayBonus: staffUser.staffType === 'Hotel' ? 0 : Math.round(sundaysWorked * perDaySalary),
         attendanceData: attendance
     };
 }
@@ -328,7 +349,7 @@ const getStaffSalaryCycles = asyncHandler(async (req, res) => {
 
     const cycles = [];
     const totalCyclesElapsed = Math.floor(cycleStartDT.diff(joinDT, 'months').months);
-    const cyclesToShow = Math.min(totalCyclesElapsed + 1, 12);
+    const cyclesToShow = Math.max(1, Math.min(totalCyclesElapsed + 1, 12));
 
     for (let i = 0; i < cyclesToShow; i++) {
         const cStart = cycleStartDT.minus({ months: i }).startOf('day');

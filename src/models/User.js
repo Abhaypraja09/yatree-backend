@@ -115,6 +115,11 @@ const userSchema = new mongoose.Schema({
     joiningDate: {
         type: Date,
         default: null
+    },
+    staffType: {
+        type: String,
+        enum: ['Company', 'Hotel', 'Freelancer'],
+        default: 'Company'
     }
 }, {
     timestamps: true,
