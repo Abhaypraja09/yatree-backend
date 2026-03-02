@@ -79,17 +79,27 @@ const staffPunchIn = asyncHandler(async (req, res) => {
 
     const user = await User.findById(req.user._id);
 
-    // Geofencing deactivated as per user request — auditing only
-    if (user.officeLocation && (user.officeLocation.latitude || user.officeLocation.address)) {
+    // Geofencing enforcement
+    if (user.officeLocation && user.officeLocation.latitude && user.officeLocation.longitude) {
         const staffLat = Number(latitude);
         const staffLon = Number(longitude);
         const officeLat = Number(user.officeLocation.latitude);
         const officeLon = Number(user.officeLocation.longitude);
         const radius = Number(user.officeLocation.radius) > 0 ? Number(user.officeLocation.radius) : 200;
 
-        if (staffLat && staffLon && officeLat && officeLon) {
+        if (staffLat && staffLon) {
             const distance = calculateDistance(staffLat, staffLon, officeLat, officeLon);
-            console.log(`[GEO_AUDIT] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Status: ALLOWED (Restriction Disabled)`);
+            if (distance > radius) {
+                console.log(`[GEO_BLOCK] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Radius: ${radius}m | Status: REJECTED`);
+                return res.status(403).json({
+                    message: `Punch-in restricted. You are ${Math.round(distance)}m away from the office. Please reach the office to punch in.`,
+                    distance: Math.round(distance),
+                    requiredRadius: radius
+                });
+            }
+            console.log(`[GEO_ALLOW] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Radius: ${radius}m | Status: ALLOWED`);
+        } else {
+            return res.status(400).json({ message: 'GPS coordinates are required for geofenced punch-in.' });
         }
     }
 

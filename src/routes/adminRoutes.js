@@ -106,8 +106,14 @@ router.post('/drivers', adminOrExecutive, driverUpload, createDriver);
 router.put('/drivers/:id', adminOrExecutive, updateDriver);
 router.post('/vehicles', adminOrExecutive, vehicleUpload, createVehicle);
 router.put('/vehicles/:id', adminOrExecutive, vehicleUpload, updateVehicle);
-router.post('/freelancers/punch-in', adminOrExecutive, freelancerPunchIn);
-router.post('/freelancers/punch-out', adminOrExecutive, freelancerPunchOut);
+const freelancerUpload = upload.fields([
+    { name: 'selfie', maxCount: 1 },
+    { name: 'kmPhoto', maxCount: 1 },
+    { name: 'carSelfie', maxCount: 1 }
+]);
+
+router.post('/freelancers/punch-in', adminOrExecutive, freelancerUpload, freelancerPunchIn);
+router.post('/freelancers/punch-out', adminOrExecutive, freelancerUpload, freelancerPunchOut);
 router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);
 router.post('/maintenance', adminOrExecutive, upload.single('billPhoto'), addMaintenanceRecord);
 router.put('/maintenance/:id', adminOrExecutive, upload.single('billPhoto'), updateMaintenanceRecord);

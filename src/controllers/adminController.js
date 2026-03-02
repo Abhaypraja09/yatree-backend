@@ -1558,6 +1558,12 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
         status: 'incomplete'
     });
 
+    if (req.files) {
+        if (req.files.selfie) attendance.punchIn.selfie = req.files.selfie[0].path;
+        if (req.files.kmPhoto) attendance.punchIn.kmPhoto = req.files.kmPhoto[0].path;
+        if (req.files.carSelfie) attendance.punchIn.carSelfie = req.files.carSelfie[0].path;
+    }
+
     // Sync createdAt with duty date for history
     attendance.createdAt = new Date(dutyDate + 'T12:00:00Z');
 
@@ -1574,6 +1580,9 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
     }
 
     vehicle.currentDriver = driverId;
+    if (Number(km) > (vehicle.lastOdometer || 0)) {
+        vehicle.lastOdometer = Number(km);
+    }
     await vehicle.save();
 
     res.json({ message: 'Freelancer assigned and duty started', attendance });
@@ -1612,6 +1621,12 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         parkingPaidBy: parkingPaidBy || 'Self'
     };
 
+    if (req.files) {
+        if (req.files.selfie) attendance.punchOut.selfie = req.files.selfie[0].path;
+        if (req.files.kmPhoto) attendance.punchOut.kmPhoto = req.files.kmPhoto[0].path;
+        if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
+    }
+
     attendance.fuel = {
         filled: true,
         amount: fuelAmount || 0
@@ -1635,7 +1650,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
             source: 'Admin',
             notes: `Freelancer Punch-Out Parking (Paid By: ${parkingPaidBy || 'Self'})`,
             createdBy: req.user._id,
-            isReimbursable: parkingPaidBy === 'Office' ? false : true // Only pay back if not paid by office
+            isReimbursable: parkingPaidBy === 'Office' ? false : true
         });
     }
 
@@ -1647,7 +1662,14 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 
     // Clear vehicle status
     if (attendance.vehicle) {
-        await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
+        const v = await Vehicle.findById(attendance.vehicle);
+        if (v) {
+            v.currentDriver = null;
+            if (Number(km) > (v.lastOdometer || 0)) {
+                v.lastOdometer = Number(km);
+            }
+            await v.save();
+        }
     }
 
     res.json({ message: 'Duty completed and vehicle released', attendance });
@@ -1894,12 +1916,17 @@ const addManualDuty = asyncHandler(async (req, res) => {
         driver.assignedVehicle = null;
         await driver.save();
 
-        // Ensure vehicle is free
+        // Ensure vehicle is free and odometer is latest
         if (vehicle.currentDriver && vehicle.currentDriver.toString() === driverId.toString()) {
             vehicle.currentDriver = null;
-            await vehicle.save();
         }
     }
+
+    // Always update odometer if this manual entry is the latest
+    if (Number(punchOutKM) > (vehicle.lastOdometer || 0)) {
+        vehicle.lastOdometer = Number(punchOutKM);
+    }
+    await vehicle.save();
 
     res.status(201).json({ message: 'Manual duty entry created successfully', attendance });
 });
@@ -2757,9 +2784,8 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
             totalEarned,
             totalAdvances: totalAdvancesThisMonth, // Show monthly activity
             totalRecovered: totalRecoveredThisMonth, // Show monthly activity
-            pendingAdvance, // Show cumulative balance
-            netPayable: totalEarned - pendingAdvance,
-            netPayable: totalEarned - pendingAdvance,
+            pendingAdvance, // Show cumulative balance (for reference)
+            netPayable: totalEarned - totalAdvancesThisMonth, // Monthly: earned this month minus advances this month
             workingDays: datesProcessed.size,
             nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
             sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
@@ -3144,14 +3170,22 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'staffId, companyId, and date are required' });
     }
 
+    // Restriction: Cannot backdate more than 15 days
+    const targetDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' });
+    const fifteenDaysAgo = DateTime.now().setZone('Asia/Kolkata').minus({ days: 15 }).startOf('day');
+
+    if (targetDate < fifteenDaysAgo) {
+        return res.status(400).json({ message: 'Attendance entry is restricted to the last 15 days only.' });
+    }
+
     // Check if attendance already exists for this day
     const existing = await StaffAttendance.findOne({ staff: staffId, date });
     if (existing) {
         existing.status = status || existing.status;
-        if (punchInTime) existing.punchIn = { time: new Date(`${date}T${punchInTime}:00`), location: { address: 'Admin Added' } };
-        if (punchOutTime) existing.punchOut = { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Added' } };
+        if (punchInTime) existing.punchIn = { time: new Date(`${date}T${punchInTime}:00`), location: { address: 'Admin Updated' } };
+        if (punchOutTime) existing.punchOut = { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Updated' } };
         await existing.save();
-        return res.json({ message: 'Attendance updated', attendance: existing });
+        return res.json({ message: 'Attendance updated successfully', attendance: existing });
     }
 
     const attendance = await StaffAttendance.create({
@@ -3168,7 +3202,7 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
             : undefined
     });
 
-    res.status(201).json({ message: 'Backdated attendance added', attendance });
+    res.status(201).json({ message: 'Backdated attendance added successfully', attendance });
 });
 
 // @desc    Get Staff Attendance Reports
