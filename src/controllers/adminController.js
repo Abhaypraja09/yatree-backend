@@ -497,13 +497,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         let fuelAmount = 0;
         driverAttendances.forEach((att) => {
             fuelAmount += (Number(att.fuel?.amount) || 0);
-            if (att.pendingExpenses && Array.isArray(att.pendingExpenses)) {
-                att.pendingExpenses.forEach(e => {
-                    if (e.type === 'fuel' && e.amount > 0 && e.status === 'pending') {
-                        fuelAmount += Number(e.amount);
-                    }
-                });
-            }
+            // ONLY APPROVED FUEL IS COUNTED (Pending removed as per user request 02 Mar)
         });
 
         const standaloneFuelList = fuelEntriesByDriverNameMap.get(driver.name) || [];
@@ -557,13 +551,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             seenAtt.add(attId);
 
             fuelAmount += (Number(a.fuel?.amount) || 0);
-            if (a.pendingExpenses && Array.isArray(a.pendingExpenses)) {
-                a.pendingExpenses.forEach(e => {
-                    if (e.type === 'fuel' && e.amount > 0 && e.status === 'pending') {
-                        fuelAmount += Number(e.amount);
-                    }
-                });
-            }
+            // ONLY APPROVED FUEL IS COUNTED (Pending removed as per user request 02 Mar)
         });
 
         const standaloneFuelForVehicle = fuelEntriesByVehicleIdMap.get(vehicleIdStr) || [];
