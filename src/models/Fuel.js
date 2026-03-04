@@ -79,6 +79,10 @@ const fuelSchema = new mongoose.Schema({
     },
     slipPhoto: {
         type: String
+    },
+    attendance: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Attendance'
     }
 }, {
     timestamps: true

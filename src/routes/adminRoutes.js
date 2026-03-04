@@ -64,7 +64,8 @@ const {
     getPendingLeaveRequests,
     approveRejectLeave,
     getVehicleMonthlyDetails,
-    addBackdatedAttendance
+    addBackdatedAttendance,
+    deleteStaffAttendance
 } = require('../controllers/adminController');
 const {
     createEvent,
@@ -172,6 +173,7 @@ router.post('/staff', adminOrExecutive, createStaff);
 router.put('/staff/:id', adminOrExecutive, updateStaff);
 router.delete('/staff/:id', adminOrExecutive, deleteStaff);
 router.get('/staff-attendance/:companyId', adminOrExecutive, getStaffAttendanceReports);
+router.delete('/staff-attendance/:id', adminOrExecutive, deleteStaffAttendance);
 router.post('/staff-attendance/backdate', adminOrExecutive, addBackdatedAttendance);
 
 // Leave Requests

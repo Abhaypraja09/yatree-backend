@@ -11,6 +11,7 @@ const test = async () => {
         console.log('Requiring User...');
         const User = require('./src/models/User');
         console.log('User model loaded');
+        
 
         const count = await User.countDocuments();
         console.log(`User count: ${count}`);

@@ -184,6 +184,37 @@ const toggleDriverStatus = asyncHandler(async (req, res) => {
     }
 });
 
+const syncVehicleOdometer = async (vehicleId) => {
+    if (!vehicleId) return;
+    try {
+        // Sort by date DESC first, then by punchOut time DESC
+        const latestValidAttendance = await Attendance.findOne({
+            vehicle: vehicleId,
+            status: 'completed'
+        }).sort({ date: -1, 'punchOut.time': -1 });
+
+        let latestKm = 0;
+        if (latestValidAttendance && latestValidAttendance.punchOut?.km) {
+            latestKm = latestValidAttendance.punchOut.km;
+        } else {
+            // Find latest punchIn if no completed duties
+            const latestPunchIn = await Attendance.findOne({
+                vehicle: vehicleId
+            }).sort({ date: -1, 'punchIn.time': -1 });
+
+            if (latestPunchIn && latestPunchIn.punchIn?.km) {
+                latestKm = latestPunchIn.punchIn.km;
+            }
+        }
+
+        // Always update, even to 0 if no records found, to ensure consistency
+        await Vehicle.findByIdAndUpdate(vehicleId, { lastOdometer: latestKm || 0 });
+        console.log(`[SYNC_KM] Vehicle ${vehicleId} updated to ${latestKm} KM`);
+    } catch (error) {
+        console.error(`[SYNC_KM] Error for vehicle ${vehicleId}:`, error);
+    }
+};
+
 // @desc    Get dashboard stats
 // @route   GET /api/admin/dashboard/:companyId
 // @access  Private/Admin
@@ -253,12 +284,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }),
         Attendance.find({
             company: companyObjectId,
-            $or: isTodaySelected ? [
-                { date: targetDate },
-                { status: 'incomplete' }
-            ] : [
-                { date: targetDate }
-            ]
+            date: targetDate
         })
             .populate({
                 path: 'driver',
@@ -438,7 +464,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         Fuel.find({
             company: companyObjectId,
             date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() }
-        }).lean(),
+        }).populate('vehicle', 'carNumber model').lean(),
         Vehicle.aggregate([
             { $match: { company: companyObjectId } },
             { $unwind: '$fastagHistory' },
@@ -476,16 +502,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const fuelEntriesByVehicleIdMap = new Map();
 
     fuelEntriesToday.forEach(f => {
-        if (f.source !== 'Driver') {
-            if (f.driver) {
-                if (!fuelEntriesByDriverNameMap.has(f.driver)) fuelEntriesByDriverNameMap.set(f.driver, []);
-                fuelEntriesByDriverNameMap.get(f.driver).push(f);
-            }
-            if (f.vehicle) {
-                const vIdStr = f.vehicle.toString();
-                if (!fuelEntriesByVehicleIdMap.has(vIdStr)) fuelEntriesByVehicleIdMap.set(vIdStr, []);
-                fuelEntriesByVehicleIdMap.get(vIdStr).push(f);
-            }
+        if (f.driver) {
+            // Find by name for drivers
+            if (!fuelEntriesByDriverNameMap.has(f.driver)) fuelEntriesByDriverNameMap.set(f.driver, []);
+            fuelEntriesByDriverNameMap.get(f.driver).push(f);
+        }
+        if (f.vehicle) {
+            const vIdStr = f.vehicle._id ? f.vehicle._id.toString() : f.vehicle.toString();
+            if (!fuelEntriesByVehicleIdMap.has(vIdStr)) fuelEntriesByVehicleIdMap.set(vIdStr, []);
+            fuelEntriesByVehicleIdMap.get(vIdStr).push(f);
         }
     });
 
@@ -495,19 +520,36 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const driverAttendances = attendanceByDriverMap.get(driver._id.toString()) || [];
 
         let fuelAmount = 0;
-        driverAttendances.forEach((att) => {
-            fuelAmount += (Number(att.fuel?.amount) || 0);
-            // ONLY APPROVED FUEL IS COUNTED (Pending removed as per user request 02 Mar)
+        let fuelEntries = [];
+        // Daily Feed fuel comes primarily from the Fuel collection for that date
+        // Note: For freelancers, `driver` might be stored as string Name instead of ObjectId. We check both maps.
+        const standaloneFuelList = Array.from(fuelEntriesToday).filter(f =>
+            (f.driver && f.driver.toString() === driver._id.toString()) ||
+            (f.driver && f.driver === driver.name)
+        );
+
+        standaloneFuelList.forEach(f => {
+            fuelAmount += (Number(f.amount) || 0);
+            fuelEntries.push(f);
         });
 
-        const standaloneFuelList = fuelEntriesByDriverNameMap.get(driver.name) || [];
-        fuelAmount += standaloneFuelList.reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+        // Fallback for manual duties that didn't have a standalone record (only if attendance date matches)
+        driverAttendances.forEach((att) => {
+            if (att.date === targetDate && att.fuel?.amount > 0) {
+                // If there's no fuel entry in the map for this amount on this day, add it
+                const match = standaloneFuelList.find(f => f.amount === att.fuel.amount);
+                if (!match) {
+                    fuelAmount += (Number(att.fuel.amount) || 0);
+                    fuelEntries.push({ amount: att.fuel.amount, fuelType: 'Duty Fuel', _id: `duty-${att._id}` });
+                }
+            }
+        });
 
         let currentStatus = 'Absent';
         if (driverAttendances.length > 0) {
             const hasOngoing = driverAttendances.some(a => a.status === 'incomplete');
             if (hasOngoing) {
-                currentStatus = !isTodaySelected ? 'Lapsed' : 'Present';
+                currentStatus = 'Present';
             } else {
                 currentStatus = 'Completed';
             }
@@ -523,11 +565,37 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             attendances: driverAttendances,
             currentAttendance: driverAttendances[driverAttendances.length - 1] || null,
             assignedVehicle: driver.assignedVehicle,
-            fuelAmount
+            fuelAmount,
+            fuelEntries
         };
-    }).filter(driver => !driver.isFreelancer || driver.status !== 'Absent');
+    }).filter(driver => {
+        if (driver.isFreelancer) {
+            // Freelancers: show if Present/Completed OR if they have fuel today
+            return driver.status !== 'Absent' || driver.fuelAmount > 0;
+        } else {
+            // Company drivers: only show if they are Present or Completed today
+            return driver.status !== 'Absent';
+        }
+    });
 
-    const liveVehiclesFeed = allVehicles.map(vehicle => {
+    // Fetch any outside vehicle that has duty or fuel today to include in FLEET Feed
+    const activeVehicleIdsFromLog = new Set([
+        ...attendanceToday.map(a => a.vehicle?._id ? a.vehicle._id.toString() : a.vehicle?.toString()).filter(Boolean),
+        ...fuelEntriesToday.map(f => f.vehicle?._id ? f.vehicle._id.toString() : f.vehicle?.toString()).filter(Boolean)
+    ]);
+
+    const activeOutsideVehicles = await Vehicle.find({
+        _id: {
+            $in: Array.from(activeVehicleIdsFromLog).map(id => {
+                try { return new mongoose.Types.ObjectId(id); } catch (e) { return null; }
+            }).filter(Boolean)
+        },
+        isOutsideCar: true
+    }).select('carNumber model currentDriver lastOdometer isOutsideCar').lean();
+
+    const feedVehiclesList = [...allVehicles, ...activeOutsideVehicles];
+
+    const liveVehiclesFeed = feedVehiclesList.map(vehicle => {
         const vehicleIdStr = vehicle._id.toString();
         const vehicleAttendances = attendanceByVehicleMap.get(vehicleIdStr) || [];
 
@@ -536,7 +604,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
         const activeAtt = vehicleAttendances.find(a => a.status === 'incomplete');
         if (activeAtt) {
-            status = isTodaySelected ? 'In Use' : 'Lapsed';
+            status = 'In Use';
             currentAttendance = activeAtt;
         } else if (vehicleAttendances.length > 0) {
             status = 'Completed';
@@ -544,18 +612,23 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }
 
         let fuelAmount = 0;
-        const seenAtt = new Set();
-        vehicleAttendances.forEach(a => {
-            const attId = a._id.toString();
-            if (seenAtt.has(attId)) return;
-            seenAtt.add(attId);
-
-            fuelAmount += (Number(a.fuel?.amount) || 0);
-            // ONLY APPROVED FUEL IS COUNTED (Pending removed as per user request 02 Mar)
+        let fuelEntries = [];
+        const standaloneFuelForVehicle = fuelEntriesByVehicleIdMap.get(vehicleIdStr) || [];
+        standaloneFuelForVehicle.forEach(f => {
+            fuelAmount += (Number(f.amount) || 0);
+            fuelEntries.push(f);
         });
 
-        const standaloneFuelForVehicle = fuelEntriesByVehicleIdMap.get(vehicleIdStr) || [];
-        fuelAmount += standaloneFuelForVehicle.reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+        // Fallback for manual duties that didn't have a standalone record (only if attendance date matches)
+        vehicleAttendances.forEach(a => {
+            if (a.date === targetDate && a.fuel?.amount > 0) {
+                const match = standaloneFuelForVehicle.find(f => f.amount === a.fuel.amount);
+                if (!match) {
+                    fuelAmount += (Number(a.fuel.amount) || 0);
+                    fuelEntries.push({ amount: a.fuel.amount, fuelType: 'Duty Fuel', _id: `duty-${a._id}` });
+                }
+            }
+        });
 
         return {
             _id: vehicle._id,
@@ -565,6 +638,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             attendances: vehicleAttendances,
             currentDriver: currentAttendance?.driver || null,
             fuelAmount,
+            fuelEntries,
             date: targetDate
         };
     });
@@ -590,28 +664,49 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     buildExpiringAlerts(vehiclesWithExpiringDocs, 'Vehicle');
     buildExpiringAlerts(driversWithExpiringDocs, 'Driver');
 
-    const kmAlertedVehicles = new Set();
+    const maintenanceAlertsSet = new Set();
     upcomingServices.forEach(s => {
+        if (!s.vehicle) return;
+
+        const category = s.category || s.maintenanceType || 'General';
+        const alertKey = `${s.vehicle._id.toString()}_${category}`;
+
+        // Skip if we already processed a more recent record for this vehicle and category
+        if (maintenanceAlertsSet.has(alertKey)) return;
+        maintenanceAlertsSet.add(alertKey);
+
         if (s.nextServiceDate) {
             const serviceDate = DateTime.fromJSDate(s.nextServiceDate).setZone('Asia/Kolkata').startOf('day');
             const diffDays = Math.ceil(serviceDate.diff(baseDate, 'days').days);
-            if (diffDays <= 30) {
+            // Ignore if impossibly old (more than 1 year overdue)
+            if (diffDays <= 30 && diffDays > -365) {
                 expiringAlerts.push({
-                    type: 'Service', identifier: s.vehicle?.carNumber || 'N/A', documentType: 'Upcoming Service (Date)',
-                    expiryDate: s.nextServiceDate, daysLeft: diffDays, status: diffDays < 0 ? 'Overdue' : 'Upcoming'
+                    type: 'Service',
+                    identifier: s.vehicle.carNumber || 'N/A',
+                    documentType: `${category} Service (Date)`,
+                    expiryDate: s.nextServiceDate,
+                    daysLeft: diffDays,
+                    status: diffDays < 0 ? 'Overdue' : 'Upcoming'
                 });
             }
         }
-        if (s.nextServiceKm && s.vehicle && !kmAlertedVehicles.has(s.vehicle._id.toString())) {
+
+        if (s.nextServiceKm && s.nextServiceKm > 0) {
             const currentKm = s.vehicle.lastOdometer || 0;
             const kmRemaining = s.nextServiceKm - currentKm;
-            if (kmRemaining <= 500) {
-                kmAlertedVehicles.add(s.vehicle._id.toString());
-                const partName = s.category || s.maintenanceType || 'Service Part';
+
+            // Only alert if within threshold, and ignore if impossibly overdue (more than 50,000 KM)
+            // Stale alerts like 17 lakh KM overdue indicate data entry errors.
+            if (kmRemaining <= 500 && kmRemaining > -50000) {
                 expiringAlerts.push({
-                    type: 'Service', identifier: s.vehicle.carNumber, documentType: `${partName} - Repair Immediately`,
-                    expiryDate: null, daysLeft: kmRemaining, status: kmRemaining <= 0 ? 'Urgent: Overdue' : 'Repair Soon',
-                    currentKm, targetKm: s.nextServiceKm
+                    type: 'Service',
+                    identifier: s.vehicle.carNumber,
+                    documentType: `${category} - Repair Immediately`,
+                    expiryDate: null,
+                    daysLeft: kmRemaining,
+                    status: kmRemaining <= 0 ? 'Urgent: Overdue' : 'Repair Soon',
+                    currentKm,
+                    targetKm: s.nextServiceKm
                 });
             }
         }
@@ -707,6 +802,46 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         dailySalaryTotal, dailyNightStayCount: attendanceToday.filter(att => Number(att.punchOut?.nightStayAmount) > 0).length,
         dailyFreelancerSalaryTotal, monthlySalaryTotal, monthlyRegularSalaryTotal, monthlyFreelancerSalaryTotal,
         monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
+        ...(() => {
+            let total = 0;
+            let entities = new Set();
+            let allEntries = [...fuelEntriesToday];
+
+            fuelEntriesToday.forEach(f => {
+                total += Number(f.amount) || 0;
+                if (f.vehicle) entities.add("v_" + f.vehicle.toString());
+                else if (f.driver) entities.add("d_" + f.driver.toString());
+            });
+
+            attendanceToday.forEach(att => {
+                if (att.fuel?.amount > 0) {
+                    const match = fuelEntriesToday.find(f => f.amount === att.fuel.amount &&
+                        ((f.vehicle && f.vehicle._id?.toString() === att.vehicle?._id?.toString()) ||
+                            (f.driver && f.driver === att.driver?.name)));
+
+                    if (!match) {
+                        total += Number(att.fuel.amount);
+                        if (att.vehicle?._id) entities.add("v_" + att.vehicle._id.toString());
+                        else if (att.driver?._id) entities.add("d_" + att.driver._id.toString());
+
+                        allEntries.push({
+                            _id: `duty-${att._id}`,
+                            amount: att.fuel.amount,
+                            fuelType: 'Duty Fuel',
+                            driver: att.driver?.name || 'Unknown',
+                            vehicle: att.vehicle ? { _id: att.vehicle._id, carNumber: att.vehicle.carNumber } : null,
+                            date: att.date,
+                            paymentMode: 'N/A',
+                            source: 'Duty App'
+                        });
+                    }
+                }
+            });
+            return {
+                dailyFuelAmount: { total, count: entities.size },
+                dailyFuelEntries: allEntries
+            };
+        })(),
         freelancerAdvances: { total: totalFreelancerAdvancePending, count: freelancerAdvanceData[0]?.count || 0 },
         liveDriversFeed, liveVehiclesFeed, dailyAdvanceTotal: dailyAdvanceData[0]?.total || 0,
         dailyFastagTotal: dailyFastagData[0]?.total || 0,
@@ -1030,8 +1165,27 @@ const deleteAttendance = asyncHandler(async (req, res) => {
         // Delete linked parking entry if it exists
         await Parking.deleteMany({ attendanceId: attendance._id });
 
+        const vehicleId = attendance.vehicle;
+
         await Attendance.deleteOne({ _id: attendance._id });
+
+        // Sync odometer if fleet vehicle
+        if (vehicleId) {
+            await syncVehicleOdometer(vehicleId);
+        }
+
         res.json({ message: 'Attendance record deleted successfully' });
+    } else {
+        res.status(404).json({ message: 'Attendance record not found' });
+    }
+});
+
+const deleteStaffAttendance = asyncHandler(async (req, res) => {
+    const attendance = await StaffAttendance.findById(req.params.id);
+
+    if (attendance) {
+        await StaffAttendance.deleteOne({ _id: attendance._id });
+        res.json({ message: 'Staff attendance record deleted successfully' });
     } else {
         res.status(404).json({ message: 'Attendance record not found' });
     }
@@ -1620,6 +1774,26 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         amount: fuelAmount || 0
     };
 
+    // Create a Fuel entry if amount > 0 (Manual entry style as requested)
+    if (Number(fuelAmount) > 0) {
+        await Fuel.create({
+            vehicle: attendance.vehicle,
+            company: driver.company,
+            fuelType: 'Diesel', // Default or could be passed
+            date: attendance.date ? new Date(attendance.date) : new Date(),
+            amount: Number(fuelAmount),
+            quantity: 0, // Manual entries might not have this initially
+            rate: 0,
+            odometer: km || 0,
+            stationName: 'Freelancer Entry',
+            paymentMode: 'Cash',
+            paymentSource: 'Yatree Office',
+            driver: driver.name,
+            source: 'Admin',
+            createdBy: req.user._id
+        });
+    }
+
     attendance.dropLocation = dropLocation;
     attendance.totalKM = (km || 0) - (attendance.punchIn.km || 0);
     attendance.status = 'completed';
@@ -1874,10 +2048,33 @@ const addManualDuty = asyncHandler(async (req, res) => {
         }
     });
 
+    // Create standalone Fuel entry for manual duties so it shows up correctly in Live Feed sums
+    if (Number(fuelAmount) > 0) {
+        await Fuel.create({
+            vehicle: vehicleId,
+            company: companyId,
+            fuelType: 'Diesel',
+            date: new Date(date),
+            amount: Number(fuelAmount),
+            quantity: 1, // Default for manual entries if not specified
+            rate: Number(fuelAmount),
+            odometer: Number(punchInKM) || 0,
+            driver: driver.name,
+            createdBy: req.user._id,
+            source: 'Admin',
+            attendance: attendance._id
+        });
+    }
+
     // For historical entries, we set createdAt to match the duty date
     attendance.createdAt = punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z');
 
     await attendance.save();
+
+    // Update vehicle odometer if recent
+    if (vehicleId && Number(punchOutKM) > 0) {
+        await syncVehicleOdometer(vehicleId);
+    }
 
     // Ensure we create a Parking entry so it gets tracked properly in Driver Salaries
     if (Number(parkingAmount) > 0) {
@@ -2453,7 +2650,8 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 createdBy: req.user._id,
                 source: 'Driver',
                 stationName: req.body.stationName || '',
-                slipPhoto: finalSlipPhoto
+                slipPhoto: finalSlipPhoto,
+                attendance: attendanceId
             });
 
             // Recalculate chain to ensure perfect mileage
@@ -3637,6 +3835,12 @@ const updateAttendance = asyncHandler(async (req, res) => {
     }
 
     console.log(`[ATTENDANCE_UPDATE] Success. New Daily Wage: ${updatedAttendance.dailyWage}`);
+
+    // Sync vehicle odometer if KM changed
+    if (attendance.vehicle && (startKm !== undefined || endKm !== undefined)) {
+        await syncVehicleOdometer(attendance.vehicle);
+    }
+
     res.json(updatedAttendance);
 });
 
@@ -3992,5 +4196,6 @@ module.exports = {
     deleteAccidentLog,
     updateMaintenanceRecord,
     getVehicleMonthlyDetails,  // New export
-    addBackdatedAttendance
+    addBackdatedAttendance,
+    deleteStaffAttendance
 };

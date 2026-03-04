@@ -12,11 +12,11 @@ const leaveRequestSchema = new mongoose.Schema({
         required: true
     },
     startDate: {
-        type: String, // format: YYYY-MM-DD
+        type: String,
         required: true
     },
     endDate: {
-        type: String, // format: YYYY-MM-DD
+        type: String,
         required: true
     },
     reason: {

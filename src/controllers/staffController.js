@@ -74,6 +74,12 @@ const staffPunchIn = asyncHandler(async (req, res) => {
 
     let attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     if (attendance) {
+        if (attendance.status === 'absent') {
+            return res.status(403).json({
+                message: 'Punch-in restricted. You are marked as ABSENT today (Approved Leave).',
+                status: 'absent'
+            });
+        }
         return res.status(400).json({ message: 'Today\'s attendance already exists (Punched In).' });
     }
 
@@ -103,7 +109,7 @@ const staffPunchIn = asyncHandler(async (req, res) => {
         }
     }
 
-    // Leave check
+    // Double check LeaveRequest collection for active approved leaves
     const onLeave = await LeaveRequest.findOne({
         staff: req.user._id,
         startDate: { $lte: today },
@@ -112,16 +118,18 @@ const staffPunchIn = asyncHandler(async (req, res) => {
     });
 
     if (onLeave) {
+        // If we found a leave but no attendance record yet, create an absent record now to sync
+        await StaffAttendance.findOneAndUpdate(
+            { staff: req.user._id, date: today },
+            { status: 'absent', company: req.user.company?._id || req.user.company },
+            { upsert: true }
+        );
+
         console.log(`[STAFF_PUNCH] Blocking punch-in for ${req.user.name} - on approved leave (${onLeave.type})`);
         return res.status(403).json({
-            message: `You are on approved leave (${onLeave.type}) which is active today. Punch-in restricted.`,
+            message: `Punch-in restricted. You are on approved leave (${onLeave.type}) today.`,
             leaveType: onLeave.type
         });
-    }
-
-    // Safety check: Even if LeaveRequest didn't catch it, check if an 'absent' record exists
-    if (attendance && attendance.status === 'absent') {
-        return res.status(403).json({ message: 'You are marked as ABSENT for today (Leave Approval). Cannot punch in.' });
     }
 
     attendance = await StaffAttendance.create({
@@ -145,6 +153,13 @@ const staffPunchOut = asyncHandler(async (req, res) => {
     const attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     if (!attendance) {
         return res.status(400).json({ message: 'No punch-in record found for today. Please punch in first.' });
+    }
+
+    if (attendance.status === 'absent') {
+        return res.status(403).json({
+            message: 'Action restricted. You are marked as ABSENT today (Approved Leave).',
+            status: 'absent'
+        });
     }
 
     const user = await User.findById(req.user._id);
@@ -177,10 +192,34 @@ const getStaffStatus = asyncHandler(async (req, res) => {
     const today = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
     const attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });
     const staff = await User.findById(req.user._id).select('-password');
+
+    // Check for active approved leave
+    const leave = await LeaveRequest.findOne({
+        staff: req.user._id,
+        startDate: { $lte: today },
+        endDate: { $gte: today },
+        status: 'Approved'
+    });
+
+    let message = 'Not punched in';
+    if (leave) {
+        message = `On Approved Leave (${leave.type})`;
+    } else if (attendance) {
+        if (attendance.status === 'absent') {
+            message = 'Marked ABSENT (Leave Policy)';
+        } else if (attendance.punchOut?.time) {
+            message = 'Work Shift Completed';
+        } else {
+            message = 'Active - Punched In';
+        }
+    }
+
     res.json({
         attendance,
         staff,
-        message: attendance ? 'Already Punched' : 'Not punched in'
+        onLeave: !!leave || (attendance?.status === 'absent'),
+        leaveDetails: leave ? { type: leave.type, reason: leave.reason } : null,
+        message
     });
 });
 
