@@ -65,7 +65,8 @@ const {
     approveRejectLeave,
     getVehicleMonthlyDetails,
     addBackdatedAttendance,
-    deleteStaffAttendance
+    deleteStaffAttendance,
+    addPendingExpenseFromAdmin
 } = require('../controllers/adminController');
 const {
     createEvent,
@@ -155,6 +156,7 @@ router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExp
 router.get('/car-services/:companyId', adminOrExecutive, getCarServiceEntries);
 
 // Financials (Shared Admin & Executive)
+router.post('/expenses/pending', adminOrExecutive, addPendingExpenseFromAdmin);
 router.post('/advances', adminOrExecutive, addAdvance);
 router.get('/advances/:companyId', adminOrExecutive, getAdvances);
 router.put('/advances/:id', adminOrExecutive, updateAdvance);

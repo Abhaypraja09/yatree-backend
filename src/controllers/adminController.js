@@ -573,8 +573,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             // Freelancers: show if Present/Completed OR if they have fuel today
             return driver.status !== 'Absent' || driver.fuelAmount > 0;
         } else {
-            // Company drivers: only show if they are Present or Completed today
-            return driver.status !== 'Absent';
+            // Company drivers: Always show in live feed, even if they haven't punched in yet (Absent)
+            return true;
         }
     });
 
@@ -4132,6 +4132,50 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     res.json(vehicleDetails);
 });
 
+// @desc    Add a pending fuel/parking expense (Admin side, requires approval)
+// @route   POST /api/admin/expenses/pending
+// @access  Private/AdminOrExecutive
+const addPendingExpenseFromAdmin = asyncHandler(async (req, res) => {
+    const { driverId, vehicleId, companyId, date, amount, quantity, rate, odometer, stationName, paymentMode, paymentSource, remark, type, fuelType, slipPhoto, location } = req.body;
+
+    // Find or create an Attendance record for the given driver and date to attach this pending expense
+    let attendance = await Attendance.findOne({
+        driver: driverId,
+        date: date
+    }).sort({ createdAt: -1 });
+
+    if (!attendance) {
+        // Find driver info to get daily wage and company if not passed
+        const driverRaw = await User.findById(driverId);
+
+        attendance = await Attendance.create({
+            driver: driverId,
+            company: companyId || driverRaw.company,
+            vehicle: vehicleId,
+            date: date,
+            status: 'completed', // prevent showing active shift
+            dailyWage: driverRaw.dailyWage || 0,
+            dutyCount: 0, // so it doesn't count as an extra duty
+        });
+    }
+
+    attendance.pendingExpenses.push({
+        type: type, // 'fuel' or 'parking'
+        fuelType: fuelType || null,
+        amount: Number(amount),
+        quantity: quantity ? Number(quantity) : 0,
+        rate: rate ? Number(rate) : 0,
+        km: odometer ? Number(odometer) : 0,
+        slipPhoto: slipPhoto || null,
+        paymentSource: paymentSource || 'Yatree Office',
+        status: 'pending'
+    });
+
+    await attendance.save();
+
+    res.status(201).json({ message: 'Expense added as pending for approval', attendance });
+});
+
 module.exports = {
     createDriver,
     createVehicle,
@@ -4197,5 +4241,6 @@ module.exports = {
     updateMaintenanceRecord,
     getVehicleMonthlyDetails,  // New export
     addBackdatedAttendance,
-    deleteStaffAttendance
+    deleteStaffAttendance,
+    addPendingExpenseFromAdmin
 };
