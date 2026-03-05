@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const Company = require('../models/Company');
@@ -221,7 +223,7 @@ const syncVehicleOdometer = async (vehicleId) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date } = req.query; // Optional date query
+    const { date, from, to } = req.query; // Support single date OR date range
 
     if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
         return res.status(400).json({ message: 'Invalid Company ID' });
@@ -231,14 +233,23 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     // Default to today IST if no date provided
     const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-    const targetDate = date || todayIST;
+
+    // Range mode: use from/to. Single mode: use date param
+    const isRangeMode = !!(from && to);
+    const targetDate = isRangeMode ? to : (date || todayIST); // reference day = end of range or selected date
 
     const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
     const alertThreshold = baseDate.plus({ days: 30 });
-    const monthStart = baseDate.startOf('month').toJSDate();
-    const monthEnd = baseDate.endOf('month').toJSDate();
-    const monthStartStr = baseDate.startOf('month').toFormat('yyyy-MM-dd');
-    const monthEndStr = baseDate.endOf('month').toFormat('yyyy-MM-dd');
+
+    // In range mode, monthStart/End = the selected from/to range. In single mode = calendar month.
+    const monthStart = isRangeMode
+        ? DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate()
+        : baseDate.startOf('month').toJSDate();
+    const monthEnd = isRangeMode
+        ? DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate()
+        : baseDate.endOf('month').toJSDate();
+    const monthStartStr = isRangeMode ? from : baseDate.startOf('month').toFormat('yyyy-MM-dd');
+    const monthEndStr = isRangeMode ? to : baseDate.endOf('month').toFormat('yyyy-MM-dd');
 
     const isTodaySelected = targetDate === todayIST;
 
@@ -447,7 +458,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             createdAt: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() }
         }).lean(),
         AccidentLog.aggregate([
-            { $match: { company: companyObjectId } },
+            {
+                $match: {
+                    company: companyObjectId,
+                    date: { $gte: monthStart, $lte: monthEnd }
+                }
+            },
             { $group: { _id: null, total: { $sum: '$amount' } } }
         ]),
         PartsWarranty.aggregate([
@@ -570,8 +586,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         };
     }).filter(driver => {
         if (driver.isFreelancer) {
-            // Freelancers: show if Present/Completed OR if they have fuel today
-            return driver.status !== 'Absent' || driver.fuelAmount > 0;
+            // Freelancers: show if Present/Completed OR if they have fuel today 
+            // OR if they are currently active/on-duty (to avoid disappearing from view)
+            return driver.status !== 'Absent' || driver.fuelAmount > 0 || driver.tripStatus === 'active' || driver.assignedVehicle;
         } else {
             // Company drivers: Always show in live feed, even if they haven't punched in yet (Absent)
             return true;
@@ -940,6 +957,47 @@ const getAllVehicles = asyncHandler(async (req, res) => {
                 // Re-fetch or manually update object for response
                 const updatedV = await Vehicle.findById(drv.assignedVehicle).populate('currentDriver', 'name mobile isFreelancer');
                 vehicles[vIndex] = updatedV;
+            }
+        }
+
+        // Backward Healing: Clear currentDriver if driver is no longer active OR has no active attendance
+        // IMPORTANT: Only heal if there's no incomplete attendance (to avoid race conditions right after punch-in)
+        for (let i = 0; i < vehicles.length; i++) {
+            const v = vehicles[i];
+            if (v.currentDriver) {
+                const drv = await User.findById(v.currentDriver);
+                if (!drv) {
+                    // Driver deleted — safe to clear
+                    await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
+                    v.currentDriver = null;
+                } else if (drv.tripStatus !== 'active') {
+                    // Driver is not active — check for incomplete attendance before clearing
+                    const hasActiveAttendance = await Attendance.findOne({
+                        driver: drv._id,
+                        vehicle: v._id,
+                        status: 'incomplete'
+                    });
+                    if (!hasActiveAttendance) {
+                        // Safe to clear — no active duty
+                        await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
+                        v.currentDriver = null;
+                    } else {
+                        // Driver has an active attendance — fix tripStatus instead
+                        await User.findByIdAndUpdate(drv._id, { tripStatus: 'active', assignedVehicle: v._id });
+                    }
+                } else if (drv.assignedVehicle?.toString() !== v._id.toString()) {
+                    // Driver is 'active' but assigned to a different vehicle — check attendance
+                    const hasActiveAttendance = await Attendance.findOne({
+                        driver: drv._id,
+                        vehicle: v._id,
+                        status: 'incomplete'
+                    });
+                    if (!hasActiveAttendance) {
+                        // No active duty on this vehicle — safe to clear
+                        await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
+                        v.currentDriver = null;
+                    }
+                }
             }
         }
         return vehicles;
@@ -1660,11 +1718,22 @@ const rechargeFastag = asyncHandler(async (req, res) => {
     });
 });
 
+const logToFile = (msg) => {
+    const timestamp = new Date().toISOString();
+    const logMsg = `[${timestamp}] DEBUG: ${msg}\n`;
+    try {
+        fs.appendFileSync(path.join(process.cwd(), 'server_debug.log'), logMsg);
+    } catch (e) {
+        console.error('Failed to write to log file', e);
+    }
+};
+
 // @desc    Freelancer Punch In (Manual by Admin)
 // @route   POST /api/admin/freelancers/punch-in
 // @access  Private/Admin
 const freelancerPunchIn = asyncHandler(async (req, res) => {
     const { driverId, vehicleId, km, time, pickUpLocation } = req.body;
+    logToFile(`[FREELANCER_PUNCH_IN] Triggered for Driver: ${driverId}, Vehicle: ${vehicleId}, Time: ${time}`);
 
     const driver = await User.findById(driverId);
     const vehicle = await Vehicle.findById(vehicleId);
@@ -1680,10 +1749,10 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
     // Create attendance record
     const dutyDate = req.body.date || DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
-    // Check if already punched in for THIS specific date
-    const existing = await Attendance.findOne({ driver: driverId, date: dutyDate, status: 'incomplete' });
+    // Check if already on an active shift (Tightened check to prevent dual active rotations)
+    const existing = await Attendance.findOne({ driver: driverId, status: 'incomplete' });
     if (existing) {
-        return res.status(400).json({ message: `Driver is already punched in for ${dutyDate}` });
+        return res.status(400).json({ message: `Driver is already on an active shift started on ${existing.date}` });
     }
 
     const attendance = new Attendance({
@@ -1711,21 +1780,28 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 
 
     await attendance.save();
+    logToFile(`[FREELANCER_PUNCH_IN] Attendance record saved: ${attendance._id}`);
+
     // 4. Update Driver
+    logToFile(`[FREELANCER_PUNCH_IN] Updating Driver ${driver.name}: TripStatus ${driver.tripStatus} -> active`);
     driver.tripStatus = 'active';
     driver.assignedVehicle = vehicleId;
     await driver.save();
+    logToFile(`[FREELANCER_PUNCH_IN] Driver saved successfully. New Status: ${driver.tripStatus}`);
 
     // 5. Update Vehicle (and clean up its old driver if any)
     if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driverId) {
-        await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null });
+        logToFile(`[FREELANCER_PUNCH_IN] Releasing old driver ${vehicle.currentDriver} from vehicle ${vehicle.carNumber}`);
+        await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null, tripStatus: 'approved' });
     }
 
+    logToFile(`[FREELANCER_PUNCH_IN] Assigning vehicle ${vehicle.carNumber} to driver ${driverId}`);
     vehicle.currentDriver = driverId;
     if (Number(km) > (vehicle.lastOdometer || 0)) {
         vehicle.lastOdometer = Number(km);
     }
     await vehicle.save();
+    logToFile(`[FREELANCER_PUNCH_IN] Vehicle saved successfully.`);
 
     res.json({ message: 'Freelancer assigned and duty started', attendance });
 });
@@ -1735,17 +1811,32 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
     const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
+    logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
 
     const driver = await User.findById(driverId);
     if (!driver) {
         return res.status(404).json({ message: 'Driver not found' });
     }
 
+    // Extract date from provided time to match specific attendance record
+    const targetDate = time ? time.split('T')[0] : null;
+
     // Find the incomplete attendance
-    const attendance = await Attendance.findOne({
-        driver: driverId,
-        status: 'incomplete'
-    }).sort({ createdAt: -1 });
+    let attendance = null;
+    if (targetDate) {
+        attendance = await Attendance.findOne({
+            driver: driverId,
+            date: targetDate,
+            status: 'incomplete'
+        });
+    }
+
+    if (!attendance) {
+        attendance = await Attendance.findOne({
+            driver: driverId,
+            status: 'incomplete'
+        }).sort({ createdAt: -1 });
+    }
 
     if (!attendance) {
         return res.status(400).json({ message: 'No active punch-in found for this driver' });
@@ -1872,6 +1963,9 @@ const adminPunchIn = asyncHandler(async (req, res) => {
         status: 'incomplete'
     });
 
+    // Sync createdAt for manual entries
+    attendance.createdAt = new Date(dutyDate + 'T12:00:00Z');
+
     await attendance.save();
 
     // Update Driver
@@ -1881,7 +1975,7 @@ const adminPunchIn = asyncHandler(async (req, res) => {
 
     // Update Vehicle
     if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driverId) {
-        await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null });
+        await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null, tripStatus: 'completed' });
     }
     vehicle.currentDriver = driverId;
     if (Number(km) > (vehicle.lastOdometer || 0)) {
@@ -1903,14 +1997,33 @@ const adminPunchOut = asyncHandler(async (req, res) => {
         return res.status(404).json({ message: 'Driver not found' });
     }
 
-    const attendance = await Attendance.findOne({
-        driver: driverId,
-        status: 'incomplete'
-    }).sort({ createdAt: -1 });
+    // Extract date from provided time to match specific attendance record
+    const targetDate = time ? time.split('T')[0] : null;
+    console.log(`[PunchOut] Driver: ${driverId}, TargetDate: ${targetDate}, ProvidedTime: ${time}`);
+
+    // Find the incomplete attendance
+    let attendance = null;
+    if (targetDate) {
+        attendance = await Attendance.findOne({
+            driver: driverId,
+            date: targetDate,
+            status: 'incomplete'
+        });
+    }
 
     if (!attendance) {
+        attendance = await Attendance.findOne({
+            driver: driverId,
+            status: 'incomplete'
+        }).sort({ createdAt: -1 });
+    }
+
+    if (!attendance) {
+        console.error(`[PunchOut Error] No incomplete shift found for driver ${driverId} (targetDate: ${targetDate})`);
         return res.status(400).json({ message: 'No active shift found to punch out' });
     }
+
+    console.log(`[PunchOut] Found attendance record: ${attendance._id} for date ${attendance.date}`);
 
     if (dailyWage) attendance.dailyWage = Number(dailyWage);
 
@@ -3737,6 +3850,10 @@ const updateAttendance = asyncHandler(async (req, res) => {
 
     console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}, DailyWage: ${dailyWage}, Veh: ${vehicleId}`);
 
+    const oldVehicleId = attendance.vehicle?.toString();
+    const oldDriverId = attendance.driver?.toString();
+    const oldStatus = attendance.status;
+
     if (vehicleId) attendance.vehicle = vehicleId;
     if (driverId) attendance.driver = driverId;
     if (date) attendance.date = date;
@@ -3779,7 +3896,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
 
     // Recalculate totalKM if both KMs are present
     if (attendance.punchIn?.km !== undefined && attendance.punchOut?.km !== undefined) {
-        attendance.totalKM = attendance.punchOut.km - attendance.punchIn.km;
+        attendance.totalKM = (Number(attendance.punchOut.km) || 0) - (Number(attendance.punchIn.km) || 0);
     }
 
     // Explicitly mark all possible modified fields
@@ -3793,6 +3910,33 @@ const updateAttendance = asyncHandler(async (req, res) => {
     attendance.markModified('date');
 
     const updatedAttendance = await attendance.save();
+
+    // --- Sync Logic for Status Changes ---
+    // If it was incomplete and now completed, release vehicle/driver
+    if (oldStatus === 'incomplete' && attendance.status === 'completed') {
+        if (attendance.vehicle) {
+            await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
+            await syncVehicleOdometer(attendance.vehicle);
+        }
+        if (attendance.driver) {
+            await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved', assignedVehicle: null });
+        }
+    }
+
+    // If vehicle changed in an incomplete record, update vehicle links
+    if (attendance.status === 'incomplete' && vehicleId && oldVehicleId !== vehicleId) {
+        if (oldVehicleId) await Vehicle.findByIdAndUpdate(oldVehicleId, { currentDriver: null });
+        await Vehicle.findByIdAndUpdate(vehicleId, { currentDriver: attendance.driver });
+    }
+
+    // If driver changed in an incomplete record, update driver links
+    if (attendance.status === 'incomplete' && driverId && oldDriverId !== driverId) {
+        if (oldDriverId) await User.findByIdAndUpdate(oldDriverId, { tripStatus: 'approved', assignedVehicle: null });
+        await User.findByIdAndUpdate(driverId, { tripStatus: 'active', assignedVehicle: attendance.vehicle });
+        // Update vehicle's current driver too
+        if (attendance.vehicle) await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: driverId });
+    }
+
 
     // Sync Parking Entry
     if (parkingAmount !== undefined) {
