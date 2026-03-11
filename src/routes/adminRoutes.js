@@ -66,7 +66,8 @@ const {
     getVehicleMonthlyDetails,
     addBackdatedAttendance,
     deleteStaffAttendance,
-    addPendingExpenseFromAdmin
+    addPendingExpenseFromAdmin,
+    getPendingMaintenanceExpenses
 } = require('../controllers/adminController');
 const {
     createEvent,
@@ -117,6 +118,7 @@ const freelancerUpload = upload.fields([
 router.post('/freelancers/punch-in', adminOrExecutive, freelancerUpload, freelancerPunchIn);
 router.post('/freelancers/punch-out', adminOrExecutive, freelancerUpload, freelancerPunchOut);
 router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);
+router.get('/maintenance/pending/:companyId', adminOrExecutive, getPendingMaintenanceExpenses);
 router.post('/maintenance', adminOrExecutive, upload.single('billPhoto'), addMaintenanceRecord);
 router.put('/maintenance/:id', adminOrExecutive, upload.single('billPhoto'), updateMaintenanceRecord);
 router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);

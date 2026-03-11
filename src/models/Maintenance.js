@@ -11,6 +11,10 @@ const maintenanceSchema = new mongoose.Schema({
         ref: 'Company',
         required: true
     },
+    driver: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
     maintenanceType: {
         type: String,
         required: true

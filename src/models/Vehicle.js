@@ -32,7 +32,7 @@ const vehicleSchema = new mongoose.Schema({
     },
     carType: {
         type: String,
-        enum: ['SUV', 'Sedan', 'Hatchback', 'Other'],
+        enum: ['SUV', 'Sedan', 'Hatchback', 'Bus', 'Mini Bus', 'Traveler', 'Electric Vehicle', 'Other'],
         default: 'SUV'
     },
     isOutsideCar: {

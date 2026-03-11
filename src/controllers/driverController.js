@@ -33,7 +33,8 @@ const getDriverDashboard = async (req, res) => {
     const activeShifts = await Attendance.find({
         status: 'incomplete',
         company: companyId,
-        driver: { $ne: req.user._id }
+        driver: { $ne: req.user._id },
+        date: today // Only exclude vehicles with active shifts FROM TODAY
     }).select('vehicle');
     const occupiedVehicleIds = activeShifts.map(a => a.vehicle.toString());
 
@@ -159,7 +160,11 @@ const punchIn = async (req, res) => {
             });
 
             if (otherDriverActive) {
-                return res.status(400).json({ message: 'This vehicle is already in use by another driver' });
+                // NEW: Allow login if the existing shift is from a previous day (Stale Shift)
+                if (otherDriverActive.date === today) {
+                    return res.status(400).json({ message: 'This vehicle is already in use by another driver today' });
+                }
+                logToFile(`PunchIn - OVERRIDE: Stale shift ${otherDriverActive._id} from ${otherDriverActive.date} found. Allowing company driver takeover.`);
             }
             // If the other driver is NOT active, we allow takeover
             logToFile(`PunchIn - Vehicle takeover from inactive driver ${vehicle.currentDriver} to ${driver._id}`);

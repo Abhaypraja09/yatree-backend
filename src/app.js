@@ -20,8 +20,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // --- API ROUTES ---
+console.log('--- REQUIRING ROUTES from', __dirname);
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+console.log('--- ADMIN ROUTES LOADED ---');
 const driverRoutes = require('./routes/driverRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const warrantyRoutes = require('./routes/warrantyRoutes');
