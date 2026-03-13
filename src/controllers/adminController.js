@@ -389,9 +389,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     amount: 1,
                     isDriverService: {
                         $or: [
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } }
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } }
                         ]
                     }
                 }
@@ -461,8 +461,20 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 }
             },
             {
+                $project: {
+                    serviceType: 1,
+                    amount: 1,
+                    isDriverService: {
+                        $or: [
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$remark", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$notes", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } }
+                        ]
+                    }
+                }
+            },
+            {
                 $group: {
-                    _id: "$serviceType",
+                    _id: { type: "$serviceType", isService: "$isDriverService" },
                     total: { $sum: "$amount" }
                 }
             }
@@ -869,32 +881,40 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         else monthlyMaintenanceGeneral += d.total;
     });
 
-    // Split Parking into Actual and Car Service
+    // Split Parking into Actual, Car Service Maintenance, and Car Service Driver Services
     let monthlyParkingActual = 0;
-    let monthlyParkingCarService = 0;
+    let monthlyParkingCarServiceMaint = 0;
+    let monthlyParkingCarServiceDriver = 0;
+    
     monthlyParkingData.forEach(p => {
-        if (p._id === 'car_service') monthlyParkingCarService += p.total;
-        else monthlyParkingActual += (p.total || 0);
+        if (p._id.type === 'car_service') {
+            if (p._id.isService) monthlyParkingCarServiceDriver += p.total;
+            else monthlyParkingCarServiceMaint += p.total;
+        } else {
+            monthlyParkingActual += (p.total || 0);
+        }
     });
 
     // Add pending expenses from attendance to match Maintenance page logic
     let monthlyPendingMaint = 0;
     let monthlyPendingServices = 0;
+    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning/i;
+
     allAttendanceThisMonth.forEach(doc => {
         if (!doc.pendingExpenses) return;
         doc.pendingExpenses.forEach(exp => {
             if (exp.status === 'approved' || exp.status === 'deleted') return;
             if (exp.type === 'other' || exp.type === 'parking') {
                 const category = exp.fuelType || (exp.type === 'parking' ? 'Car Wash' : 'Maintenance');
-                const isService = /wash|puncture|puncher|clean|tissue|water/i.test(category);
+                const isService = serviceRegex.test(category) || serviceRegex.test(exp.remark || '');
                 if (isService) monthlyPendingServices += (Number(exp.amount) || 0);
                 else monthlyPendingMaint += (Number(exp.amount) || 0);
             }
         });
     });
 
-    const monthlyMaintenanceAmount = monthlyMaintenanceGeneral + monthlyParkingCarService + monthlyPendingMaint;
-    monthlyDriverServicesAmount += monthlyPendingServices;
+    const monthlyMaintenanceAmount = monthlyMaintenanceGeneral + monthlyParkingCarServiceMaint + monthlyPendingMaint;
+    monthlyDriverServicesAmount += (monthlyPendingServices + monthlyParkingCarServiceDriver);
     const monthlyParkingAmount = monthlyParkingActual;
     const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
