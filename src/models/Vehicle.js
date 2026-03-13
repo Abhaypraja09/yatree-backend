@@ -58,6 +58,10 @@ const vehicleSchema = new mongoose.Schema({
     dropLocation: {
         type: String // For outside cars
     },
+    vehicleSource: {
+        type: String, // 'Fleet' or 'External'
+        default: 'External'
+    },
     eventId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Event',

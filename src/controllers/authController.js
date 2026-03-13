@@ -175,8 +175,13 @@ const seedCompanies = async (req, res) => {
 // @route   GET /api/auth/companies
 // @access  Private
 const getCompanies = async (req, res) => {
-    const companies = await Company.find({});
-    res.json(companies);
+    try {
+        const companies = await Company.find({});
+        res.json(companies);
+    } catch (error) {
+        logError(`getCompanies Error: ${error.message}`);
+        res.status(500).json({ message: 'Server error fetching companies', error: error.message });
+    }
 };
 
 module.exports = {

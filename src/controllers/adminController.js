@@ -120,6 +120,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         ownerName,
         dropLocation,
         property,
+        vehicleSource: req.body.vehicleSource || (isOutsideCar === 'true' || isOutsideCar === true ? 'External' : 'Fleet'),
         eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
         documents
     });
@@ -383,7 +384,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     billDate: { $gte: monthStart, $lte: monthEnd }
                 }
             },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
+            {
+                $project: {
+                    amount: 1,
+                    isDriverService: {
+                        $or: [
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|clean|tissue|water/ } }
+                        ]
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: "$isDriverService",
+                    total: { $sum: "$amount" }
+                }
+            }
         ]),
         Maintenance.find({
             $and: [
@@ -442,7 +460,12 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     date: { $gte: monthStart, $lte: monthEnd }
                 }
             },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
+            {
+                $group: {
+                    _id: "$serviceType",
+                    total: { $sum: "$amount" }
+                }
+            }
         ]),
         Attendance.find({
             company: companyObjectId,
@@ -837,8 +860,42 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const totalAdvancePending = advanceData[0]?.total || 0;
     const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
     const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
-    const monthlyMaintenanceAmount = monthlyMaintenanceData[0]?.total || 0;
-    const monthlyParkingAmount = monthlyParkingData[0]?.total || 0;
+    
+    // Split Maintenance into General and Services
+    let monthlyMaintenanceGeneral = 0;
+    let monthlyDriverServicesAmount = 0;
+    monthlyMaintenanceData.forEach(d => {
+        if (d._id === true) monthlyDriverServicesAmount += d.total;
+        else monthlyMaintenanceGeneral += d.total;
+    });
+
+    // Split Parking into Actual and Car Service
+    let monthlyParkingActual = 0;
+    let monthlyParkingCarService = 0;
+    monthlyParkingData.forEach(p => {
+        if (p._id === 'car_service') monthlyParkingCarService += p.total;
+        else monthlyParkingActual += (p.total || 0);
+    });
+
+    // Add pending expenses from attendance to match Maintenance page logic
+    let monthlyPendingMaint = 0;
+    let monthlyPendingServices = 0;
+    allAttendanceThisMonth.forEach(doc => {
+        if (!doc.pendingExpenses) return;
+        doc.pendingExpenses.forEach(exp => {
+            if (exp.status === 'approved' || exp.status === 'deleted') return;
+            if (exp.type === 'other' || exp.type === 'parking') {
+                const category = exp.fuelType || (exp.type === 'parking' ? 'Car Wash' : 'Maintenance');
+                const isService = /wash|puncture|puncher|clean|tissue|water/i.test(category);
+                if (isService) monthlyPendingServices += (Number(exp.amount) || 0);
+                else monthlyPendingMaint += (Number(exp.amount) || 0);
+            }
+        });
+    });
+
+    const monthlyMaintenanceAmount = monthlyMaintenanceGeneral + monthlyParkingCarService + monthlyPendingMaint;
+    monthlyDriverServicesAmount += monthlyPendingServices;
+    const monthlyParkingAmount = monthlyParkingActual;
     const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
     const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
@@ -848,9 +905,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
         pendingApprovalsCount, totalFastagBalance, totalAdvancePending: monthlyRegularAdvanceTotal,
-        monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount,
+        monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
         monthlyBorderTaxAmount, monthlyAccidentAmount, totalWarrantyCost,
-        totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost,
+        totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost + monthlyDriverServicesAmount,
         totalStaff, countStaffPresent: staffAttendanceToday.length,
         staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,
         expiringAlerts, reportedIssues: reportedIssuesList,
@@ -1240,6 +1297,7 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.fastagBalance !== undefined) updateData.fastagBalance = Number(req.body.fastagBalance);
     if (req.body.fastagNumber !== undefined) updateData.fastagNumber = req.body.fastagNumber;
     if (req.body.fastagBank !== undefined) updateData.fastagBank = req.body.fastagBank;
+    if (req.body.vehicleSource !== undefined) updateData.vehicleSource = req.body.vehicleSource;
 
     if (req.body.createdAt) {
         const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;

@@ -11,8 +11,12 @@ const protect = async (req, res, next) => {
             const decoded = jwt.verify(token, secret);
 
             req.user = await User.findById(decoded.id).select('-password').populate('company');
+            
+            if (!req.user) {
+                return res.status(401).json({ message: 'User no longer exists. Please log in again.' });
+            }
 
-            if (req.user && req.user.status === 'blocked') {
+            if (req.user.status === 'blocked') {
                 console.log(`AUTH FAIL: User ${req.user.mobile} is blocked`);
                 return res.status(401).json({ message: 'User is blocked. Please contact admin.' });
             }
