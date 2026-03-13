@@ -109,10 +109,13 @@ const getDriverDashboard = async (req, res) => {
 
     res.json({
         driver: {
+            _id: driver._id,
             name: driver.name,
             mobile: driver.mobile,
             company: driver.company,
-            tripStatus: effectiveStatus
+            tripStatus: effectiveStatus,
+            nightStayBonus: driver.nightStayBonus !== undefined ? driver.nightStayBonus : 500,
+            sameDayReturnBonus: driver.sameDayReturnBonus !== undefined ? driver.sameDayReturnBonus : 100
         },
         vehicle: (attendance?.status === 'incomplete' ? attendance.vehicle : null) || driver.assignedVehicle || null,
         availableVehicles,
@@ -261,14 +264,19 @@ const punchOut = async (req, res) => {
         }
 
         // 2. Allowances (TA, Night Stay)
+        const driver = await User.findById(req.user._id);
         let calcTA = 0;
         let calcNight = 0;
         if (outsideTripOccurred === 'true' && outsideTripType) {
             // Handle comma-separated values (e.g "Same Day,Night Stay")
             const types = outsideTripType.split(',').map(t => t.trim().toLowerCase());
 
-            if (types.some(t => t.includes('same day') || t.includes('ta') || t.includes('return'))) calcTA = 100;
-            if (types.some(t => t.includes('night') || t.includes('stay'))) calcNight = 500;
+            if (types.some(t => t.includes('same day') || t.includes('ta') || t.includes('return'))) {
+                calcTA = driver.sameDayReturnBonus || 100;
+            }
+            if (types.some(t => t.includes('night') || t.includes('stay'))) {
+                calcNight = driver.nightStayBonus || 500;
+            }
         }
 
         attendance.punchOut = {
@@ -358,10 +366,17 @@ const punchOut = async (req, res) => {
         // attendance.punchOut.tollParkingAmount = length > 0... // REMOVED: Should be calculated from approved only
         attendance.punchOut.tollParkingAmount = 0; // Reset or keep 0 until approved logic handles it (or separate toll)
 
+        const tripTypes = (outsideTripType || '').split(',');
+        const allowanceTAAmount = tripTypes.includes('Same Day') ? (driver.sameDayReturnBonus !== undefined ? driver.sameDayReturnBonus : 100) : 0;
+        const nightStayAmount = tripTypes.includes('Night Stay') ? (driver.nightStayBonus !== undefined ? driver.nightStayBonus : 500) : 0;
+
+        attendance.punchOut.allowanceTA = allowanceTAAmount;
+        attendance.punchOut.nightStayAmount = nightStayAmount;
+
         attendance.outsideTrip = {
             occurred: outsideTripOccurred === 'true',
             tripType: outsideTripType || null,
-            bonusAmount: 0 // FIXED: Do not duplicate TA/Night here
+            bonusAmount: allowanceTAAmount + nightStayAmount
         };
 
         // Calculate Total KM
@@ -382,9 +397,8 @@ const punchOut = async (req, res) => {
         // --- End of NEW logic ---
 
         // Mark user status completed (Shows Working Closed screen)
-        const driverUser = await User.findById(req.user._id);
-        driverUser.tripStatus = 'completed';
-        await driverUser.save();
+        driver.tripStatus = 'completed';
+        await driver.save();
 
         // Release vehicle
         if (attendance.vehicle) {

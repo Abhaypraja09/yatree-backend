@@ -87,6 +87,14 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    nightStayBonus: {
+        type: Number,
+        default: 500
+    },
+    sameDayReturnBonus: {
+        type: Number,
+        default: 100
+    },
     monthlyLeaveAllowance: {
         type: Number,
         default: 4

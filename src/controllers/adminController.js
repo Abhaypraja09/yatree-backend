@@ -25,7 +25,8 @@ console.log('--- ADMIN CONTROLLER LOADED (V1.1) ---');
 // @access  Private/Admin
 const createDriver = async (req, res, next) => {
     try {
-        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username, dailyWage, salary } = req.body;
+        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username, dailyWage, salary, nightStayBonus, sameDayReturnBonus } = req.body;
+        console.log('CREATE DRIVER BODY:', req.body);
         const freelancer = isFreelancer === 'true' || isFreelancer === true;
 
         if (!name || !mobile || (!freelancer && !password) || !companyId || companyId === 'undefined') {
@@ -58,7 +59,9 @@ const createDriver = async (req, res, next) => {
             isFreelancer: isFreelancer === 'true' || isFreelancer === true,
             licenseNumber,
             dailyWage: Number(dailyWage) || 0,
-            salary: Number(salary) || 0
+            salary: Number(salary) || 0,
+            nightStayBonus: (nightStayBonus !== undefined && nightStayBonus !== '') ? Number(nightStayBonus) : 500,
+            sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 100
         });
 
         const createdDriver = await driver.save();
@@ -236,22 +239,34 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     // Default to today IST if no date provided
     const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
-    // Range mode: use from/to. Single mode: use date param
-    const isRangeMode = !!(from && to);
+    // Monthly mode: use month/year params. Range mode: use from/to. Single mode: use date param.
+    const { month: qMonth, year: qYear } = req.query;
+    const isMonthlyMode = !!(qMonth && qYear);
+    const isRangeMode = !!(from && to) && !isMonthlyMode;
+    
     const targetDate = isRangeMode ? to : (date || todayIST); // reference day = end of range or selected date
-
     const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
     const alertThreshold = baseDate.plus({ days: 30 });
 
-    // In range mode, monthStart/End = the selected from/to range. In single mode = calendar month.
-    const monthStart = isRangeMode
-        ? DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate()
-        : baseDate.startOf('month').toJSDate();
-    const monthEnd = isRangeMode
-        ? DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate()
-        : baseDate.endOf('month').toJSDate();
-    const monthStartStr = isRangeMode ? from : baseDate.startOf('month').toFormat('yyyy-MM-dd');
-    const monthEndStr = isRangeMode ? to : baseDate.endOf('month').toFormat('yyyy-MM-dd');
+    let monthStart, monthEnd;
+    if (isMonthlyMode) {
+        const m = parseInt(qMonth);
+        const y = parseInt(qYear);
+        monthStart = DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month').toJSDate();
+        monthEnd = DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).endOf('month').toJSDate();
+    } else if (isRangeMode) {
+        monthStart = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+        monthEnd = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
+    } else {
+        monthStart = baseDate.startOf('month').toJSDate();
+        monthEnd = baseDate.endOf('month').toJSDate();
+    }
+    const monthStartStr = isMonthlyMode 
+        ? DateTime.fromJSDate(monthStart).toFormat('yyyy-MM-dd')
+        : (isRangeMode ? from : baseDate.startOf('month').toFormat('yyyy-MM-dd'));
+    const monthEndStr = isMonthlyMode
+        ? DateTime.fromJSDate(monthEnd).toFormat('yyyy-MM-dd')
+        : (isRangeMode ? to : baseDate.endOf('month').toFormat('yyyy-MM-dd'));
 
     const isTodaySelected = targetDate === todayIST;
 
@@ -346,7 +361,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 $match: {
                     company: companyObjectId,
                     'driverInfo.isFreelancer': { $ne: true },
-                    date: { $gte: monthStart, $lte: monthEnd }
+                    date: { $gte: monthStart, $lte: monthEnd },
+                    remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
                 }
             },
             { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -671,8 +687,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     const expiry = DateTime.fromJSDate(doc.expiryDate).setZone('Asia/Kolkata').startOf('day');
                     if (expiry <= alertThreshold) {
                         const diffDays = Math.ceil(expiry.diff(baseDate, 'days').days);
+                        const docName = (doc.documentType || 'Document').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
                         expiringAlerts.push({
-                            type, identifier: v.carNumber || v.name, documentType: doc.documentType,
+                            type, identifier: v.carNumber || v.name, documentType: docName,
                             expiryDate: doc.expiryDate, daysLeft: diffDays, status: diffDays < 0 ? 'Expired' : 'Expiring Soon'
                         });
                     }
@@ -698,16 +715,17 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             const serviceDate = DateTime.fromJSDate(s.nextServiceDate).setZone('Asia/Kolkata').startOf('day');
             const diffDays = Math.ceil(serviceDate.diff(baseDate, 'days').days);
             // Ignore if impossibly old (more than 1 year overdue)
-            if (diffDays <= 30 && diffDays > -365) {
-                expiringAlerts.push({
-                    type: 'Service',
-                    identifier: s.vehicle.carNumber || 'N/A',
-                    documentType: `${category} Service (Date)`,
-                    expiryDate: s.nextServiceDate,
-                    daysLeft: diffDays,
-                    status: diffDays < 0 ? 'Overdue' : 'Upcoming'
-                });
-            }
+                if (diffDays <= 30 && diffDays > -365) {
+                    const isOverdue = diffDays < 0;
+                    expiringAlerts.push({
+                        type: 'Service',
+                        identifier: s.vehicle.carNumber || 'N/A',
+                        documentType: `${category} Service`,
+                        expiryDate: s.nextServiceDate,
+                        daysLeft: diffDays,
+                        status: isOverdue ? 'Overdue' : 'Due Soon'
+                    });
+                }
         }
 
         if (s.nextServiceKm && s.nextServiceKm > 0) {
@@ -717,13 +735,16 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             // Only alert if within threshold, and ignore if impossibly overdue (more than 50,000 KM)
             // Stale alerts like 17 lakh KM overdue indicate data entry errors.
             if (kmRemaining <= 500 && kmRemaining > -50000) {
+                const isOverdue = kmRemaining <= 0;
+                const taskLabel = (category || 'Maintenance').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                
                 expiringAlerts.push({
                     type: 'Service',
                     identifier: s.vehicle.carNumber,
-                    documentType: `${category} - Repair Immediately`,
+                    documentType: `${taskLabel} Service`,
                     expiryDate: null,
                     daysLeft: kmRemaining,
-                    status: kmRemaining <= 0 ? 'Urgent: Overdue' : 'Repair Soon',
+                    status: isOverdue ? 'Urgent: Overdue' : 'Service Due',
                     currentKm,
                     targetKm: s.nextServiceKm
                 });
@@ -776,19 +797,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const outsideCarsMonthlyTotal = outsideCarsThisMonth.reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
 
     // NEW LOGIC: Calculate monthlyRegularSalaryTotal using the exact same logic as Driver Salaries page
-    const baseMonth = baseDate.month;
-    const baseYear = baseDate.year;
+    const baseMonth = isMonthlyMode ? parseInt(qMonth) : baseDate.month;
+    const baseYear = isMonthlyMode ? parseInt(qYear) : baseDate.year;
     let exactSalarySummaries = [];
+    let exactFreelancerSummaries = [];
     try {
-        exactSalarySummaries = await getDriverSalarySummaryInternal(companyId, baseMonth, baseYear);
+        [exactSalarySummaries, exactFreelancerSummaries] = await Promise.all([
+            getDriverSalarySummaryInternal(companyId, baseMonth, baseYear, false),
+            getDriverSalarySummaryInternal(companyId, baseMonth, baseYear, true)
+        ]);
     } catch (err) {
         console.error('Failed to get exact salary summaries for Dashboard', err);
     }
-    const monthlyRegularSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.netPayable || 0), 0);
-
-    // Fallback? actually Array.reduce handles 0
+    
+    const monthlyRegularSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalEarned || 0), 0);
+    const monthlyRegularAdvanceTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalAdvances || 0), 0);
+    const monthlyNetSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.netPayable || 0), 0);
+    const monthlyFreelancerSalaryTotal = exactFreelancerSummaries.reduce((sum, s) => sum + (s.totalEarned || 0), 0);
     const monthlySalaryTotal = monthlyRegularSalaryTotal + outsideCarsMonthlyTotal;
-    const monthlyFreelancerSalaryTotal = Array.from(monthlyFreelancerWorkedDrivers.values()).reduce((sum, val) => sum + Number(val || 0), 0);
 
     const driverIdsOnDuty = [...new Set(attendanceToday.map(a => a.driver?._id?.toString()).filter(id => id))];
     const pendingAdvances = await Advance.find({
@@ -821,7 +847,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         date: targetDate, totalVehicles, totalDrivers: liveDriversFeed.length,
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
-        pendingApprovalsCount, totalFastagBalance, totalAdvancePending,
+        pendingApprovalsCount, totalFastagBalance, totalAdvancePending: monthlyRegularAdvanceTotal,
         monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount,
         monthlyBorderTaxAmount, monthlyAccidentAmount, totalWarrantyCost,
         totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost,
@@ -829,10 +855,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,
         expiringAlerts, reportedIssues: reportedIssuesList,
         regularAdvances: regularAdvancesList.filter(adv => adv.driver),
-        totalAdvancesSum: totalAdvancePending + totalFreelancerAdvancePending,
+        totalAdvancesSum: monthlyRegularAdvanceTotal + totalFreelancerAdvancePending,
         dailyAdvancesSum: dailySalaryTotal + (dailyAdvanceData[0]?.total || 0),
         dailySalaryTotal, dailyNightStayCount: attendanceToday.filter(att => Number(att.punchOut?.nightStayAmount) > 0).length,
-        dailyFreelancerSalaryTotal, monthlySalaryTotal, monthlyRegularSalaryTotal, monthlyFreelancerSalaryTotal,
+        dailyFreelancerSalaryTotal, monthlySalaryTotal, monthlyRegularSalaryTotal, monthlyRegularAdvanceTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
         monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
         ...(() => {
             let total = 0;
@@ -927,7 +953,7 @@ const getAllDrivers = asyncHandler(async (req, res) => {
         const todayStr = new Date().toLocaleDateString('en-CA');
 
         const [activeAt, completedToday] = await Promise.all([
-            Attendance.find({ driver: { $in: allDriverIds }, status: 'incomplete' }).select('driver'),
+            Attendance.find({ driver: { $in: allDriverIds }, status: 'incomplete' }).populate('vehicle', 'carNumber model').select('driver vehicle'),
             Attendance.find({ driver: { $in: allDriverIds }, status: 'completed', date: todayStr }).select('driver')
         ]);
 
@@ -1127,6 +1153,13 @@ const updateDriver = asyncHandler(async (req, res) => {
         if (req.body.isFreelancer !== undefined) {
             driver.isFreelancer = req.body.isFreelancer === 'true' || req.body.isFreelancer === true;
         }
+        if (req.body.nightStayBonus !== undefined && req.body.nightStayBonus !== '') {
+            driver.nightStayBonus = Number(req.body.nightStayBonus);
+        }
+
+        if (req.body.sameDayReturnBonus !== undefined && req.body.sameDayReturnBonus !== '') {
+            driver.sameDayReturnBonus = Number(req.body.sameDayReturnBonus);
+        }
 
         if (req.body.licenseNumber !== undefined) {
             driver.licenseNumber = req.body.licenseNumber;
@@ -1138,7 +1171,9 @@ const updateDriver = asyncHandler(async (req, res) => {
                 name: driver.name,
                 mobile: driver.mobile,
                 license: driver.licenseNumber,
-                freelancer: driver.isFreelancer
+                freelancer: driver.isFreelancer,
+                nightStayBonus: driver.nightStayBonus,
+                sameDayReturnBonus: driver.sameDayReturnBonus
             }
         });
 
@@ -1460,6 +1495,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
     const attendance = rawAttendance.map(a => ({
         ...a,
         isFreelancer: a.isFreelancer || a.driver?.isFreelancer || false,
+        isOutsideCar: a.vehicle?.isOutsideCar || false, // Pass this to UI
         entryType: 'attendance'
     }));
 
@@ -1506,7 +1542,8 @@ const getDailyReports = asyncHandler(async (req, res) => {
         dailyWage: v.dutyAmount,
         pickUpLocation: v.dutyType,
         dropLocation: v.dropLocation,
-        isOutsideCar: true
+        isOutsideCar: true,
+        entryType: 'voucher'
     }));
 
     // 1b. Build vehicle->date fuel map from Fuel collection (covers admin-entered & company driver fuels)
@@ -2291,8 +2328,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
             remarks: 'Manual Entry',
             otherRemarks: review || '',
             tollParkingAmount: Number(parkingAmount) || 0,
-            allowanceTA: allowanceTA ? 100 : 0,
-            nightStayAmount: nightStayAmount ? 500 : 0,
+            allowanceTA: allowanceTA ? (driver.sameDayReturnBonus || 100) : 0,
+            nightStayAmount: nightStayAmount ? (driver.nightStayBonus || 500) : 0,
             parkingPaidBy: parkingPaidBy || 'Self'
         },
         outsideTrip: {
@@ -2469,11 +2506,20 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         serviceType: 'car_service'
     };
 
+    let attendanceQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ],
+        'pendingExpenses.type': { $in: ['other', 'parking'] }
+    };
+
     if (startDate && endDate) {
         const start = new Date(startDate);
         const end = new Date(new Date(endDate).setHours(23, 59, 59, 999));
         query.billDate = { $gte: start, $lte: end };
         parkingQuery.date = { $gte: start, $lte: end };
+        attendanceQuery.createdAt = { $gte: start, $lte: end };
     } else if (year && year !== 'All') {
         if (month && month !== 'All') {
             const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
@@ -2481,11 +2527,13 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             endOfMonth.setHours(23, 59, 59, 999);
             query.billDate = { $gte: startOfMonth, $lte: endOfMonth };
             parkingQuery.date = { $gte: startOfMonth, $lte: endOfMonth };
+            attendanceQuery.createdAt = { $gte: startOfMonth, $lte: endOfMonth };
         } else {
             const startOfYear = new Date(parseInt(year), 0, 1);
             const endOfYear = new Date(parseInt(year), 11, 31, 23, 59, 59, 999);
             query.billDate = { $gte: startOfYear, $lte: endOfYear };
             parkingQuery.date = { $gte: startOfYear, $lte: endOfYear };
+            attendanceQuery.createdAt = { $gte: startOfYear, $lte: endOfYear };
         }
     }
 
@@ -2498,13 +2546,7 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             .populate('vehicle', 'carNumber model')
             .populate('driverId', 'name')
             .sort({ date: -1 }),
-        Attendance.find({
-            $or: [
-                { company: new mongoose.Types.ObjectId(companyId) },
-                { company: companyId }
-            ],
-            'pendingExpenses.type': { $in: ['other', 'parking'] }
-        })
+        Attendance.find(attendanceQuery)
             .populate('vehicle', 'carNumber model')
             .populate('driver', 'name')
             .sort({ createdAt: -1 })
@@ -3223,138 +3265,185 @@ const updateAdvance = asyncHandler(async (req, res) => {
     }
 });
 
-const getDriverSalarySummaryInternal = async (companyId, month, year) => {
-    // 1. Get all regular drivers in company (excluding freelancers)
-    const drivers = await User.find({
-        company: companyId,
-        role: 'Driver',
-        isFreelancer: { $ne: true }
-    }).select('name mobile dailyWage');
+const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelancerOnly = false) => {
+    // 1. Get all drivers in company
+    const driverQuery = { 
+        company: companyId, 
+        role: 'Driver' 
+    };
+    
+    if (isFreelancerOnly) {
+        driverQuery.isFreelancer = true;
+    } else {
+        driverQuery.isFreelancer = { $ne: true };
+    }
 
-    const summaries = await Promise.all(drivers.map(async (driver) => {
-        let attendanceQuery = {
-            driver: driver._id,
-            status: 'completed'
-        };
+    const drivers = await User.find(driverQuery).select('name mobile dailyWage salary').lean();
+    if (!drivers.length) return [];
 
-        let advanceQuery = {
-            driver: driver._id
-        };
+    const driverIds = drivers.map(d => d._id);
+    const driverNamesMap = new Map();
+    drivers.forEach(d => {
+        if (d.name) {
+            driverNamesMap.set(d.name.trim().toLowerCase(), d._id.toString());
+        }
+    });
 
-        if (month && year) {
+    // 2. Prepare Date range
+    let startStr, endStr, startJS, endJS;
+    if (month && year) {
+        try {
             const startOfMonth = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
             const endOfMonth = startOfMonth.endOf('month');
-
-            const startJS = startOfMonth.toJSDate();
-            const endJS = endOfMonth.toJSDate();
-
-            // Attendance uses YYYY-MM-DD
-            const startStr = startOfMonth.toFormat('yyyy-MM-dd');
-            const endStr = endOfMonth.toFormat('yyyy-MM-dd');
-            attendanceQuery.date = { $gte: startStr, $lte: endStr };
-
-            advanceQuery.date = { $gte: startJS, $lte: endJS };
+            startJS = startOfMonth.toJSDate();
+            endJS = endOfMonth.toJSDate();
+            startStr = startOfMonth.toFormat('yyyy-MM-dd');
+            endStr = endOfMonth.toFormat('yyyy-MM-dd');
+        } catch (e) {
+            console.error('[getDriverSalarySummaryInternal] Date parsing error:', e);
         }
+    }
 
-        // Exclude Auto-Generated Salary entries
-        advanceQuery.remark = { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ };
+    // 3. Concurrent Bulk Fetches
+    const attendanceQuery = { 
+        driver: { $in: driverIds }, 
+        status: 'completed' 
+    };
+    if (startStr) attendanceQuery.date = { $gte: startStr, $lte: endStr };
 
-        // 2. Fetch all completed attendance records for earnings
-        const attendance = await Attendance.find(attendanceQuery);
+    const advanceQuery = { 
+        driver: { $in: driverIds } 
+    };
+    if (startJS) advanceQuery.date = { $gte: startJS, $lte: endJS };
+    advanceQuery.remark = { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ };
 
-        // 3. Fetch Parking reimbursements (reimbursable expenses)
-        const parkingQuery = {
-            $or: [
-                { driverId: driver._id },
-                { driver: { $regex: new RegExp(`^${driver.name.trim()}$`, 'i') } }
-            ]
-        };
-        if (month && year) {
-            const mStart = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month').toJSDate();
-            const mEnd = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).endOf('month').toJSDate();
-            parkingQuery.date = { $gte: mStart, $lte: mEnd };
-            parkingQuery.serviceType = { $ne: 'car_service' };
-        } else {
-            parkingQuery.serviceType = { $ne: 'car_service' };
+    const parkingQuery = {
+        company: companyId,
+        isReimbursable: { $ne: false },
+        serviceType: { $ne: 'car_service' }
+    };
+    if (startJS) parkingQuery.date = { $gte: startJS, $lte: endJS };
+
+    const allTimeAdvanceQuery = {
+        driver: { $in: driverIds },
+        remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
+    };
+
+    const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances] = await Promise.all([
+        Attendance.find(attendanceQuery).lean(),
+        Advance.find(advanceQuery).lean(),
+        Parking.find(parkingQuery).lean(),
+        Advance.find(allTimeAdvanceQuery).lean()
+    ]);
+
+    // Grouping records by driver for efficient lookup
+    const attByDriver = new Map();
+    const advByDriver = new Map();
+    const parkingByDriver = new Map();
+    const allTimeAdvByDriver = new Map();
+
+    allAttendance.forEach(a => {
+        if (!a.driver) return;
+        const dId = a.driver.toString();
+        if (!attByDriver.has(dId)) attByDriver.set(dId, []);
+        attByDriver.get(dId).push(a);
+    });
+    allMonthlyAdvances.forEach(a => {
+        if (!a.driver) return;
+        const dId = a.driver.toString();
+        if (!advByDriver.has(dId)) advByDriver.set(dId, []);
+        advByDriver.get(dId).push(a);
+    });
+    allTimeAdvances.forEach(a => {
+        if (!a.driver) return;
+        const dId = a.driver.toString();
+        if (!allTimeAdvByDriver.has(dId)) allTimeAdvByDriver.set(dId, []);
+        allTimeAdvByDriver.get(dId).push(a);
+    });
+    allParking.forEach(p => {
+        let dId = p.driverId?.toString();
+        if (!dId && p.driver) {
+            dId = driverNamesMap.get(p.driver.trim().toLowerCase());
         }
+        if (dId) {
+            if (!parkingByDriver.has(dId)) parkingByDriver.set(dId, []);
+            parkingByDriver.get(dId).push(p);
+        }
+    });
 
-        const parkingEntries = await Parking.find({ ...parkingQuery, isReimbursable: { $ne: false } });
+    // 4. Summarize each driver
+    const summaries = drivers.map(driver => {
+        try {
+            const dId = driver._id.toString();
+            const driverAtt = attByDriver.get(dId) || [];
+            const driverAdv = advByDriver.get(dId) || [];
+            const driverParking = parkingByDriver.get(dId) || [];
+            const driverAllTimeAdv = allTimeAdvByDriver.get(dId) || [];
 
-        // 4. Calculate Earnings
-        const dailyAggs = new Map();
-        const datesProcessed = new Set();
-        attendance.forEach(att => {
-            const dateStr = att.date;
+            // Earnings Calculation
+            const dailyAggs = new Map();
+            const datesProcessed = new Set();
+            driverAtt.forEach(att => {
+                const dateStr = att.date;
+                let wage = 0;
+                if (!datesProcessed.has(dateStr)) {
+                    wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 500;
+                    datesProcessed.add(dateStr);
+                }
+                const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
+                    (Number(att.punchOut?.nightStayAmount) || 0) +
+                    (Number(att.outsideTrip?.bonusAmount) || 0);
 
-            let wage = 0;
-            if (!datesProcessed.has(dateStr)) {
-                wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
-                datesProcessed.add(dateStr);
-            }
+                if (!dailyAggs.has(dateStr)) {
+                    dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0 });
+                }
+                const current = dailyAggs.get(dateStr);
+                current.earnings += (wage + bonuses);
+                if (Number(att.punchOut?.nightStayAmount) > 0) current.nights += 1;
+                if (Number(att.punchOut?.allowanceTA) > 0) current.sameDays += 1;
+            });
 
-            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
-                (Number(att.punchOut?.nightStayAmount) || 0) +
-                (Number(att.outsideTrip?.bonusAmount) || 0);
+            const externalParkingByDay = new Map();
+            driverParking.forEach(p => {
+                if (!p.date) return;
+                const dateStr = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+                externalParkingByDay.set(dateStr, (externalParkingByDay.get(dateStr) || 0) + (Number(p.amount) || 0));
+            });
 
-            if (!dailyAggs.has(dateStr)) {
-                dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0 });
-            }
-            const current = dailyAggs.get(dateStr);
-            current.earnings += (wage + bonuses);
+            const allUniqueDates = new Set([...dailyAggs.keys(), ...externalParkingByDay.keys()]);
+            let totalCalculatedEarnings = 0;
+            allUniqueDates.forEach(dateStr => {
+                const attData = dailyAggs.get(dateStr) || { earnings: 0 };
+                const extP = externalParkingByDay.get(dateStr) || 0;
+                totalCalculatedEarnings += (attData.earnings + extP);
+            });
 
-            if (Number(att.punchOut?.nightStayAmount) > 0) {
-                current.nights += 1;
-            }
-            if (Number(att.punchOut?.allowanceTA) > 0) {
-                current.sameDays += 1;
-            }
-        });
+            // Advance Calculation
+            const totalAdvancesThisMonth = driverAdv.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
+            const totalRecoveredThisMonth = driverAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
+            const allTimeGiven = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
+            const allTimeRecovered = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
+            const pendingAdvance = allTimeGiven - allTimeRecovered;
 
-        const externalParkingByDay = new Map();
-        parkingEntries.forEach(p => {
-            const dateStr = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-            externalParkingByDay.set(dateStr, (externalParkingByDay.get(dateStr) || 0) + (Number(p.amount) || 0));
-        });
-
-        const allUniqueDates = new Set([...dailyAggs.keys(), ...externalParkingByDay.keys()]);
-        let totalCalculatedEarnings = 0;
-        allUniqueDates.forEach(dateStr => {
-            const attData = dailyAggs.get(dateStr) || { earnings: 0 };
-            const extP = externalParkingByDay.get(dateStr) || 0;
-            totalCalculatedEarnings += (attData.earnings + extP);
-        });
-
-        const totalEarned = totalCalculatedEarnings;
-
-        // 5. Fetch Advances
-        const monthlyAdvances = await Advance.find(advanceQuery);
-        const totalAdvancesThisMonth = monthlyAdvances.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
-        const totalRecoveredThisMonth = monthlyAdvances.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
-
-        const allTimeAdvanceQuery = {
-            driver: driver._id,
-            remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
-        };
-        const allAdvances = await Advance.find(allTimeAdvanceQuery);
-        const allTimeGiven = allAdvances.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
-        const allTimeRecovered = allAdvances.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
-        const pendingAdvance = allTimeGiven - allTimeRecovered;
-
-        return {
-            driverId: driver._id,
-            name: driver.name,
-            mobile: driver.mobile,
-            totalEarned,
-            totalAdvances: totalAdvancesThisMonth,
-            totalRecovered: totalRecoveredThisMonth,
-            pendingAdvance,
-            netPayable: totalEarned - totalAdvancesThisMonth,
-            workingDays: datesProcessed.size,
-            nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
-            sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
-            dailyWage: driver.dailyWage || 0
-        };
-    }));
+            return {
+                driverId: driver._id,
+                name: driver.name,
+                mobile: driver.mobile,
+                totalEarned: totalCalculatedEarnings,
+                totalAdvances: totalAdvancesThisMonth,
+                totalRecovered: totalRecoveredThisMonth,
+                pendingAdvance,
+                netPayable: totalCalculatedEarnings - totalAdvancesThisMonth,
+                workingDays: datesProcessed.size,
+                nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
+                sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
+                dailyWage: driver.dailyWage || 0
+            };
+        } catch (err) {
+            console.error(`[getDriverSalarySummaryInternal] Error summarizing driver ${driver._id}:`, err);
+            return null;
+        }
+    }).filter(s => s !== null);
 
     return summaries.filter(s => s.workingDays > 0 || s.totalAdvances > 0);
 };
@@ -3364,9 +3453,9 @@ const getDriverSalarySummaryInternal = async (companyId, month, year) => {
 // @access  Private/Admin
 const getDriverSalarySummary = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { month, year } = req.query;
+    const { month, year, isFreelancer } = req.query;
 
-    const validSummaries = await getDriverSalarySummaryInternal(companyId, month, year);
+    const validSummaries = await getDriverSalarySummaryInternal(companyId, month, year, isFreelancer === 'true');
     res.json(validSummaries);
 });
 
@@ -4106,10 +4195,6 @@ const updateAttendance = asyncHandler(async (req, res) => {
         vehicleId,
         driverId,
         date,
-        startKm,
-        endKm,
-        punchInTime,
-        punchOutTime,
         status,
         remarks,
         pickUpLocation,
@@ -4120,99 +4205,161 @@ const updateAttendance = asyncHandler(async (req, res) => {
         allowanceTA,
         nightStayAmount,
         bonusAmount,
-        parkingPaidBy
+        parkingPaidBy,
+        startKm,
+        endKm,
+        punchInTime,
+        punchOutTime
     } = req.body;
 
-    console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}, DailyWage: ${dailyWage}, Veh: ${vehicleId}`);
+    console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}`, { parkingAmount, parkingPaidBy, dailyWage, startKm, endKm });
 
+    if (!attendance.punchIn) attendance.punchIn = {};
+    if (!attendance.punchOut) attendance.punchOut = { tollParkingAmount: 0, parkingPaidBy: 'Self' };
+    if (!attendance.fuel) attendance.fuel = { filled: false, amount: 0, entries: [] };
+    if (!attendance.outsideTrip) attendance.outsideTrip = { occurred: false, bonusAmount: 0 };
+
+    const oldStatus = attendance.status;
     const oldVehicleId = attendance.vehicle?.toString();
     const oldDriverId = attendance.driver?.toString();
-    const oldStatus = attendance.status;
+    const oldFuelAmount = attendance.fuel?.amount || 0;
 
+    // 1. Basic Fields
     if (vehicleId) attendance.vehicle = vehicleId;
     if (driverId) attendance.driver = driverId;
     if (date) attendance.date = date;
+    if (status) attendance.status = status;
     if (pickUpLocation !== undefined) attendance.pickUpLocation = pickUpLocation;
     if (dropLocation !== undefined) attendance.dropLocation = dropLocation;
     if (dailyWage !== undefined && dailyWage !== '') attendance.dailyWage = Number(dailyWage);
 
+    // 2. Punch In Data (KMs & Time)
     if (!attendance.punchIn) attendance.punchIn = {};
-    if (startKm !== undefined) attendance.punchIn.km = Number(startKm);
+    if (startKm !== undefined) {
+        attendance.punchIn.km = Number(startKm) || 0;
+        attendance.markModified('punchIn');
+    }
     if (punchInTime !== undefined) {
         attendance.punchIn.time = punchInTime ? new Date(punchInTime) : undefined;
+        attendance.markModified('punchIn');
     }
 
+    // 3. Punch Out Data (KMs, Time, Expenses)
     if (!attendance.punchOut) attendance.punchOut = {};
-    if (endKm !== undefined) attendance.punchOut.km = Number(endKm);
+    if (endKm !== undefined) {
+        attendance.punchOut.km = Number(endKm) || 0;
+        attendance.markModified('punchOut');
+    }
     if (punchOutTime !== undefined) {
         attendance.punchOut.time = punchOutTime ? new Date(punchOutTime) : undefined;
+        attendance.markModified('punchOut');
     }
-    if (remarks !== undefined) attendance.punchOut.remarks = remarks;
-    if (parkingAmount !== undefined) attendance.punchOut.tollParkingAmount = Number(parkingAmount);
-    if (allowanceTA !== undefined) attendance.punchOut.allowanceTA = Number(allowanceTA);
-    if (nightStayAmount !== undefined) attendance.punchOut.nightStayAmount = Number(nightStayAmount);
+    if (remarks !== undefined) {
+        attendance.punchOut.remarks = remarks;
+        attendance.punchOut.otherRemarks = remarks; // Manual entries use otherRemarks for the Review/Remark field
+    }
+    if (parkingAmount !== undefined) {
+        const newParkingAmt = Number(parkingAmount) || 0;
+        attendance.punchOut.tollParkingAmount = newParkingAmt;
+        
+        // Sync standalone Parking record
+        const existingParking = await Parking.findOne({ attendanceId: attendance._id });
+        if (newParkingAmt > 0) {
+            if (existingParking) {
+                existingParking.amount = newParkingAmt;
+                existingParking.date = attendance.date ? new Date(attendance.date) : existingParking.date;
+                await existingParking.save();
+            } else {
+                const driverDoc = await User.findById(attendance.driver);
+                await Parking.create({
+                    vehicle: attendance.vehicle,
+                    company: attendance.company,
+                    driver: driverDoc?.name || 'Unknown',
+                    driverId: attendance.driver,
+                    attendanceId: attendance._id,
+                    date: attendance.date ? new Date(attendance.date) : new Date(),
+                    amount: newParkingAmt,
+                    source: 'Admin',
+                    isReimbursable: attendance.punchOut.parkingPaidBy !== 'Office',
+                    remark: 'Synced from Attendance Update'
+                });
+            }
+        } else if (existingParking) {
+            await existingParking.deleteOne();
+        }
+    }
+    if (allowanceTA !== undefined) attendance.punchOut.allowanceTA = Number(allowanceTA) || 0;
+    if (nightStayAmount !== undefined) attendance.punchOut.nightStayAmount = Number(nightStayAmount) || 0;
+    if (parkingPaidBy !== undefined) attendance.punchOut.parkingPaidBy = parkingPaidBy;
+    
+    attendance.markModified('punchOut');
 
+    // 4. Fuel Data
     if (fuelAmount !== undefined) {
-        if (!attendance.fuel) attendance.fuel = { filled: true, entries: [] };
-        attendance.fuel.amount = Number(fuelAmount);
-        attendance.fuel.filled = Number(fuelAmount) > 0;
+        if (!attendance.fuel) attendance.fuel = { filled: false, entries: [], amount: 0 };
+        const newFuelAmt = Number(fuelAmount) || 0;
+        attendance.fuel.amount = newFuelAmt;
+        attendance.fuel.filled = newFuelAmt > 0;
+        attendance.markModified('fuel');
+
+        // Sync standalone Fuel record if it exists or if new amount is > 0
+        if (newFuelAmt !== oldFuelAmount) {
+            const existingFuel = await Fuel.findOne({ attendance: attendance._id });
+            if (newFuelAmt > 0) {
+                if (existingFuel) {
+                    existingFuel.amount = newFuelAmt;
+                    existingFuel.rate = newFuelAmt; // Default rate for manual updates
+                    existingFuel.date = attendance.date ? new Date(attendance.date) : existingFuel.date;
+                    await existingFuel.save();
+                } else {
+                    // Create new fuel if missing but amount > 0
+                    const driverDoc = await User.findById(attendance.driver);
+                    await Fuel.create({
+                        vehicle: attendance.vehicle,
+                        company: attendance.company,
+                        fuelType: 'Diesel',
+                        date: attendance.date ? new Date(attendance.date) : new Date(),
+                        amount: newFuelAmt,
+                        quantity: 1,
+                        rate: newFuelAmt,
+                        odometer: attendance.punchIn?.km || 0,
+                        driver: driverDoc?.name || 'Unknown',
+                        createdBy: req.user._id,
+                        source: 'Admin',
+                        attendance: attendance._id
+                    });
+                }
+            } else if (existingFuel) {
+                await existingFuel.deleteOne();
+            }
+        }
     }
 
+    // 5. Bonus / Outside Trip
     if (bonusAmount !== undefined) {
         if (!attendance.outsideTrip) {
             attendance.outsideTrip = { occurred: true, tripType: 'Manual', bonusAmount: 0 };
         }
-        attendance.outsideTrip.bonusAmount = Number(bonusAmount);
+        attendance.outsideTrip.bonusAmount = Number(bonusAmount) || 0;
+        attendance.outsideTrip.occurred = (Number(bonusAmount) || 0) > 0;
+        attendance.markModified('outsideTrip');
     }
 
-    if (status) {
-        attendance.status = status;
-    }
-
-    // Recalculate totalKM if both KMs are present
+    // 6. Recalculate Totals
     if (attendance.punchIn?.km !== undefined && attendance.punchOut?.km !== undefined) {
         attendance.totalKM = (Number(attendance.punchOut.km) || 0) - (Number(attendance.punchIn.km) || 0);
     }
 
-    // Explicitly mark all possible modified fields
-    attendance.markModified('punchIn');
-    attendance.markModified('punchOut');
-    attendance.markModified('fuel');
-    attendance.markModified('outsideTrip');
+    // Explicitly mark changed top-level fields
     attendance.markModified('dailyWage');
     attendance.markModified('pickUpLocation');
     attendance.markModified('dropLocation');
     attendance.markModified('date');
+    attendance.markModified('status');
 
     const updatedAttendance = await attendance.save();
 
-    // --- Sync Logic for Status Changes ---
-    // If it was incomplete and now completed, release vehicle/driver
-    if (oldStatus === 'incomplete' && attendance.status === 'completed') {
-        if (attendance.vehicle) {
-            await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
-            await syncVehicleOdometer(attendance.vehicle);
-        }
-        if (attendance.driver) {
-            await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved', assignedVehicle: null });
-        }
-    }
-
-    // If vehicle changed in an incomplete record, update vehicle links
-    if (attendance.status === 'incomplete' && vehicleId && oldVehicleId !== vehicleId) {
-        if (oldVehicleId) await Vehicle.findByIdAndUpdate(oldVehicleId, { currentDriver: null });
-        await Vehicle.findByIdAndUpdate(vehicleId, { currentDriver: attendance.driver });
-    }
-
-    // If driver changed in an incomplete record, update driver links
-    if (attendance.status === 'incomplete' && driverId && oldDriverId !== driverId) {
-        if (oldDriverId) await User.findByIdAndUpdate(oldDriverId, { tripStatus: 'approved', assignedVehicle: null });
-        await User.findByIdAndUpdate(driverId, { tripStatus: 'active', assignedVehicle: attendance.vehicle });
-        // Update vehicle's current driver too
-        if (attendance.vehicle) await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: driverId });
-    }
-
-
+    // 7. Post-Save Sync Logic
     // Sync Parking Entry
     if (parkingAmount !== undefined) {
         const amt = Number(parkingAmount);
@@ -4223,11 +4370,10 @@ const updateAttendance = asyncHandler(async (req, res) => {
                 existingParking.amount = amt;
                 existingParking.date = attendance.date ? new Date(attendance.date) : existingParking.date;
                 existingParking.vehicle = attendance.vehicle || existingParking.vehicle;
-                existingParking.isReimbursable = parkingPaidBy === 'Office' ? false : (parkingPaidBy === 'Self' ? true : existingParking.isReimbursable);
+                existingParking.isReimbursable = parkingPaidBy === 'Office' ? false : true;
                 existingParking.notes = `Updated Attendance Parking (Paid By: ${parkingPaidBy || 'Unknown'})`;
                 await existingParking.save();
             } else {
-                // Create new parking entry
                 const driverDoc = await User.findById(attendance.driver);
                 await Parking.create({
                     vehicle: attendance.vehicle,
@@ -4244,22 +4390,26 @@ const updateAttendance = asyncHandler(async (req, res) => {
                 });
             }
         } else if (existingParking) {
-            // Amount set to 0, delete the parking entry
             await existingParking.deleteOne();
         }
     }
 
-    if (parkingPaidBy !== undefined) {
-        attendance.punchOut.parkingPaidBy = parkingPaidBy;
-    }
-
-    console.log(`[ATTENDANCE_UPDATE] Success. New Daily Wage: ${updatedAttendance.dailyWage}`);
-
-    // Sync vehicle odometer if KM changed
-    if (attendance.vehicle && (startKm !== undefined || endKm !== undefined)) {
+    // Sync Odometer
+    if (attendance.vehicle && (startKm !== undefined || endKm !== undefined || punchOutTime !== undefined)) {
         await syncVehicleOdometer(attendance.vehicle);
     }
 
+    // Sync Driver & Vehicle status if status changed from incomplete to completed
+    if (oldStatus === 'incomplete' && attendance.status === 'completed') {
+        if (attendance.vehicle) {
+            await Vehicle.findByIdAndUpdate(attendance.vehicle, { currentDriver: null });
+        }
+        if (attendance.driver) {
+            await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved', assignedVehicle: null });
+        }
+    }
+
+    console.log(`[ATTENDANCE_UPDATE] SUCCESS. ID: ${updatedAttendance._id}, TotalKM: ${updatedAttendance.totalKM}, Wage: ${updatedAttendance.dailyWage}, Parking: ${updatedAttendance.punchOut?.tollParkingAmount}`);
     res.json(updatedAttendance);
 });
 
@@ -4270,26 +4420,45 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
     try {
         console.log('Fetching Salary Details:', req.params.driverId, req.query);
         const { driverId } = req.params;
-        const { month, year } = req.query;
+        const { month, year, from, to } = req.query;
 
         if (!driverId) {
             res.status(400);
             throw new Error('Driver ID is missing');
         }
 
-        if (!month || !year) {
+        let startDT, endDT, startStr, endStr, startOfMonth, endOfMonth;
+
+        if (from && to) {
+            startDT = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day');
+            endDT = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day');
+            
+            if (!startDT.isValid || !endDT.isValid) {
+                res.status(400);
+                throw new Error('Invalid date range provided');
+            }
+
+            startStr = from;
+            endStr = to;
+            startOfMonth = startDT.toJSDate();
+            endOfMonth = endDT.toJSDate();
+        } else if (month && year) {
+            startDT = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+            endDT = startDT.endOf('month');
+
+            if (!startDT.isValid) {
+                res.status(400);
+                throw new Error('Invalid month/year provided');
+            }
+
+            startStr = startDT.toFormat('yyyy-MM-dd');
+            endStr = endDT.toFormat('yyyy-MM-dd');
+            startOfMonth = startDT.toJSDate();
+            endOfMonth = endDT.toJSDate();
+        } else {
             res.status(400);
-            throw new Error('Please provide month and year');
+            throw new Error('Please provide a date range (from/to) or month/year');
         }
-
-        const startDT = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
-        const endDT = startDT.endOf('month');
-
-        const startOfMonth = startDT.toJSDate();
-        const endOfMonth = endDT.toJSDate();
-
-        const startStr = startDT.toFormat('yyyy-MM-dd');
-        const endStr = endDT.toFormat('yyyy-MM-dd');
 
         // 1. Fetch Attendance
         const attendance = await Attendance.find({
@@ -4298,23 +4467,22 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             date: { $gte: startStr, $lte: endStr }
         }).sort({ date: 1 });
 
-        // Parking & Advances fetched AFTER driver is loaded (so driver.name is available below)
-
         const driver = await User.findById(driverId).select('name mobile dailyWage');
         if (!driver) {
             res.status(404);
             throw new Error('Driver not found');
         }
 
-        // 2. Fetch Parking Entries — match by driverId OR driver name (legacy)
+        // 2. Fetch Parking Entries — sanitize name for regex safety
+        const escapedName = driver.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const parking = await Parking.find({
             $or: [
                 { driverId: driverId },
-                { driver: { $regex: new RegExp(`^${driver.name.trim()}$`, 'i') } }
+                { driver: { $regex: new RegExp(`^${escapedName}$`, 'i') } }
             ],
             date: { $gte: startOfMonth, $lte: endOfMonth },
             serviceType: { $ne: 'car_service' },
-            isReimbursable: { $ne: false } // Default to true or missing
+            isReimbursable: { $ne: false }
         }).sort({ date: 1 });
 
         // 3. Fetch Advances
@@ -4342,19 +4510,18 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             // Apply wage only ONCE per day (first duty of the day)
             let wage = 0;
             if (!wageUsed.has(att.date)) {
-                wage = Number(att.dailyWage) || Number(driver.dailyWage) || 500;
+                wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 500;
                 wageUsed.add(att.date);
             }
 
+            // Fetch bonuses for data completeness but exclude from 'total' if requested
             const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
             const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
             const otherBonuses = Number(att.outsideTrip?.bonusAmount) || 0;
-            const bonuses = sameDayReturn + nightStay + otherBonuses;
 
-            // Use parking from official Parking collection only, ignore internal fields
+            // Use parking from official Parking collection only
             const totalExternalForDay = externalByDay.get(att.date) || 0;
 
-            // We only add the parking amount TO THE FIRST shift encountered for that day
             let finalParkingCell = 0;
             if (!parkingUsed.has(att.date)) {
                 finalParkingCell = totalExternalForDay;
@@ -4369,9 +4536,8 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 sameDayReturn,
                 nightStay,
                 otherBonuses,
-                bonuses,
                 parking: finalParkingCell,
-                total: wage + bonuses + finalParkingCell,
+                total: wage + finalParkingCell + sameDayReturn + nightStay + otherBonuses, // Include all bonuses in total
                 vehicleId: att.vehicle,
                 remarks: isManualEntry ? '' : (att.punchOut?.remarks || '')
             };
@@ -4384,16 +4550,17 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             return !attendanceDates.has(d);
         });
 
-        // Aggregated totals
-        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage + d.bonuses, 0);
+        // Aggregated totals - Including bonuses
+        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage, 0); 
+        const totalBonuses = dailyBreakdown.reduce((sum, d) => sum + d.sameDayReturn + d.nightStay + d.otherBonuses, 0);
         const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
             standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-        const grandTotal = totalWages + parkingTotal;
+        const grandTotal = totalWages + parkingTotal + totalBonuses;
         const netPayable = grandTotal - totalAdvances;
 
         res.json({
-            vID: "WAGE_FIX_V1", // VERIFICATION TAG
+            vID: "WAGE_FIX_V2", // VERIFICATION TAG
             driver,
             breakdown: dailyBreakdown,
             advances,
@@ -4447,10 +4614,10 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             company: companyId,
             billDate: { $gte: monthStart, $lte: monthEnd }
         }),
-        Maintenance.find({
+        Parking.find({
             company: companyId,
-            billDate: { $gte: monthStart, $lte: monthEnd },
-            maintenanceType: 'Car Service'
+            date: { $gte: monthStart, $lte: monthEnd },
+            serviceType: 'car_service'
         }),
         Attendance.find({
             company: companyId,
@@ -4467,29 +4634,49 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const totalFuelAmount = vFuel.reduce((sum, f) => sum + (f.amount || 0), 0);
         const totalFuelQuantity = vFuel.reduce((sum, f) => sum + (f.quantity || 0), 0);
 
-        // Maintenance
-        const vMaint = maintenanceData.filter(m => m.vehicle?.toString() === vId);
-        const totalMaintAmount = vMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
+        // Separate Maintenance records: General Maintenance vs Service Hub (Wash/Punc)
+        const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
+        
+        // General Maintenance (Repairs, Parts, etc. - NOT Car Service type)
+        const vGeneralMaint = vMaintAll.filter(m => m.maintenanceType !== 'Car Service');
+        const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
-        // Wash & Puncture (from car_service parking)
-        const vServices = parkingData.filter(p => p.vehicle?.toString() === vId);
+        // Service Hub records from Maintenance (Type: 'Car Service')
+        const vMaintServices = vMaintAll.filter(m => m.maintenanceType === 'Car Service');
+        
+        // Service Hub records from Parking (serviceType: 'car_service')
+        const vParkingServices = parkingData.filter(p => p.vehicle?.toString() === vId);
+
         let washCount = 0;
         let punctureCount = 0;
         let washAmount = 0;
         let punctureAmount = 0;
         let vServicesArray = { wash: [], puncture: [] };
 
-        vServices.forEach(s => {
-            const searchTarget = `${s.category || ''} ${s.description || ''}`.toLowerCase();
-            if (searchTarget.includes('wash')) {
-                washCount++;
-                washAmount += (s.amount || 0);
-                vServicesArray.wash.push({ date: s.billDate || s.createdAt, amount: s.amount, id: s._id });
-            }
+        // Process all service hub candidates (Maintenance + Parking)
+        const allCandidates = [
+            ...vMaintServices.map(m => ({ ...m.toObject(), type: 'maint' })),
+            ...vParkingServices.map(p => ({ ...p.toObject(), type: 'parking' }))
+        ];
+
+        allCandidates.forEach(s => {
+            const category = (s.category || '').toLowerCase();
+            const remark = (s.remark || '').toLowerCase();
+            const description = (s.description || '').toLowerCase();
+            const searchTarget = `${category} ${remark} ${description}`.toLowerCase();
+            
+            const date = s.billDate || s.date || s.createdAt;
+            const amount = Number(s.amount) || 0;
+
             if (searchTarget.includes('puncture') || searchTarget.includes('puncher')) {
                 punctureCount++;
-                punctureAmount += (s.amount || 0);
-                vServicesArray.puncture.push({ date: s.billDate || s.createdAt, amount: s.amount, id: s._id });
+                punctureAmount += amount;
+                vServicesArray.puncture.push({ date, amount, id: s._id, source: s.type });
+            } else {
+                // Default everything else in 'Car Service' to Wash if not explicitly puncture
+                washCount++;
+                washAmount += amount;
+                vServicesArray.wash.push({ date, amount, id: s._id, source: s.type });
             }
         });
 
@@ -4528,8 +4715,8 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             },
             maintenance: {
                 totalAmount: totalMaintAmount,
-                count: vMaint.length,
-                records: vMaint.map(m => ({
+                count: vGeneralMaint.length,
+                records: vGeneralMaint.map(m => ({
                     type: m.maintenanceType,
                     category: m.category,
                     amount: m.amount,
