@@ -58,6 +58,9 @@ const vehicleSchema = new mongoose.Schema({
     dropLocation: {
         type: String // For outside cars
     },
+    dutyTime: {
+        type: String // For outside cars: e.g. "08:00 AM", "Night Shift"
+    },
     vehicleSource: {
         type: String, // 'Fleet' or 'External'
         default: 'External'

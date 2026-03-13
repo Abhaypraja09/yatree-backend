@@ -83,7 +83,7 @@ const createDriver = async (req, res, next) => {
 // @access  Private/Admin
 const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, ownerName, dropLocation, property, eventId } = req.body;
+    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
     const vehicleExists = await Vehicle.findOne({ carNumber: formattedCarNumber });
@@ -117,6 +117,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         fastagBank,
         driverName,
         dutyType,
+        dutyTime,
         ownerName,
         dropLocation,
         property,
@@ -1311,6 +1312,7 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.ownerName !== undefined) updateData.ownerName = req.body.ownerName;
     if (req.body.dutyAmount !== undefined) updateData.dutyAmount = Number(req.body.dutyAmount);
     if (req.body.dutyType !== undefined) updateData.dutyType = req.body.dutyType;
+    if (req.body.dutyTime !== undefined) updateData.dutyTime = req.body.dutyTime;
     if (req.body.dropLocation !== undefined) updateData.dropLocation = req.body.dropLocation;
     if (req.body.property !== undefined) updateData.property = req.body.property;
     if (req.body.lastOdometer !== undefined) updateData.lastOdometer = Number(req.body.lastOdometer);
@@ -1688,9 +1690,11 @@ const getDailyReports = asyncHandler(async (req, res) => {
         const totalFuel = fuelFromCollection > 0 ? fuelFromCollection : existingFuel;
 
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
-        // Don't double-count: if parking from collection exists, it's likely the same as toll amount
-        // Only add if there are EXTRA parking records beyond what's in punchOut
-        const totalParking = parkingFromCollection > 0 ? parkingFromCollection : existingParking;
+        // TRUST embedded attendance value if it was explicitly updated/populated
+        // If punchOut exists, the Attendance record should be the source of truth for its own parking
+        const totalParking = (a.punchOut && a.punchOut.tollParkingAmount !== undefined) 
+            ? a.punchOut.tollParkingAmount 
+            : (parkingFromCollection > 0 ? parkingFromCollection : existingParking);
 
         return {
             ...a,
@@ -4341,10 +4345,23 @@ const updateAttendance = asyncHandler(async (req, res) => {
         attendance.punchOut.tollParkingAmount = newParkingAmt;
         
         // Sync standalone Parking record
-        const existingParking = await Parking.findOne({ attendanceId: attendance._id });
+        // Search by attendanceId OR fallback to vehicle + date to catch unlinked records
+        let existingParking = await Parking.findOne({ attendanceId: attendance._id });
+        if (!existingParking && attendance.vehicle && attendance.date) {
+            existingParking = await Parking.findOne({
+                vehicle: attendance.vehicle,
+                attendanceId: { $exists: false },
+                date: {
+                    $gte: new Date(`${attendance.date}T00:00:00`),
+                    $lte: new Date(`${attendance.date}T23:59:59`)
+                }
+            });
+        }
+
         if (newParkingAmt > 0) {
             if (existingParking) {
                 existingParking.amount = newParkingAmt;
+                existingParking.attendanceId = attendance._id; // Link it now
                 existingParking.date = attendance.date ? new Date(attendance.date) : existingParking.date;
                 await existingParking.save();
             } else {
