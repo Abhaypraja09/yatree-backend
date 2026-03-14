@@ -33,15 +33,29 @@ const createDriver = async (req, res, next) => {
             return res.status(400).json({ message: 'Please provide all required fields: name, mobile, password (for regular drivers), companyId' });
         }
 
-        const userExists = await User.findOne({
-            $or: [
-                { mobile },
-                ...(username ? [{ username }] : [])
-            ]
-        });
+        let userExists = null;
+        if (freelancer) {
+            // Freelancers don't conflict with Company/Staff on mobile, but shouldn't conflict with another freelancer perhaps?
+            // Actually, we can allow freelancers to share the same mobile if they are just dummy entries.
+            // But let's check username only if provided.
+            if (username) {
+                userExists = await User.findOne({ username });
+            }
+        } else {
+            // Company drivers must not share a mobile/username with other company drivers, staff, executives, or admins.
+            // They CAN share with a Freelancer.
+             userExists = await User.findOne({
+                $or: [
+                    { mobile, isFreelancer: { $ne: true } },
+                    ...(username ? [{ username }] : [])
+                ]
+            });
+        }
+        
         if (userExists) {
             const field = userExists.mobile === mobile ? 'mobile number' : 'username';
-            return res.status(400).json({ message: `Driver already exists with this ${field}` });
+            const roleStr = userExists.role + (userExists.isFreelancer ? ' (Freelancer)' : '');
+            return res.status(400).json({ message: `A ${roleStr} already exists with this ${field} (${userExists.name})` });
         }
 
         const company = await Company.findById(companyId);
@@ -1177,6 +1191,15 @@ const getAllVehicles = asyncHandler(async (req, res) => {
         query.isOutsideCar = { $ne: true };
     }
 
+    const { from, to } = req.query;
+    if (from && to) {
+        // For outside cars, filtering by createdAt usually means the duty date
+        query.createdAt = {
+            $gte: new Date(`${from}T00:00:00Z`),
+            $lte: new Date(`${to}T23:59:59Z`)
+        };
+    }
+
     if (!usePagination) {
         const vehicles = await fetchVehiclesAndSync(query);
         return res.json({ vehicles });
@@ -1200,9 +1223,18 @@ const updateDriver = asyncHandler(async (req, res) => {
         // Explicitly handle all fields
         if (req.body.name) driver.name = req.body.name;
 
+        if (req.body.isFreelancer !== undefined) {
+            driver.isFreelancer = req.body.isFreelancer === 'true' || req.body.isFreelancer === true;
+        }
+
         if (req.body.mobile && req.body.mobile !== driver.mobile) {
-            const mobileExists = await User.findOne({ mobile: req.body.mobile });
-            if (mobileExists) return res.status(400).json({ message: 'Mobile number already in use' });
+            if (!driver.isFreelancer) {
+                const mobileExists = await User.findOne({ mobile: req.body.mobile, isFreelancer: { $ne: true } });
+                if (mobileExists) {
+                    const roleStr = mobileExists.role + (mobileExists.isFreelancer ? ' (Freelancer)' : '');
+                    return res.status(400).json({ message: `Mobile number already in use by a ${roleStr} (${mobileExists.name})` });
+                }
+            }
             driver.mobile = req.body.mobile;
         }
 
@@ -1228,9 +1260,7 @@ const updateDriver = asyncHandler(async (req, res) => {
             driver.salary = Number(req.body.salary);
         }
 
-        if (req.body.isFreelancer !== undefined) {
-            driver.isFreelancer = req.body.isFreelancer === 'true' || req.body.isFreelancer === true;
-        }
+
         if (req.body.nightStayBonus !== undefined && req.body.nightStayBonus !== '') {
             driver.nightStayBonus = Number(req.body.nightStayBonus);
         }
@@ -1320,6 +1350,9 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.fastagNumber !== undefined) updateData.fastagNumber = req.body.fastagNumber;
     if (req.body.fastagBank !== undefined) updateData.fastagBank = req.body.fastagBank;
     if (req.body.vehicleSource !== undefined) updateData.vehicleSource = req.body.vehicleSource;
+    if (req.body.eventId !== undefined) {
+        updateData.eventId = req.body.eventId && req.body.eventId !== 'undefined' ? req.body.eventId : undefined;
+    }
 
     if (req.body.createdAt) {
         const dateStr = req.body.createdAt.includes('T') ? req.body.createdAt : `${req.body.createdAt}T12:00:00Z`;
@@ -2071,7 +2104,8 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/freelancers/punch-out
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
-    const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
+    try {
+        const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
     logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
 
     const driver = await User.findById(driverId);
@@ -2118,6 +2152,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
     if (req.files) {
         if (req.files.selfie) attendance.punchOut.selfie = req.files.selfie[0].path;
         if (req.files.kmPhoto) attendance.punchOut.kmPhoto = req.files.kmPhoto[0].path;
+        if (req.files.parkingPhoto) attendance.punchOut.parkingReceipt = req.files.parkingPhoto[0].path;
         if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
     }
 
@@ -2149,22 +2184,22 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
     attendance.dropLocation = dropLocation;
     attendance.totalKM = (km || 0) - (attendance.punchIn.km || 0);
     attendance.status = 'completed';
-    await attendance.save();
-
-    // Create a Parking entry so it gets tracked in Settlement/Salaries
+    // Create a Parking entry if amount > 0
     if (Number(parkingAmount) > 0) {
         await Parking.create({
             vehicle: attendance.vehicle,
             company: driver.company,
             driver: driver.name,
-            driverId: driverId,
+            driverId: driver._id,
             attendanceId: attendance._id,
             date: attendance.date ? new Date(attendance.date) : new Date(),
             amount: Number(parkingAmount),
+            location: dropLocation || 'Duty End',
+            remark: review || 'Freelancer Duty Off',
             source: 'Admin',
-            notes: `Freelancer Punch-Out Parking (Paid By: ${parkingPaidBy || 'Self'})`,
+            receiptPhoto: attendance.punchOut.parkingReceipt,
             createdBy: req.user._id,
-            isReimbursable: parkingPaidBy === 'Office' ? false : true
+            isReimbursable: true
         });
     }
 
@@ -2186,7 +2221,13 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         }
     }
 
-    res.json({ message: 'Duty completed and vehicle released', attendance });
+    await attendance.save();
+    res.json({ message: 'Duty ended successfully', attendance });
+} catch (error) {
+    console.error('ERROR IN FREELANCER_PUNCH_OUT:', error);
+    logToFile(`[FREELANCER_PUNCH_OUT] ERROR: ${error.message}`);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+}
 });
 
 // @desc    Admin Punch In (Manual by Admin)
@@ -2372,7 +2413,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
         allowanceTA,
         nightStayAmount,
         otherBonus,
-        parkingPaidBy
+        parkingPaidBy,
+        eventId
     } = req.body;
 
     if (!driverId || !vehicleId || !companyId || !date) {
@@ -2398,6 +2440,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
         date: date, // YYYY-MM-DD
         status: 'completed',
         dailyWage: Number(dailyWage) || driver.dailyWage || 0,
+        eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
         punchIn: {
             km: Number(punchInKM) || 0,
             time: punchInTime ? new Date(punchInTime) : DateTime.fromFormat(date, 'yyyy-MM-dd', { zone: 'Asia/Kolkata' }).set({ hour: 8 }).toJSDate(),
@@ -2441,6 +2484,24 @@ const addManualDuty = asyncHandler(async (req, res) => {
             createdBy: req.user._id,
             source: 'Admin',
             attendance: attendance._id
+        });
+    }
+
+    // Create standalone Parking entry for manual duties
+    if (Number(parkingAmount) > 0) {
+        await Parking.create({
+            vehicle: vehicleId,
+            company: companyId,
+            driver: driver.name,
+            driverId: driverId,
+            attendanceId: attendance._id,
+            date: new Date(date),
+            amount: Number(parkingAmount),
+            location: dropLocation || 'Manual Entry',
+            remark: review || 'Manual Duty Entry',
+            source: 'Admin',
+            createdBy: req.user._id,
+            isReimbursable: true
         });
     }
 
@@ -3391,7 +3452,16 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driver: { $in: driverIds }, 
         status: 'completed' 
     };
-    if (startStr) attendanceQuery.date = { $gte: startStr, $lte: endStr };
+    if (startStr && endStr) {
+        // Match by string date field (most records) OR by punchIn.time (fallback for older records)
+        attendanceQuery.$or = [
+            { date: { $gte: startStr, $lte: endStr } },
+            { 
+                date: { $exists: false },
+                'punchIn.time': { $gte: startJS, $lte: endJS }
+            }
+        ];
+    }
 
     const advanceQuery = { 
         driver: { $in: driverIds } 
@@ -3563,7 +3633,7 @@ const createExecutive = asyncHandler(async (req, res) => {
     // Check for existing user by mobile or username
     const userExists = await User.findOne({
         $or: [
-            { mobile: mobile },
+            { mobile: mobile, isFreelancer: { $ne: true } },
             { username: { $regex: new RegExp(`^${username.trim()}$`, 'i') } }
         ]
     });
@@ -3821,7 +3891,12 @@ const getAllStaff = asyncHandler(async (req, res) => {
 const createStaff = asyncHandler(async (req, res) => {
     const { name, mobile, password, companyId, salary, username } = req.body;
 
-    const userExists = await User.findOne({ $or: [{ mobile }, { username }] });
+    const userExists = await User.findOne({ 
+        $or: [
+            { mobile, isFreelancer: { $ne: true } }, 
+            ...(username ? [{ username }] : [])
+        ] 
+    });
     if (userExists) {
         return res.status(400).json({ message: 'Staff with this mobile or username already exists' });
     }
@@ -3860,12 +3935,26 @@ const updateStaff = asyncHandler(async (req, res) => {
     const staff = await User.findById(req.params.id);
 
     if (staff && staff.role === 'Staff') {
+        if (mobile && mobile !== staff.mobile) {
+            const mobileExists = await User.findOne({ mobile, isFreelancer: { $ne: true } });
+            if (mobileExists) return res.status(400).json({ message: 'Mobile number already in use by another staff/driver' });
+            staff.mobile = mobile;
+        }
+
+        if (username !== undefined && username !== staff.username) {
+            if (username === "") {
+                staff.username = undefined;
+            } else {
+                const usernameExists = await User.findOne({ username });
+                if (usernameExists) return res.status(400).json({ message: 'Username already in use' });
+                staff.username = username;
+            }
+        }
+
         staff.name = name || staff.name;
-        staff.mobile = mobile || staff.mobile;
         staff.salary = salary ? Number(salary) : staff.salary;
         staff.status = status || staff.status;
         staff.monthlyLeaveAllowance = monthlyLeaveAllowance || staff.monthlyLeaveAllowance;
-        staff.username = username || staff.username;
         if (password) staff.password = password;
 
         // New fields
@@ -4314,6 +4403,9 @@ const updateAttendance = asyncHandler(async (req, res) => {
     if (pickUpLocation !== undefined) attendance.pickUpLocation = pickUpLocation;
     if (dropLocation !== undefined) attendance.dropLocation = dropLocation;
     if (dailyWage !== undefined && dailyWage !== '') attendance.dailyWage = Number(dailyWage);
+    if (req.body.eventId !== undefined) {
+        attendance.eventId = req.body.eventId && req.body.eventId !== 'undefined' ? req.body.eventId : undefined;
+    }
 
     // 2. Punch In Data (KMs & Time)
     if (!attendance.punchIn) attendance.punchIn = {};

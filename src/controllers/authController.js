@@ -89,7 +89,8 @@ const loginUser = async (req, res) => {
             $or: [
                 { mobile: mobile },
                 { username: { $regex: new RegExp(`^${mobile.trim()}$`, 'i') } }
-            ]
+            ],
+            isFreelancer: { $ne: true }
         }).populate('company');
 
         if (!user) {

@@ -46,6 +46,26 @@
       "pendingExpenses": []
     },
     {
+      "id": "69aff9787f5ba1f98864f0a4",
+      "date": "2026-02-05",
+      "driver": "Davi Shing",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": []
+    },
+    {
+      "id": "69afface7f5ba1f98864f428",
+      "date": "2026-02-06",
+      "driver": "Bharat ji",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": []
+    },
+    {
       "id": "69944c3a5f9a7cebdb76c34f",
       "date": "2026-02-07",
       "driver": "Suresh Patel",
@@ -166,6 +186,16 @@
       "pendingExpenses": []
     },
     {
+      "id": "69afc22db226e66b3ad2badd",
+      "date": "2026-02-15",
+      "driver": "Harish",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": []
+    },
+    {
       "id": "6994566c85acb133d011b1e4",
       "date": "2026-02-16",
       "driver": "Suresh Patel",
@@ -228,10 +258,9 @@
     {
       "id": "699714e8bdc8d61b60edeedf",
       "date": "2026-02-19",
-      "driver": "Harish vasnav",
       "wage": 300,
       "bonuses": 0,
-      "tollParkingPunchOut": 0,
+      "tollParkingPunchOut": 30,
       "parkingArray": [
         {
           "amount": 0,
@@ -239,6 +268,221 @@
         }
       ],
       "pendingExpenses": []
+    },
+    {
+      "id": "69b3e856375130546b2a2323",
+      "date": "2026-02-19",
+      "driver": "Harish Vaishnav",
+      "wage": 300,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": []
+    },
+    {
+      "id": "699939b0848d07032581ec60",
+      "date": "2026-02-20",
+      "driver": "Suresh Lohar",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [
+        {
+          "amount": 0,
+          "_id": "69993a43848d07032581ecb3"
+        }
+      ],
+      "pendingExpenses": []
+    },
+    {
+      "id": "69993b045996223b809edc1f",
+      "date": "2026-02-21",
+      "driver": "Bharat ji",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [
+        {
+          "amount": 170,
+          "_id": "6999e3363d74decd8339a685"
+        }
+      ],
+      "pendingExpenses": []
+    },
+    {
+      "id": "699aeda00d2028fe3b12f54b",
+      "date": "2026-02-22",
+      "driver": "Ganpat",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 70,
+      "parkingArray": [
+        {
+          "amount": 0,
+          "_id": "699bdd439004a6750b2c7549"
+        }
+      ],
+      "pendingExpenses": []
+    },
+    {
+      "id": "699c200b71e414243e18f982",
+      "date": "2026-02-23",
+      "driver": "Kailash Bhatt",
+      "wage": 500,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": [
+        {
+          "type": "fuel",
+          "fuelType": "Diesel",
+          "amount": 3000,
+          "quantity": 90.61,
+          "rate": 33.11,
+          "km": 190556,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771839787/taxi-fleet-crm/documents/slip_0-1771839784771-420890318.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "approved",
+          "_id": "699c212b71e414243e18fd74",
+          "createdAt": "2026-02-23T09:43:07.971Z"
+        },
+        {
+          "type": "parking",
+          "fuelType": null,
+          "amount": 30,
+          "quantity": 0,
+          "rate": 0,
+          "km": 0,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771839907/taxi-fleet-crm/documents/slip_0-1771839905221-137477466.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "approved",
+          "_id": "699c21a471e414243e18ff87",
+          "createdAt": "2026-02-23T09:45:08.308Z"
+        }
+      ]
+    },
+    {
+      "id": "699d95e5b74f375145e5e39e",
+      "date": "2026-02-24",
+      "driver": "Suresh Lohar",
+      "wage": 600,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [
+        {
+          "amount": 0,
+          "_id": "699d964db74f375145e5e3ee"
+        }
+      ],
+      "pendingExpenses": []
+    },
+    {
+      "id": "699e4728a06929e330729951",
+      "date": "2026-02-25",
+      "driver": "Satish Kumar",
+      "wage": 500,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": [
+        {
+          "type": "fuel",
+          "fuelType": "Diesel",
+          "amount": 2222,
+          "quantity": 24.52,
+          "rate": 90.61,
+          "km": 190888,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1771997878/taxi-fleet-crm/documents/slip_0-1771997876006-836616173.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "rejected",
+          "_id": "699e8ab789a768b5a45f6b86",
+          "createdAt": "2026-02-25T05:37:59.222Z"
+        }
+      ]
+    },
+    {
+      "id": "699fab59af21d1787862399a",
+      "date": "2026-02-26",
+      "driver": "Satish Kumar",
+      "wage": 500,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": [
+        {
+          "type": "parking",
+          "fuelType": null,
+          "amount": 30,
+          "quantity": 0,
+          "rate": 0,
+          "km": 0,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1772094342/taxi-fleet-crm/documents/slip_0-1772094339624-864765738.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "approved",
+          "_id": "69a00386f982aa7e77226917",
+          "createdAt": "2026-02-26T08:25:42.752Z"
+        }
+      ]
+    },
+    {
+      "id": "69a59ec797814433d2f2ec9c",
+      "date": "2026-02-27",
+      "driver": "Satish Kumar",
+      "wage": 500,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": []
+    },
+    {
+      "id": "69a2376d40e79d7db619b56d",
+      "date": "2026-02-28",
+      "driver": "Satish Kumar",
+      "wage": 500,
+      "bonuses": 0,
+      "tollParkingPunchOut": 0,
+      "parkingArray": [],
+      "pendingExpenses": [
+        {
+          "type": "fuel",
+          "fuelType": "Diesel",
+          "amount": 12.43,
+          "quantity": 12.43,
+          "rate": 1,
+          "km": 191185,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1772289266/taxi-fleet-crm/documents/slip_0-1772289263547-157868086.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "rejected",
+          "_id": "69a2fcf21606f947cb86b47f",
+          "createdAt": "2026-02-28T14:34:26.707Z"
+        },
+        {
+          "type": "fuel",
+          "fuelType": "Diesel",
+          "amount": 28.05,
+          "quantity": 28.05,
+          "rate": 1,
+          "km": 191314,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1772293702/taxi-fleet-crm/documents/slip_0-1772293699696-791601609.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "rejected",
+          "_id": "69a30e46ee196b4cdd8b1e23",
+          "createdAt": "2026-02-28T15:48:22.754Z"
+        },
+        {
+          "type": "parking",
+          "fuelType": null,
+          "amount": 60,
+          "quantity": 0,
+          "rate": 0,
+          "km": 0,
+          "slipPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1772294032/taxi-fleet-crm/documents/slip_0-1772294030370-538083036.jpg",
+          "paymentSource": "Yatree Office",
+          "status": "approved",
+          "_id": "69a30f91ee196b4cdd8b1e44",
+          "createdAt": "2026-02-28T15:53:53.309Z"
+        }
+      ]
     }
   ],
   "parkingEntries": [
@@ -247,7 +491,35 @@
       "parking": []
     },
     {
-      "driverId": "69971496bdc8d61b60edeec3",
+      "driverId": "699549d034e8f95692526f1c",
+      "parking": []
+    },
+    {
+      "driverId": "699159b6299bae4be5c7c94a",
+      "parking": []
+    },
+    {
+      "driverId": "69a6fa0ed480c1282430c4c3",
+      "parking": []
+    },
+    {
+      "driverId": "69b138549457d8057b772149",
+      "parking": []
+    },
+    {
+      "driverId": "6998279b6f8002d28fc5c03f",
+      "parking": []
+    },
+    {
+      "driverId": "699aed740d2028fe3b12f53a",
+      "parking": []
+    },
+    {
+      "driverId": "699296b6a94eda1844b175db",
+      "parking": []
+    },
+    {
+      "driverId": "699350b7aa4e75678f588786",
       "parking": []
     }
   ]

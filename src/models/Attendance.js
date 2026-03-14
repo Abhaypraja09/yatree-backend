@@ -16,6 +16,10 @@ const attendanceSchema = new mongoose.Schema({
         ref: 'Vehicle',
         required: true
     },
+    eventId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Event'
+    },
     date: {
         type: String, // format: YYYY-MM-DD for easier querying per day
         required: true
@@ -48,7 +52,8 @@ const attendanceSchema = new mongoose.Schema({
         allowanceTA: { type: Number, default: 0 }, // 100 bonus
         nightStayAmount: { type: Number, default: 0 }, // 500 bonus
         otherRemarks: { type: String }, // Puncture etc.
-        parkingPaidBy: { type: String, enum: ['Self', 'Office'], default: 'Self' }
+        parkingPaidBy: { type: String, enum: ['Self', 'Office'], default: 'Self' },
+        parkingReceipt: { type: String }
     },
 
     // Legacy / Structured Fields (Required for detailed tracking and images)

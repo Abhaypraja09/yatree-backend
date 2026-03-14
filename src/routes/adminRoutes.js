@@ -112,6 +112,7 @@ router.put('/vehicles/:id', adminOrExecutive, vehicleUpload, updateVehicle);
 const freelancerUpload = upload.fields([
     { name: 'selfie', maxCount: 1 },
     { name: 'kmPhoto', maxCount: 1 },
+    { name: 'parkingPhoto', maxCount: 1 },
     { name: 'carSelfie', maxCount: 1 }
 ]);
 
