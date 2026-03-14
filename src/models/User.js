@@ -127,6 +127,12 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['Company', 'Hotel', 'Freelancer'],
         default: 'Company'
+    },
+    permissions: {
+        driversService: { type: Boolean, default: false },
+        buySell: { type: Boolean, default: false },
+        vehiclesManagement: { type: Boolean, default: false },
+        reports: { type: Boolean, default: true }
     }
 }, {
     timestamps: true,

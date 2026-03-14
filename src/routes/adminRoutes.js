@@ -40,6 +40,7 @@ const {
     getDriverSalaryDetails,
     getAllExecutives,
     createExecutive,
+    updateExecutive,
     deleteExecutive,
     addParkingEntry,
     getParkingEntries,
@@ -106,7 +107,7 @@ router.get('/reports/:companyId', adminOrExecutive, getDailyReports);
 router.get('/vehicles/:companyId', adminOrExecutive, getAllVehicles);
 router.get('/drivers/:companyId', adminOrExecutive, getAllDrivers);
 router.post('/drivers', adminOrExecutive, driverUpload, createDriver);
-router.put('/drivers/:id', adminOrExecutive, updateDriver);
+router.put('/drivers/:id', adminOrExecutive, driverUpload, updateDriver);
 router.post('/vehicles', adminOrExecutive, vehicleUpload, createVehicle);
 router.put('/vehicles/:id', adminOrExecutive, vehicleUpload, updateVehicle);
 const freelancerUpload = upload.fields([
@@ -170,6 +171,7 @@ router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails
 // Executive Management (Super Admin only)
 router.get('/executives', admin, getAllExecutives);
 router.post('/executives', admin, createExecutive);
+router.put('/executives/:id', admin, updateExecutive);
 router.delete('/executives/:id', admin, deleteExecutive);
 
 // Staff Management

@@ -61,6 +61,11 @@ const vehicleSchema = new mongoose.Schema({
     dutyTime: {
         type: String // For outside cars: e.g. "08:00 AM", "Night Shift"
     },
+    transactionType: {
+        type: String,
+        enum: ['Duty', 'Buy', 'Sell'],
+        default: 'Duty'
+    },
     vehicleSource: {
         type: String, // 'Fleet' or 'External'
         default: 'External'

@@ -78,6 +78,15 @@ const createDriver = async (req, res, next) => {
             sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 100
         });
 
+        if (req.files && req.files.drivingLicense) {
+            driver.documents.push({
+                documentType: 'Driving License',
+                imageUrl: req.files.drivingLicense[0].path,
+                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // Default 1 year from now if not specified
+                verificationStatus: 'Verified'
+            });
+        }
+
         const createdDriver = await driver.save();
         res.status(201).json({
             _id: createdDriver._id,
@@ -135,6 +144,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         ownerName,
         dropLocation,
         property,
+        transactionType: req.body.transactionType || 'Duty',
         vehicleSource: req.body.vehicleSource || (isOutsideCar === 'true' || isOutsideCar === true ? 'External' : 'Fleet'),
         eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
         documents
@@ -935,7 +945,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
     const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
 
-    res.json({
+    const finalResponse = {
         date: targetDate, totalVehicles, totalDrivers: liveDriversFeed.length,
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
@@ -1012,7 +1022,63 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         liveDriversFeed, liveVehiclesFeed, dailyAdvanceTotal: dailyAdvanceData[0]?.total || 0,
         dailyFastagTotal: dailyFastagData[0]?.total || 0,
         dutyHistoryThisMonth: allAttendanceThisMonth.sort((a, b) => new Date(b.date) - new Date(a.date))
-    });
+    };
+
+    if (req.user && req.user.role === 'Executive') {
+        const p = req.user.permissions || {};
+        
+        // Remove Drivers Service data
+        if (!p.driversService) {
+            finalResponse.totalDrivers = 0;
+            finalResponse.totalStaff = 0;
+            finalResponse.countStaffPresent = 0;
+            finalResponse.staffAttendanceToday = [];
+            finalResponse.dailySalaryTotal = 0;
+            finalResponse.dailyFreelancerSalaryTotal = 0;
+            finalResponse.monthlySalaryTotal = 0;
+            finalResponse.monthlyRegularSalaryTotal = 0;
+            finalResponse.monthlyRegularAdvanceTotal = 0;
+            finalResponse.monthlyNetSalaryTotal = 0;
+            finalResponse.monthlyFreelancerSalaryTotal = 0;
+            finalResponse.attendanceDetails = [];
+            finalResponse.regularAdvances = [];
+            finalResponse.totalAdvancesSum = finalResponse.totalAdvancesSum - (monthlyRegularAdvanceTotal + totalFreelancerAdvancePending);
+            finalResponse.freelancerAdvances = { total: 0, count: 0 };
+            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Driver');
+            finalResponse.dutyHistoryThisMonth = [];
+            finalResponse.liveDriversFeed = [];
+        }
+
+        // Remove Buy/Sell data
+        if (!p.buySell) {
+            finalResponse.monthlyOutsideCarsTotal = 0;
+            // Clean attendanceDetails of outside trip info if needed
+        }
+
+        // Remove Vehicles Management data
+        if (!p.vehiclesManagement) {
+            finalResponse.totalVehicles = 0;
+            finalResponse.totalFastagBalance = 0;
+            finalResponse.monthlyFuelAmount = 0;
+            finalResponse.monthlyMaintenanceAmount = 0;
+            finalResponse.monthlyParkingAmount = 0;
+            finalResponse.monthlyDriverServicesAmount = 0;
+            finalResponse.monthlyBorderTaxAmount = 0;
+            finalResponse.monthlyAccidentAmount = 0;
+            finalResponse.totalWarrantyCost = 0;
+            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle' && a.type !== 'Service');
+            finalResponse.dailyFastagTotal = 0;
+            finalResponse.dailyFuelAmount = { total: 0, count: 0 };
+            finalResponse.dailyFuelEntries = [];
+            finalResponse.liveVehiclesFeed = [];
+        }
+        
+        // Recalculate totalExpenseAmount
+        finalResponse.totalExpenseAmount = 
+            (p.vehiclesManagement ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost + finalResponse.monthlyDriverServicesAmount) : 0);
+    }
+
+    res.json(finalResponse);
 });
 
 // @desc    Get all drivers with pagination
@@ -1273,6 +1339,17 @@ const updateDriver = asyncHandler(async (req, res) => {
             driver.licenseNumber = req.body.licenseNumber;
         }
 
+        if (req.files && req.files.drivingLicense) {
+            // Remove old Driving License if exists
+            driver.documents = driver.documents.filter(doc => doc.documentType !== 'Driving License');
+            driver.documents.push({
+                documentType: 'Driving License',
+                imageUrl: req.files.drivingLicense[0].path,
+                expiryDate: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000), // Default 10 years for DL
+                verificationStatus: 'Verified'
+            });
+        }
+
         console.log('UPDATING DRIVER:', {
             id: req.params.id,
             updates: {
@@ -1349,6 +1426,7 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.fastagBalance !== undefined) updateData.fastagBalance = Number(req.body.fastagBalance);
     if (req.body.fastagNumber !== undefined) updateData.fastagNumber = req.body.fastagNumber;
     if (req.body.fastagBank !== undefined) updateData.fastagBank = req.body.fastagBank;
+    if (req.body.transactionType !== undefined) updateData.transactionType = req.body.transactionType;
     if (req.body.vehicleSource !== undefined) updateData.vehicleSource = req.body.vehicleSource;
     if (req.body.eventId !== undefined) {
         updateData.eventId = req.body.eventId && req.body.eventId !== 'undefined' ? req.body.eventId : undefined;
@@ -1889,7 +1967,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('vehicle', 'carNumber model')
         .sort({ date: -1 });
 
-    res.json({
+    const finalResponse = {
         attendance: finalReports,
         fastagRecharges,
         borderTax,
@@ -1899,7 +1977,32 @@ const getDailyReports = asyncHandler(async (req, res) => {
         parking,
         accidentLogs,
         partsWarranty
-    });
+    };
+
+    if (req.user && req.user.role === 'Executive') {
+        const p = req.user.permissions || {};
+        
+        if (!p.driversService) {
+            finalResponse.attendance = finalResponse.attendance.filter(a => a.isOutsideCar);
+            finalResponse.advances = [];
+        }
+        
+        if (!p.buySell) {
+            finalResponse.attendance = finalResponse.attendance.filter(a => !a.isOutsideCar);
+        }
+
+        if (!p.vehiclesManagement) {
+            finalResponse.fastagRecharges = [];
+            finalResponse.borderTax = [];
+            finalResponse.fuel = [];
+            finalResponse.maintenance = [];
+            finalResponse.parking = [];
+            finalResponse.accidentLogs = [];
+            finalResponse.partsWarranty = [];
+        }
+    }
+
+    res.json(finalResponse);
 });
 
 const approveNewTrip = asyncHandler(async (req, res) => {
@@ -2684,7 +2787,8 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         Maintenance.find(query)
             .populate('vehicle', 'carNumber model')
             .populate('driver', 'name')
-            .sort({ billDate: -1 }),
+            .sort({ billDate: -1 })
+            .lean(),
         Parking.find(parkingQuery)
             .populate('vehicle', 'carNumber model')
             .populate('driverId', 'name')
@@ -2715,15 +2819,20 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
     attendanceDocs.forEach(doc => {
         if (!doc.pendingExpenses) return;
         doc.pendingExpenses.forEach(exp => {
-            // Only show if not fully approved or deleted. If handled, it should be in tracking.
-            if ((exp.type === 'other' || exp.type === 'parking') && exp.status !== 'approved' && exp.status !== 'deleted') {
+            // Check if it's a wash or puncture based on the remark or if it's explicitly other/parking
+            const remark = (exp.remark || '').toLowerCase();
+            const isWash = remark.includes('wash');
+            const isPuncture = remark.includes('puncture') || remark.includes('puncher');
+
+            // Only show if not fully approved or deleted and it matches Driver Services criteria
+            if ((isWash || isPuncture) && exp.status !== 'approved' && exp.status !== 'deleted') {
                 mappedPending.push({
                     _id: exp._id,
                     attendanceId: doc._id,
                     vehicle: doc.vehicle,
                     driver: doc.driver,
                     maintenanceType: 'Car Service',
-                    category: exp.fuelType || (exp.type === 'parking' ? 'Car Wash' : 'Maintenance'),
+                    category: isWash ? 'Car Wash' : 'Puncture Repair',
                     description: `[UNAPPROVED] Driver Log: ${exp.remark || 'Manual Entry'}. KM: ${exp.km || 'N/A'}`,
                     billDate: exp.createdAt || doc.date,
                     amount: exp.amount,
@@ -2736,8 +2845,23 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         });
     });
 
-    // Combine all sources, filter by date if needed (mappedPending needs manual date filtering if applied)
-    let combined = [...mainRecords, ...mappedParking, ...mappedPending].sort((a, b) => new Date(b.billDate) - new Date(a.billDate));
+    // Final filter for ALL sources (Admin Maintenance, Parking Car Service, Pending)
+    // We only want Wash and Puncture data in this endpoint for "Driver Services"
+    let combined = [...mainRecords, ...mappedParking, ...mappedPending].filter(r => {
+        const cat = String(r.category || '').toLowerCase();
+        const desc = String(r.description || '').toLowerCase();
+        const type = String(r.maintenanceType || '').toLowerCase();
+        
+        // Strict word matching for wash and puncture
+        const hasWash = cat.includes('wash') || desc.includes('wash') || type.includes('wash');
+        const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
+                           desc.includes('puncture') || desc.includes('puncher') ||
+                           type.includes('puncture') || type.includes('puncher');
+        
+        return hasWash || hasPuncture;
+    });
+
+    combined.sort((a, b) => new Date(b.billDate) - new Date(a.billDate));
 
     // Apply manual date filter for combined results if range is provided (mappedPending isn't pre-filtered by $gte in the query for simplicity of overlapping months)
     if (startDate && endDate) {
@@ -3193,16 +3317,16 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
     if (status === 'approved') {
         if (expense.type === 'fuel') {
             // Optional overrides from Admin
-            const { quantity, rate, slipPhoto } = req.body;
+            const { amount, quantity, rate, slipPhoto } = req.body;
             let finalOdometer = Number(req.body.odometer || expense.km || 0);
-            let finalAmount = Number(expense.amount || 0);
+            let finalAmount = Number(amount || expense.amount || 0);
             // Use admin override OR driver's submitted quantity. Default to 1 to avoid validation error.
             let finalQuantity = quantity ? Number(quantity) : (expense.quantity ? Number(expense.quantity) : 1);
             // Calculate rate: admin override OR driver's rate OR amount/quantity
             let finalRate = rate ? Number(rate) : (expense.rate ? Number(expense.rate) : (finalQuantity > 0 ? Number((finalAmount / finalQuantity).toFixed(2)) : finalAmount));
 
             // Use Admin provided slipPhoto if available, otherwise fallback to driver's
-            const finalSlipPhoto = slipPhoto || expense.slipPhoto || '';
+            const finalSlipPhoto = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
 
             // Sanitize paymentSource — driver app may send 'Guest' but model requires 'Guest / Client'
             const validPaymentSources = ['Yatree Office', 'Guest / Client'];
@@ -3249,11 +3373,12 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
             attendance.fuel.amount = (attendance.fuel.amount || 0) + finalAmount;
 
         } else if (expense.type === 'parking') {
-            const { slipPhoto } = req.body;
-            const finalSlipPhoto = slipPhoto || expense.slipPhoto || '';
+            const { amount, slipPhoto } = req.body;
+            const finalAmount = Number(amount || expense.amount || 0);
+            const finalSlipPhoto = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
             const driverId = attendance.driver?._id || attendance.driver;
 
-            console.log(`[approveRejectExpense] Creating parking entry: vehicleId=${vehicleId}, amount=${expense.amount}`);
+            console.log(`[approveRejectExpense] Creating parking entry: vehicleId=${vehicleId}, amount=${finalAmount}`);
 
             // 1. Add to Parking Collection
             await Parking.create({
@@ -3262,7 +3387,7 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 driver: driverName,
                 driverId: driverId,
                 date: expense.createdAt || new Date(),
-                amount: expense.amount,
+                amount: finalAmount,
                 source: 'Driver',
                 receiptPhoto: finalSlipPhoto,
                 createdBy: req.user._id
@@ -3270,25 +3395,24 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
 
         } else if (expense.type === 'other') {
             // Car Wash, Puncture, or other services
-            const { slipPhoto } = req.body;
-            const finalSlipPhoto = slipPhoto || expense.slipPhoto || '';
+            const { amount, slipPhoto } = req.body;
+            const finalAmount = Number(amount || expense.amount || 0);
+            const finalSlipPhotoValue = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
             const driverId = attendance.driver?._id || attendance.driver;
 
-            // service name (e.g., "Car Wash", "Puncture")
-            const serviceLabel = expense.fuelType || 'Other Service';
+            console.log(`[approveRejectExpense] Creating maintenance/other entry: vehicleId=${vehicleId}, amount=${finalAmount}, type=${expense.fuelType || 'Other'}`);
 
-            console.log(`[approveRejectExpense] Creating Maintenance (Car Service) entry: vehicleId=${vehicleId}, amount=${expense.amount}`);
-
-            // Store in Maintenance collection instead of Parking
+            // Create a maintenance record for things like Wash/Puncture
             await Maintenance.create({
                 vehicle: vehicleId,
                 company: attendance.company,
-                maintenanceType: 'Car Service',
-                category: serviceLabel,
-                description: `Driver Submission: ${serviceLabel}`,
-                amount: Number(expense.amount),
+                driver: attendance.driver?._id || attendance.driver,
+                maintenanceType: 'Driver Service',
+                category: expense.fuelType || 'Other',
+                description: `Approved Driver Service: ${expense.fuelType || 'Other'}`,
+                amount: finalAmount,
                 billDate: expense.createdAt || new Date(),
-                billPhoto: finalSlipPhoto,
+                billPhoto: finalSlipPhotoValue,
                 status: 'Completed',
                 createdBy: req.user._id,
                 // Add a source field if needed, but not in model? 
@@ -3623,7 +3747,7 @@ const getAllExecutives = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/executives
 // @access  Private/Admin
 const createExecutive = asyncHandler(async (req, res) => {
-    const { name, mobile, username, password } = req.body;
+    const { name, mobile, username, password, permissions } = req.body;
     console.log('RECREATING EXECUTIVE ATTEMPT:', { name, mobile, username });
 
     if (!name || !mobile || !password || !username) {
@@ -3655,23 +3779,51 @@ const createExecutive = asyncHandler(async (req, res) => {
             password,
             role: 'Executive',
             status: 'active',
-            isFreelancer: false
+            isFreelancer: false,
+            permissions: permissions || {
+                driversService: false,
+                buySell: false,
+                vehiclesManagement: false,
+                reports: true
+            }
         });
 
         await executive.save();
 
         console.log('EXECUTIVE CREATED SUCCESSFULLY:', executive._id);
 
-        res.status(201).json({
-            _id: executive._id,
-            name: executive.name,
-            mobile: executive.mobile,
-            username: executive.username,
-            role: executive.role
-        });
+        res.status(201).json(executive);
     } catch (error) {
         console.error('Error creating executive:', error);
         res.status(500).json({ message: 'Server error while creating admin', error: error.message });
+    }
+});
+
+// @desc    Update an executive user permissions
+// @route   PUT /api/admin/executives/:id
+// @access  Private/Admin
+const updateExecutive = asyncHandler(async (req, res) => {
+    const { name, mobile, username, password, permissions, status } = req.body;
+    const executive = await User.findById(req.params.id);
+
+    if (executive && executive.role === 'Executive') {
+        executive.name = name || executive.name;
+        executive.mobile = mobile || executive.mobile;
+        executive.username = username || executive.username;
+        executive.status = status || executive.status;
+        
+        if (permissions) {
+            executive.permissions = { ...executive.permissions, ...permissions };
+        }
+        
+        if (password) {
+            executive.password = password;
+        }
+
+        const updatedUser = await executive.save();
+        res.json(updatedUser);
+    } else {
+        res.status(404).json({ message: 'Executive user not found' });
     }
 });
 
@@ -5005,6 +5157,7 @@ module.exports = {
     getDriverSalaryDetails, // Export new function
     getAllExecutives,
     createExecutive,
+    updateExecutive,
     deleteExecutive,
     addParkingEntry,
     getParkingEntries,
