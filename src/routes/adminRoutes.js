@@ -20,6 +20,8 @@ const {
     addBorderTax,
     getBorderTaxEntries,
     rechargeFastag,
+    updateFastagRecharge,
+    deleteFastagRecharge,
     freelancerPunchIn,
     freelancerPunchOut,
     deleteBorderTax,
@@ -68,7 +70,8 @@ const {
     addBackdatedAttendance,
     deleteStaffAttendance,
     addPendingExpenseFromAdmin,
-    getPendingMaintenanceExpenses
+    getPendingMaintenanceExpenses,
+    getLiveFeed
 } = require('../controllers/adminController');
 const {
     createEvent,
@@ -102,6 +105,7 @@ const vehicleUpload = upload.fields([
 
 // Shared Routes (Admin & Executive)
 router.get('/dashboard/:companyId', adminOrExecutive, getDashboardStats);
+router.get('/live-feed/:companyId', adminOrExecutive, getLiveFeed);
 router.get('/vehicle-monthly-details/:companyId', adminOrExecutive, getVehicleMonthlyDetails);
 router.get('/reports/:companyId', adminOrExecutive, getDailyReports);
 router.get('/vehicles/:companyId', adminOrExecutive, getAllVehicles);
@@ -134,6 +138,8 @@ router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, approveNewTrip
 router.post('/assign', adminOrExecutive, assignVehicle);
 router.post('/vehicles/:id/documents', adminOrExecutive, upload.single('document'), uploadVehicleDocument);
 router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
+router.put('/vehicles/:id/fastag-recharge/:historyId', admin, updateFastagRecharge);
+router.delete('/vehicles/:id/fastag-recharge/:historyId', admin, deleteFastagRecharge);
 
 // Operational Routes (Shared Admin & Executive)
 router.delete('/drivers/:id', adminOrExecutive, deleteDriver);

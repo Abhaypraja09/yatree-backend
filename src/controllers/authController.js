@@ -179,10 +179,13 @@ const seedCompanies = async (req, res) => {
 // @access  Private
 const getCompanies = async (req, res) => {
     try {
+        console.log('GET COMPANIES REQUEST RECEIVED');
         const companies = await Company.find({});
+        console.log('COMPANIES FOUND:', companies.length);
         res.json(companies);
     } catch (error) {
-        logError(`getCompanies Error: ${error.message}`);
+        console.error('getCompanies FATAL ERROR:', error);
+        logError(`getCompanies Error: ${error.message} \nStack: ${error.stack}`);
         res.status(500).json({ message: 'Server error fetching companies', error: error.message });
     }
 };

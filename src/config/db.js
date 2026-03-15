@@ -8,6 +8,9 @@ const connectDB = async () => {
         console.log('Attempting to connect to MongoDB...');
 
         await mongoose.connect(MONGODB_URI, {
+            maxPoolSize: 100, // Handle up to 100 concurrent requests smoothly
+            minPoolSize: 10,  // Keep 10 connections open and ready
+            socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
             serverSelectionTimeoutMS: 5000,
         });
 

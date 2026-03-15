@@ -18,6 +18,9 @@ const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
 console.log('--- ADMIN CONTROLLER LOADED (V1.1) ---');
+/* --- PERFORMANCE CACHE --- */
+const DASHBOARD_CACHE = new Map();
+const CACHE_TTL = 3 * 60 * 1000; // 3 mins cache for heavy financial stats
 
 // @desc    Create a new driver
 // @route   POST /api/admin/drivers
@@ -254,7 +257,15 @@ const syncVehicleOdometer = async (vehicleId) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date, from, to } = req.query; // Support single date OR date range
+    const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query; // Support single date OR date range
+
+    const cacheKey = `${companyId}_${qMonth}_${qYear}_${date}_${from}_${to}`;
+    if (!bypassCache && DASHBOARD_CACHE.has(cacheKey)) {
+        const cached = DASHBOARD_CACHE.get(cacheKey);
+        if (Date.now() - cached.time < CACHE_TTL) {
+            return res.json(cached.data);
+        }
+    }
 
     if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
         return res.status(400).json({ message: 'Invalid Company ID' });
@@ -266,7 +277,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
     // Monthly mode: use month/year params. Range mode: use from/to. Single mode: use date param.
-    const { month: qMonth, year: qYear } = req.query;
     const isMonthlyMode = !!(qMonth && qYear);
     const isRangeMode = !!(from && to) && !isMonthlyMode;
     
@@ -893,7 +903,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         driverPendingAdvance: pendingAdvancesMap.get(attendance.driver?._id?.toString()) || 0
     }));
 
-    const totalFastagBalance = fastagData[0]?.total || 0;
+    const monthlyFastagTotal = fastagData[0]?.total || 0;
+    const dailyFastagTotal = dailyFastagData[0]?.total || 0;
+    const totalFastagBalance = monthlyFastagTotal; // Backwards compatibility if needed
     const totalAdvancePending = advanceData[0]?.total || 0;
     const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
     const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
@@ -949,7 +961,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         date: targetDate, totalVehicles, totalDrivers: liveDriversFeed.length,
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
-        pendingApprovalsCount, totalFastagBalance, totalAdvancePending: monthlyRegularAdvanceTotal,
+        pendingApprovalsCount, totalFastagBalance, monthlyFastagTotal, dailyFastagTotal, totalAdvancePending: monthlyRegularAdvanceTotal,
         monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
         monthlyBorderTaxAmount, monthlyAccidentAmount, totalWarrantyCost,
         totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost + monthlyDriverServicesAmount,
@@ -1078,6 +1090,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             (p.vehiclesManagement ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost + finalResponse.monthlyDriverServicesAmount) : 0);
     }
 
+    DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
     res.json(finalResponse);
 });
 
@@ -1656,7 +1669,15 @@ const verifyDriverDocument = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getDailyReports = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date, from, to } = req.query; // format: YYYY-MM-DD
+    const { date, from, to, bypassCache } = req.query; // format: YYYY-MM-DD
+
+    const cacheKey = `reports_${companyId}_${from || ''}_${to || ''}_${date || ''}`;
+    if (!bypassCache && DASHBOARD_CACHE.has(cacheKey)) {
+        const cached = DASHBOARD_CACHE.get(cacheKey);
+        if (Date.now() - cached.time < CACHE_TTL) {
+            return res.json(cached.data);
+        }
+    }
 
     const query = {
         $or: [
@@ -1765,44 +1786,53 @@ const getDailyReports = asyncHandler(async (req, res) => {
     }
     const allParkingForAttendance = await Parking.find(parkingQueryForAttendance).lean();
 
-    // Enrich attendance rows with fuel + parking from their separate collections
-    const enrichedAttendance = attendance.map(a => {
-        const vehicleId = String(a.vehicle?._id || a.vehicle || '');
-        const attDate = a.date;
-        const attendanceId = String(a._id || '');
+    // OPTIMIZED: Use Maps for O(1) lookups instead of .filter in a loop
+    const fuelByAttId = new Map();
+    const fuelByVehicleDate = new Map();
+    allFuelForAttendance.forEach(f => {
+        if (f.attendance) {
+            const attId = String(f.attendance);
+            if (!fuelByAttId.has(attId)) fuelByAttId.set(attId, []);
+            fuelByAttId.get(attId).push(f);
+        }
+        const fDateStr = f.date instanceof Date ? f.date.toISOString().split('T')[0] : String(f.date).split('T')[0];
+        const vId = String(f.vehicle?._id || f.vehicle || '');
+        const key = `${vId}_${fDateStr}`;
+        if (!fuelByVehicleDate.has(key)) fuelByVehicleDate.set(key, []);
+        fuelByVehicleDate.get(key).push(f);
+    });
 
-        // Fuel: match by attendance ref first (driver-entered), fallback vehicle+date (admin-entered)
-        const matchedFuels = allFuelForAttendance.filter(f => {
-            if (f.attendance) {
-                return String(f.attendance) === attendanceId;
-            }
-            const fDateStr = f.date instanceof Date
-                ? f.date.toISOString().split('T')[0]
-                : String(f.date).split('T')[0];
-            return String(f.vehicle?._id || f.vehicle || '') === vehicleId && fDateStr === attDate;
-        });
+    const parkingByAttId = new Map();
+    const parkingByVehicleDate = new Map();
+    allParkingForAttendance.forEach(p => {
+        if (p.attendanceId) {
+            const attId = String(p.attendanceId);
+            if (!parkingByAttId.has(attId)) parkingByAttId.set(attId, []);
+            parkingByAttId.get(attId).push(p);
+        }
+        const pDateStr = p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0];
+        const vId = String(p.vehicle?._id || p.vehicle || '');
+        const key = `${vId}_${pDateStr}`;
+        if (!parkingByVehicleDate.has(key)) parkingByVehicleDate.set(key, []);
+        parkingByVehicleDate.get(key).push(p);
+    });
+
+    const enrichedAttendance = attendance.map(a => {
+        const attendanceId = String(a._id || '');
+        const vId = String(a.vehicle?._id || a.vehicle || '');
+        const attDate = a.date;
+        const vKey = `${vId}_${attDate}`;
+
+        const matchedFuels = fuelByAttId.get(attendanceId) || fuelByVehicleDate.get(vKey) || [];
         const fuelFromCollection = matchedFuels.reduce((s, f) => s + (Number(f.amount) || 0), 0);
 
-        // Parking: match by attendanceId first (precise), fallback to vehicle+date
-        const matchedParking = allParkingForAttendance.filter(p => {
-            if (p.attendanceId && attendanceId) {
-                return String(p.attendanceId) === attendanceId;
-            }
-            // Date fallback
-            const pDateStr = p.date instanceof Date
-                ? p.date.toISOString().split('T')[0]
-                : String(p.date).split('T')[0];
-            return String(p.vehicle?._id || p.vehicle || '') === vehicleId && pDateStr === attDate;
-        });
+        const matchedParking = parkingByAttId.get(attendanceId) || parkingByVehicleDate.get(vKey) || [];
         const parkingFromCollection = matchedParking.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-        // Merge: use both (embedded toll amount + separately-tracked parking records)
         const existingFuel = Number(a.fuel?.amount) || 0;
         const totalFuel = fuelFromCollection > 0 ? fuelFromCollection : existingFuel;
 
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
-        // TRUST embedded attendance value if it was explicitly updated/populated
-        // If punchOut exists, the Attendance record should be the source of truth for its own parking
         const totalParking = (a.punchOut && a.punchOut.tollParkingAmount !== undefined) 
             ? a.punchOut.tollParkingAmount 
             : (parkingFromCollection > 0 ? parkingFromCollection : existingParking);
@@ -2002,6 +2032,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         }
     }
 
+    DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
     res.json(finalResponse);
 });
 
@@ -2108,6 +2139,68 @@ const rechargeFastag = asyncHandler(async (req, res) => {
         carNumber: vehicle.carNumber,
         newBalance: vehicle.fastagBalance
     });
+});
+
+// @desc    Update Fastag Recharge
+// @route   PUT /api/admin/vehicles/:id/fastag-recharge/:historyId
+// @access  Private/Admin
+const updateFastagRecharge = asyncHandler(async (req, res) => {
+    const { amount, method, remarks, date } = req.body;
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    const historyEntry = vehicle.fastagHistory.id(req.params.historyId);
+    if (!historyEntry) {
+        return res.status(404).json({ message: 'History entry not found' });
+    }
+
+    // Adjust balance: subtract old and add new
+    const oldAmount = Number(historyEntry.amount) || 0;
+    const newAmount = Number(amount);
+    
+    if (isNaN(newAmount) || newAmount <= 0) {
+        return res.status(400).json({ message: 'Invalid amount' });
+    }
+
+    vehicle.fastagBalance = (vehicle.fastagBalance || 0) - oldAmount + newAmount;
+    
+    // Update entry
+    historyEntry.amount = newAmount;
+    historyEntry.method = method || historyEntry.method;
+    historyEntry.remarks = remarks || historyEntry.remarks;
+    if (date) historyEntry.date = new Date(date);
+
+    await vehicle.save();
+    res.json({ message: 'Fastag entry updated', newBalance: vehicle.fastagBalance });
+});
+
+// @desc    Delete Fastag Recharge
+// @route   DELETE /api/admin/vehicles/:id/fastag-recharge/:historyId
+// @access  Private/Admin
+const deleteFastagRecharge = asyncHandler(async (req, res) => {
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    const historyEntry = vehicle.fastagHistory.id(req.params.historyId);
+    if (!historyEntry) {
+        return res.status(404).json({ message: 'History entry not found' });
+    }
+
+    // Adjust balance 
+    const entryAmount = Number(historyEntry.amount) || 0;
+    vehicle.fastagBalance = (vehicle.fastagBalance || 0) - entryAmount;
+
+    // Remove entry
+    vehicle.fastagHistory.pull(req.params.historyId);
+    
+    await vehicle.save();
+    res.json({ message: 'Fastag entry deleted', newBalance: vehicle.fastagBalance });
 });
 
 const logToFile = (msg) => {
@@ -2738,7 +2831,7 @@ const addMaintenanceRecord = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getMaintenanceRecords = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { month, year, startDate, endDate } = req.query;
+    const { month, year, startDate, endDate, type: requestType } = req.query;
 
     let query = {
         $or: [
@@ -2846,20 +2939,38 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
     });
 
     // Final filter for ALL sources (Admin Maintenance, Parking Car Service, Pending)
-    // We only want Wash and Puncture data in this endpoint for "Driver Services"
-    let combined = [...mainRecords, ...mappedParking, ...mappedPending].filter(r => {
-        const cat = String(r.category || '').toLowerCase();
-        const desc = String(r.description || '').toLowerCase();
-        const type = String(r.maintenanceType || '').toLowerCase();
-        
-        // Strict word matching for wash and puncture
-        const hasWash = cat.includes('wash') || desc.includes('wash') || type.includes('wash');
-        const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
-                           desc.includes('puncture') || desc.includes('puncher') ||
-                           type.includes('puncture') || type.includes('puncher');
-        
-        return hasWash || hasPuncture;
-    });
+    // If requestType is 'driver_services', we only want Wash and Puncture data
+    let combined = [...mainRecords, ...mappedParking, ...mappedPending];
+    
+    if (requestType === 'driver_services') {
+        combined = combined.filter(r => {
+            const cat = String(r.category || '').toLowerCase();
+            const desc = String(r.description || '').toLowerCase();
+            const typeValue = String(r.maintenanceType || '').toLowerCase();
+            
+            // Strict word matching for wash and puncture
+            const hasWash = cat.includes('wash') || desc.includes('wash') || typeValue.includes('wash');
+            const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
+                               desc.includes('puncture') || desc.includes('puncher') ||
+                               typeValue.includes('puncture') || typeValue.includes('puncher');
+            
+            return hasWash || hasPuncture;
+        });
+    } else {
+        // Exclude wash/puncture from the main maintenance view
+        combined = combined.filter(r => {
+            const cat = String(r.category || '').toLowerCase();
+            const desc = String(r.description || '').toLowerCase();
+            const typeValue = String(r.maintenanceType || '').toLowerCase();
+            
+            const hasWash = cat.includes('wash') || desc.includes('wash') || typeValue.includes('wash');
+            const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
+                               desc.includes('puncture') || desc.includes('puncher') ||
+                               typeValue.includes('puncture') || typeValue.includes('puncher');
+            
+            return !(hasWash || hasPuncture);
+        });
+    }
 
     combined.sort((a, b) => new Date(b.billDate) - new Date(a.billDate));
 
@@ -5117,6 +5228,77 @@ const addPendingExpenseFromAdmin = asyncHandler(async (req, res) => {
     res.status(201).json({ message: 'Expense added as pending for approval', attendance });
 });
 
+// @desc    Get light-weight live stats for Live Feed page
+// @route   GET /api/admin/live-feed/:companyId
+// @access  Private/Admin+Executive
+const getLiveFeed = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const { date } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(companyId)) {
+        res.status(400);
+        throw new Error('Invalid Company ID');
+    }
+
+    const todayISTString = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+    const targetDate = date || todayISTString;
+    const companyObjectId = new mongoose.Types.ObjectId(companyId);
+
+    const cacheKey = `livefeed_${companyId}_${targetDate}`;
+    if (DASHBOARD_CACHE.has(cacheKey)) {
+        const cached = DASHBOARD_CACHE.get(cacheKey);
+        if (Date.now() - cached.time < 30 * 1000) { // 30s cache for live feed is fast but mostly up to date
+            return res.json(cached.data);
+        }
+    }
+
+    // Use proper Date range for Fuel collection since it stores Date objects
+    const startDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+    const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
+
+    const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles] = await Promise.all([
+        Attendance.find({ company: companyObjectId, date: targetDate }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber model').lean(),
+        Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
+        Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
+        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage').lean(),
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean()
+    ]);
+
+    const mappedDrivers = liveDriversFeed.map(driver => {
+        const atts = attendanceToday.filter(a => a.driver?._id?.toString() === driver._id.toString());
+        let status = 'Absent';
+        if (atts.some(a => a.status === 'incomplete')) status = 'Present';
+        else if (atts.some(a => a.status === 'completed')) status = 'Completed';
+        return { ...driver, attendances: atts, status };
+    });
+
+    const liveVehiclesFeed = allVehicles.map(v => {
+        const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === v._id.toString());
+        const hasActive = vehicleAtts.some(a => a.status === 'incomplete');
+        
+        return {
+            ...v,
+            status: hasActive ? 'In Use' : 'Idle',
+            attendances: vehicleAtts // Pass full attendance array for the UI to render driver names
+        };
+    });
+
+    const finalResponse = {
+        date: targetDate,
+        totalVehicles,
+        countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
+        dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
+        liveDriversFeed: mappedDrivers,
+        liveVehiclesFeed,
+        dailyFuelEntries: fuelEntriesToday,
+        dutyHistoryThisMonth: attendanceToday, 
+        lastUpdated: new Date().toISOString()
+    };
+
+    DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
+    res.json(finalResponse);
+});
+
 module.exports = {
     createDriver,
     createVehicle,
@@ -5137,6 +5319,8 @@ module.exports = {
     addBorderTax,
     getBorderTaxEntries,
     rechargeFastag,
+    updateFastagRecharge,
+    deleteFastagRecharge,
     freelancerPunchIn,
     freelancerPunchOut,
     deleteBorderTax,
@@ -5182,8 +5366,10 @@ module.exports = {
     deleteAccidentLog,
     updateMaintenanceRecord,
     getPendingMaintenanceExpenses,
-    getVehicleMonthlyDetails,  // New export
+    getVehicleMonthlyDetails,
+    getLiveFeed,
     addBackdatedAttendance,
     deleteStaffAttendance,
-    addPendingExpenseFromAdmin
+    addPendingExpenseFromAdmin,
+    getLiveFeed
 };
