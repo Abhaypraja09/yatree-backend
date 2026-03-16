@@ -488,7 +488,7 @@ const addExpense = async (req, res) => {
 
             attendance.pendingExpenses.push({
                 type,
-                fuelType: (type === 'fuel' || type === 'other') ? (fuelsT[index] || (type === 'fuel' ? 'Diesel' : 'Other')) : null,
+                fuelType: (['fuel', 'other', 'wash', 'puncture', 'tissue', 'water'].includes(type)) ? (fuelsT[index] || (type === 'fuel' ? 'Diesel' : (type === 'wash' ? 'Wash' : (type === 'puncture' ? 'Puncture' : (type === 'tissue' ? 'Tissue' : (type === 'water' ? 'Water' : 'Other')))))) : null,
                 amount: Number(amountsArr[index]),
                 quantity: type === 'fuel' ? (Number(quantitiesArr[index]) || 0) : 0,
                 rate: type === 'fuel' ? (Number(ratesArr[index]) || 0) : 0,
@@ -580,44 +580,58 @@ const getDriverLedger = async (req, res) => {
         let totalEarned = 0;
         let workingDays = 0;
 
-        // Base Map for History (Use Map for easier updates by Date)
-        // Key: Date string (YYYY-MM-DD), Value: Ledger Entry Object
         const ledgerMap = new Map();
         const attendanceDatesUsedForParking = new Set();
 
         // 1. Process Attendance
         attendance.forEach(att => {
-            // Use parking from official external collection only
-            const dateKey = att.date; // already YYYY-MM-DD
+            const dateKey = att.date; // YYYY-MM-DD
             const wage = Number(att.dailyWage) || 0;
-            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0) + (Number(att.outsideTrip?.bonusAmount) || 0);
+            
+            let sameDayReturn = (Number(att.punchOut?.allowanceTA) || 0);
+            let nightStay = (Number(att.punchOut?.nightStayAmount) || 0);
+            let otherBonuses = 0;
+            
+            if (att.outsideTrip && att.outsideTrip.bonusAmount !== undefined && att.outsideTrip.bonusAmount > 0) {
+                // Total bonus is bonusAmount, extra is (bonusAmount - TA - Night)
+                otherBonuses = Math.max(0, Number(att.outsideTrip.bonusAmount) - sameDayReturn - nightStay);
+            }
+            const bonuses = sameDayReturn + nightStay + otherBonuses;
 
-            // Find matching external parking for this date
-            // Using surplusUsed logic to only add parking to the first shift of the day
+            // External Parking logic (only once per day)
             let finalParkingForDay = 0;
             if (!attendanceDatesUsedForParking.has(dateKey)) {
                 finalParkingForDay = parkingEntries
                     .filter(p => DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd') === dateKey)
                     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-
                 attendanceDatesUsedForParking.add(dateKey);
             }
 
-            totalEarned += (wage + bonuses + finalParkingForDay);
-            workingDays += 1;
-
             if (ledgerMap.has(dateKey)) {
                 const existing = ledgerMap.get(dateKey);
-                existing.dailyWage += wage;
-                existing.bonuses += bonuses;
-                existing.parking += finalParkingForDay;
+                // Aggregation: If multiple shifts, append vehicle, sum KM
+                if (att.vehicle?.carNumber && !existing.vehicle.includes(att.vehicle.carNumber)) {
+                    existing.vehicle += `, ${att.vehicle.carNumber}`;
+                }
                 existing.totalKM += (att.totalKM || 0);
+                
+                // Aggregation: Use MAX wage and MAX bonus for the day 
+                if (wage > existing.dailyWage) existing.dailyWage = wage;
+                if (sameDayReturn > (existing.sameDayReturn || 0)) existing.sameDayReturn = sameDayReturn;
+                if (nightStay > (existing.nightStay || 0)) existing.nightStay = nightStay;
+                if (otherBonuses > (existing.otherBonuses || 0)) existing.otherBonuses = otherBonuses;
+                if (bonuses > existing.bonuses) existing.bonuses = bonuses;
+                // Note: parking is already the daily total from external collection
             } else {
+                workingDays += 1;
                 ledgerMap.set(dateKey, {
                     _id: att._id,
                     date: att.date,
                     vehicle: att.vehicle?.carNumber || 'N/A',
                     dailyWage: wage,
+                    sameDayReturn: sameDayReturn,
+                    nightStay: nightStay,
+                    otherBonuses: otherBonuses,
                     bonuses: bonuses,
                     parking: finalParkingForDay,
                     totalKM: att.totalKM || 0,
@@ -627,14 +641,12 @@ const getDriverLedger = async (req, res) => {
             }
         });
 
-        // 2. Add Standalone parking entries (those that don't match any attendance date)
+        // 2. Add Standalone parking entries
         const attendanceDates = new Set(attendance.map(a => a.date));
         parkingEntries.forEach(p => {
             const pDateKey = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
             if (!attendanceDates.has(pDateKey)) {
                 const amount = Number(p.amount) || 0;
-                totalEarned += amount;
-
                 if (ledgerMap.has(pDateKey)) {
                     ledgerMap.get(pDateKey).parking += amount;
                 } else {
@@ -651,6 +663,12 @@ const getDriverLedger = async (req, res) => {
                     });
                 }
             }
+        });
+
+        // Final Calculation (Post-Aggregation)
+        totalEarned = 0;
+        ledgerMap.forEach(entry => {
+            totalEarned += (entry.dailyWage + entry.bonuses + entry.parking);
         });
 
         // Convert Map back to Array and Sort

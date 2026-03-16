@@ -424,9 +424,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     amount: 1,
                     isDriverService: {
                         $or: [
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } }
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } }
                         ]
                     }
                 }
@@ -501,8 +501,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     amount: 1,
                     isDriverService: {
                         $or: [
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$remark", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$notes", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning/ } }
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$remark", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
+                            { $regexMatch: { input: { $toLower: { $ifNull: ["$notes", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } }
                         ]
                     }
                 }
@@ -832,7 +832,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         if (att.driver) {
             const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
             const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Number(att.driver.salary) : 0) || 500;
-            const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0) + (Number(att.outsideTrip?.bonusAmount) || 0);
+            const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+            const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+            const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
             if (att.driver.isFreelancer === true || att.isFreelancer === true) {
                 if (!freelancerWorkedDriversMap.has(driverId)) freelancerWorkedDriversMap.set(driverId, wage + bonuses);
@@ -853,7 +855,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         if (!att.driver) return;
         const driverId = att.driver._id.toString();
         const key = `${driverId}_${att.date}`;
-        const bonuses = (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0) + (Number(att.outsideTrip?.bonusAmount) || 0);
+        const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+        const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+        const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
         if (att.driver.isFreelancer !== true && att.isFreelancer !== true) {
             const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
@@ -935,7 +939,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     // Add pending expenses from attendance to match Maintenance page logic
     let monthlyPendingMaint = 0;
     let monthlyPendingServices = 0;
-    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning/i;
+    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
 
     allAttendanceThisMonth.forEach(doc => {
         if (!doc.pendingExpenses) return;
@@ -1784,7 +1788,11 @@ const getDailyReports = asyncHandler(async (req, res) => {
     } else if (date) {
         parkingQueryForAttendance.date = { $gte: new Date(`${date}T00:00:00`), $lte: new Date(`${date}T23:59:59`) };
     }
-    const allParkingForAttendance = await Parking.find(parkingQueryForAttendance).lean();
+    const allParkingForAttendance = await Parking.find({
+        ...parkingQueryForAttendance,
+        // Exclude car services (wash/puncture) from the general parking total in Attendance records
+        serviceType: { $ne: 'car_service' }
+    }).lean();
 
     // OPTIMIZED: Use Maps for O(1) lookups instead of .filter in a loop
     const fuelByAttId = new Map();
@@ -1923,7 +1931,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('vehicle', 'carNumber')
         .sort({ date: -1 });
 
-    // 5. Fetch Maintenance Records
+    // 5. Fetch Maintenance Records (Exclude Driver Services like Wash/Puncture)
     const maintenanceQuery = {
         $or: [
             { company: new mongoose.Types.ObjectId(companyId) },
@@ -1933,9 +1941,21 @@ const getDailyReports = asyncHandler(async (req, res) => {
     if (startDate && endDate) {
         maintenanceQuery.billDate = { $gte: startDate, $lte: endDate };
     }
-    const maintenance = await Maintenance.find(maintenanceQuery)
+    
+    // Keyword-based exclusion for Maintenance
+    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
+    
+    let maintenance = await Maintenance.find(maintenanceQuery)
         .populate('vehicle', 'carNumber model')
         .sort({ billDate: -1 });
+        
+    // Apply strict filtering for Daily Reports to match Maintenance page
+    maintenance = maintenance.filter(m => {
+        const cat = String(m.category || '').toLowerCase();
+        const desc = String(m.description || '').toLowerCase();
+        const typeValue = String(m.maintenanceType || '').toLowerCase();
+        return !serviceRegex.test(cat) && !serviceRegex.test(desc) && !serviceRegex.test(typeValue);
+    });
 
     // 6. Fetch Advances
     const advancesQuery = {
@@ -1954,12 +1974,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('driver', 'name mobile')
         .sort({ date: -1 });
 
-    // 7. Fetch Parking Records
+    // 7. Fetch Parking Records (Exclude Car Services)
     const parkingQuery = {
         $or: [
             { company: new mongoose.Types.ObjectId(companyId) },
             { company: companyId }
-        ]
+        ],
+        // Only return regular parking (not car wash/puncture)
+        $or: [{ serviceType: 'parking' }, { serviceType: { $exists: false } }, { serviceType: null }]
     };
     if (startDate && endDate) {
         parkingQuery.date = { $gte: startDate, $lte: endDate };
@@ -2850,7 +2872,7 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             { company: new mongoose.Types.ObjectId(companyId) },
             { company: companyId }
         ],
-        'pendingExpenses.type': { $in: ['other', 'parking'] }
+        'pendingExpenses.type': { $in: ['other', 'parking', 'wash', 'puncture', 'tissue', 'water'] }
     };
 
     if (startDate && endDate) {
@@ -2912,21 +2934,24 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
     attendanceDocs.forEach(doc => {
         if (!doc.pendingExpenses) return;
         doc.pendingExpenses.forEach(exp => {
-            // Check if it's a wash or puncture based on the remark or if it's explicitly other/parking
             const remark = (exp.remark || '').toLowerCase();
-            const isWash = remark.includes('wash');
-            const isPuncture = remark.includes('puncture') || remark.includes('puncher');
+            const fuelTypeStr = (exp.fuelType || '').toLowerCase();
+            
+            const isWash = exp.type === 'wash' || fuelTypeStr.includes('wash') || remark.includes('wash');
+            const isPuncture = exp.type === 'puncture' || fuelTypeStr.includes('punc') || remark.includes('punc');
+            const isTissue = exp.type === 'tissue' || fuelTypeStr.includes('tissue') || remark.includes('tissue');
+            const isWater = exp.type === 'water' || fuelTypeStr.includes('water') || remark.includes('water');
 
             // Only show if not fully approved or deleted and it matches Driver Services criteria
-            if ((isWash || isPuncture) && exp.status !== 'approved' && exp.status !== 'deleted') {
+            if ((isWash || isPuncture || isTissue || isWater || exp.type === 'other') && exp.status !== 'approved' && exp.status !== 'deleted') {
                 mappedPending.push({
                     _id: exp._id,
                     attendanceId: doc._id,
                     vehicle: doc.vehicle,
                     driver: doc.driver,
                     maintenanceType: 'Car Service',
-                    category: isWash ? 'Car Wash' : 'Puncture Repair',
-                    description: `[UNAPPROVED] Driver Log: ${exp.remark || 'Manual Entry'}. KM: ${exp.km || 'N/A'}`,
+                    category: isWash ? 'Car Wash' : isPuncture ? 'Puncture Repair' : isTissue ? 'Tissue' : isWater ? 'Water' : (exp.fuelType || 'Other Service'),
+                    description: `[UNAPPROVED] Driver Log: ${exp.remark || exp.fuelType || 'Manual Entry'}. KM: ${exp.km || 'N/A'}`,
                     billDate: exp.createdAt || doc.date,
                     amount: exp.amount,
                     billPhoto: exp.slipPhoto,
@@ -2937,38 +2962,35 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             }
         });
     });
-
-    // Final filter for ALL sources (Admin Maintenance, Parking Car Service, Pending)
-    // If requestType is 'driver_services', we only want Wash and Puncture data
     let combined = [...mainRecords, ...mappedParking, ...mappedPending];
-    
+
     if (requestType === 'driver_services') {
         combined = combined.filter(r => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
-            const typeValue = String(r.maintenanceType || '').toLowerCase();
             
-            // Strict word matching for wash and puncture
-            const hasWash = cat.includes('wash') || desc.includes('wash') || typeValue.includes('wash');
-            const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
-                               desc.includes('puncture') || desc.includes('puncher') ||
-                               typeValue.includes('puncture') || typeValue.includes('puncher');
+            // Strictly check for Wash, Puncture, Tissue, Water
+            const isWash = cat.includes('wash') || desc.includes('wash');
+            const isPuncture = cat.includes('punc') || desc.includes('punc');
+            const isTissue = cat.includes('tissue') || desc.includes('tissue');
+            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) || 
+                           (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
             
-            return hasWash || hasPuncture;
+            return isWash || isPuncture || isTissue || isWater;
         });
     } else {
-        // Exclude wash/puncture from the main maintenance view
+        // Exclude driver services from the main maintenance view
         combined = combined.filter(r => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
-            const typeValue = String(r.maintenanceType || '').toLowerCase();
             
-            const hasWash = cat.includes('wash') || desc.includes('wash') || typeValue.includes('wash');
-            const hasPuncture = cat.includes('puncture') || cat.includes('puncher') || 
-                               desc.includes('puncture') || desc.includes('puncher') ||
-                               typeValue.includes('puncture') || typeValue.includes('puncher');
+            const isWash = cat.includes('wash') || desc.includes('wash');
+            const isPuncture = cat.includes('punc') || desc.includes('punc');
+            const isTissue = cat.includes('tissue') || desc.includes('tissue');
+            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('pump')) || 
+                           (desc.includes('water') && !desc.includes('repair') && !desc.includes('pump'));
             
-            return !(hasWash || hasPuncture);
+            return !(isWash || isPuncture || isTissue || isWater);
         });
     }
 
@@ -3042,13 +3064,31 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
 // @route   DELETE /api/admin/maintenance/:id
 // @access  Private/Admin
 const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
-    const record = await Maintenance.findById(req.params.id);
+    const { id } = req.params;
+
+    // 1. Try Maintenance Collection
+    const record = await Maintenance.findById(id);
     if (record) {
         await record.deleteOne();
-        res.json({ message: 'Record removed' });
-    } else {
-        res.status(404).json({ message: 'Record not found' });
+        return res.json({ message: 'Maintenance record removed' });
     }
+
+    // 2. Try Parking Collection
+    const parkingRecord = await Parking.findById(id);
+    if (parkingRecord) {
+        await parkingRecord.deleteOne();
+        return res.json({ message: 'Parking record removed' });
+    }
+
+    // 3. Try Attendance Pending Expenses
+    const attendanceDoc = await Attendance.findOne({ 'pendingExpenses._id': id });
+    if (attendanceDoc) {
+        attendanceDoc.pendingExpenses = attendanceDoc.pendingExpenses.filter(e => e._id.toString() !== id);
+        await attendanceDoc.save();
+        return res.json({ message: 'Pending expense removed from attendance' });
+    }
+
+    res.status(404).json({ message: 'Record not found in any collection' });
 });
 
 // Helper to recalculate fuel metrics using the "Previous Fill" logic
@@ -3127,6 +3167,31 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         slipPhoto,
         createdBy: req.user._id
     });
+
+    // Try to link to Attendance to prevent duplication in Reports
+    try {
+        const searchDate = DateTime.fromJSDate(new Date(date || new Date())).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+        const attendance = await Attendance.findOne({ vehicle: vehicleId, date: searchDate });
+        if (attendance) {
+            fuelEntry.attendance = attendance._id;
+            await fuelEntry.save();
+
+            // Sync Attendance Fuel Summary
+            if (!attendance.fuel) attendance.fuel = { filled: false, entries: [], amount: 0 };
+            const existsInAtt = attendance.fuel.entries.some(e => e.amount === Number(amount) && e.km === Number(odometer));
+            if (!existsInAtt) {
+                attendance.fuel.filled = true;
+                attendance.fuel.entries.push({
+                    amount: Number(amount),
+                    km: Number(odometer),
+                    fuelType: fuelType,
+                    paymentSource: paymentSource || 'Yatree Office'
+                });
+                attendance.fuel.amount = (attendance.fuel.amount || 0) + Number(amount);
+                await attendance.save();
+            }
+        }
+    } catch (e) { console.error('Link Error:', e); }
 
     // Recalculate chain to ensure perfect mileage
     await recalculateFuelMetrics(vehicleId);
@@ -3450,24 +3515,42 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
 
             console.log(`[approveRejectExpense] Creating fuel entry: vehicleId=${vehicleId}, amount=${finalAmount}, qty=${finalQuantity}, rate=${finalRate}, odometer=${finalOdometer}, paymentSource=${finalPaymentSource}`);
 
-            // 1. Add to Fuel Collection
-            await Fuel.create({
+            // Dedup check: If admin already entered this fuel manually via Reports or Fuel page
+            const existingFuel = await Fuel.findOne({
                 vehicle: vehicleId,
-                company: attendance.company,
-                fuelType: expense.fuelType || 'Diesel',
-                date: expense.createdAt || new Date(),
                 amount: finalAmount,
-                quantity: finalQuantity,
-                rate: finalRate,
-                odometer: finalOdometer,
-                paymentSource: finalPaymentSource,
-                driver: driverName,
-                createdBy: req.user._id,
-                source: 'Driver',
-                stationName: req.body.stationName || '',
-                slipPhoto: finalSlipPhoto,
-                attendance: attendanceId
+                $or: [
+                    { attendance: attendanceId },
+                    { odometer: finalOdometer }
+                ]
             });
+
+            if (existingFuel) {
+                console.log(`[approveRejectExpense] Fuel record already exists (Deduplicated): ${existingFuel._id}`);
+                if (!existingFuel.attendance) {
+                    existingFuel.attendance = attendanceId;
+                    await existingFuel.save();
+                }
+            } else {
+                // 1. Add to Fuel Collection
+                await Fuel.create({
+                    vehicle: vehicleId,
+                    company: attendance.company,
+                    fuelType: expense.fuelType || 'Diesel',
+                    date: expense.createdAt || new Date(),
+                    amount: finalAmount,
+                    quantity: finalQuantity,
+                    rate: finalRate,
+                    odometer: finalOdometer,
+                    paymentSource: finalPaymentSource,
+                    driver: driverName,
+                    createdBy: req.user._id,
+                    source: 'Driver',
+                    stationName: req.body.stationName || '',
+                    slipPhoto: finalSlipPhoto,
+                    attendance: attendanceId
+                });
+            }
 
             // Recalculate chain to ensure perfect mileage
             await recalculateFuelMetrics(vehicleId);
@@ -3504,7 +3587,7 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
                 createdBy: req.user._id
             });
 
-        } else if (expense.type === 'other') {
+        } else if (['other', 'wash', 'puncture', 'tissue', 'water'].includes(expense.type)) {
             // Car Wash, Puncture, or other services
             const { amount, slipPhoto } = req.body;
             const finalAmount = Number(amount || expense.amount || 0);
@@ -3777,9 +3860,10 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                     wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 500;
                     datesProcessed.add(dateStr);
                 }
-                const bonuses = (Number(att.punchOut?.allowanceTA) || 0) +
-                    (Number(att.punchOut?.nightStayAmount) || 0) +
-                    (Number(att.outsideTrip?.bonusAmount) || 0);
+                const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+                const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+                // bonusAmount often includes the above, so we take the max to avoid doubling
+                const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
                 if (!dailyAggs.has(dateStr)) {
                     dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0 });
@@ -4915,7 +4999,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             driver: driverId,
             status: 'completed',
             date: { $gte: startStr, $lte: endStr }
-        }).sort({ date: 1 });
+        }).populate('vehicle', 'carNumber').sort({ date: 1 });
 
         const driver = await User.findById(driverId).select('name mobile dailyWage');
         if (!driver) {
@@ -4967,7 +5051,8 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             // Fetch bonuses for data completeness but exclude from 'total' if requested
             const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
             const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-            const otherBonuses = Number(att.outsideTrip?.bonusAmount) || 0;
+            // bonusAmount in driverController is (allowanceTA + nightStay), so we subtract them to get "extra"
+            const otherBonuses = Math.max(0, (Number(att.outsideTrip?.bonusAmount) || 0) - sameDayReturn - nightStay);
 
             // Use parking from official Parking collection only
             const totalExternalForDay = externalByDay.get(att.date) || 0;
@@ -4988,7 +5073,9 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 otherBonuses,
                 parking: finalParkingCell,
                 total: wage + finalParkingCell + sameDayReturn + nightStay + otherBonuses, // Include all bonuses in total
-                vehicleId: att.vehicle,
+                vehicleId: att.vehicle?._id || att.vehicle,
+                vehicleNumber: att.vehicle?.carNumber || 'N/A',
+                totalKM: att.totalKM || 0,
                 remarks: isManualEntry ? '' : (att.punchOut?.remarks || '')
             };
         });
@@ -5086,13 +5173,26 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
 
         // Separate Maintenance records: General Maintenance vs Service Hub (Wash/Punc)
         const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
+        const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
         
-        // General Maintenance (Repairs, Parts, etc. - NOT Car Service type)
-        const vGeneralMaint = vMaintAll.filter(m => m.maintenanceType !== 'Car Service');
+        // General Maintenance (Repairs, Parts, etc. - NOT Car Service type and NO service keywords)
+        const vGeneralMaint = vMaintAll.filter(m => {
+            if (m.maintenanceType === 'Car Service') return false;
+            const cat = String(m.category || '').toLowerCase();
+            const desc = String(m.description || '').toLowerCase();
+            const typeValue = String(m.maintenanceType || '').toLowerCase();
+            return !serviceRegex.test(cat) && !serviceRegex.test(desc) && !serviceRegex.test(typeValue);
+        });
         const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
-        // Service Hub records from Maintenance (Type: 'Car Service')
-        const vMaintServices = vMaintAll.filter(m => m.maintenanceType === 'Car Service');
+        // Service Hub records from Maintenance (Type: 'Car Service' OR contains service keywords)
+        const vMaintServices = vMaintAll.filter(m => {
+            if (m.maintenanceType === 'Car Service') return true;
+            const cat = String(m.category || '').toLowerCase();
+            const desc = String(m.description || '').toLowerCase();
+            const typeValue = String(m.maintenanceType || '').toLowerCase();
+            return serviceRegex.test(cat) || serviceRegex.test(desc) || serviceRegex.test(typeValue);
+        });
         
         // Service Hub records from Parking (serviceType: 'car_service')
         const vParkingServices = parkingData.filter(p => p.vehicle?.toString() === vId);
