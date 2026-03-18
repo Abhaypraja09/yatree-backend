@@ -1778,18 +1778,13 @@ const getDailyReports = asyncHandler(async (req, res) => {
         endDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
     }
 
-    // Include both date-filtered and all incomplete records
     const query = {
         $and: [
             baseQuery,
-            {
-                $or: [
-                    dateQuery,
-                    { status: 'incomplete' }
-                ]
-            }
+            Object.keys(dateQuery).length > 0 ? dateQuery : {}
         ]
     };
+
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendance = await Attendance.find(query)
