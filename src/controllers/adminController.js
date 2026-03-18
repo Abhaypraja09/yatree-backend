@@ -307,6 +307,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     const isTodaySelected = targetDate === todayIST;
 
+    const yStart = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('year').toJSDate();
+    const yEnd = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).endOf('year').toJSDate();
+
     // Run independent heavy queries concurrently with optimization (.lean & selective projection)
     const [
         totalVehicles,
@@ -337,7 +340,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         allDrivers,
         allVehicles,
         fuelEntriesToday,
-        dailyFastagData
+        dailyFastagData,
+        yearlyAccidentData
     ] = await Promise.all([
         Vehicle.countDocuments({
             company: companyObjectId,
@@ -578,6 +582,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 }
             },
             { $group: { _id: null, total: { $sum: '$fastagHistory.amount' } } }
+        ]),
+        AccidentLog.aggregate([
+            {
+                $match: {
+                    company: companyObjectId,
+                    date: { $gte: yStart, $lte: yEnd }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
         ])
     ]);
 
@@ -1007,6 +1020,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const monthlyParkingAmount = monthlyParkingActual;
     const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
     const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
+    const yearlyAccidentAmount = yearlyAccidentData[0]?.total || 0;
     const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
 
     const finalResponse = {
@@ -1015,7 +1029,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
         pendingApprovalsCount, totalFastagBalance, monthlyFastagTotal, dailyFastagTotal, totalAdvancePending: monthlyRegularAdvanceTotal,
         monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
-        monthlyBorderTaxAmount, monthlyAccidentAmount, totalWarrantyCost,
+        monthlyBorderTaxAmount, monthlyAccidentAmount, yearlyAccidentAmount, totalWarrantyCost,
         totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost + monthlyDriverServicesAmount,
         totalStaff, countStaffPresent: staffAttendanceToday.length,
         staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,

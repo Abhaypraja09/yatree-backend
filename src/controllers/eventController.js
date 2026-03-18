@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 // @route   POST /api/admin/events
 // @access  Private/Admin
 const createEvent = asyncHandler(async (req, res) => {
-    const { name, companyId, client, date, location, description } = req.body;
+    const { name, companyId, client, date, location, description, totalRevenue, advanceAmount, amountReceived, status } = req.body;
 
     if (!name || !companyId || !date) {
         return res.status(400).json({ message: 'Please provide name, companyId and date' });
@@ -19,7 +19,11 @@ const createEvent = asyncHandler(async (req, res) => {
         client,
         date: new Date(date),
         location,
-        description
+        description,
+        totalRevenue: Number(totalRevenue) || 0,
+        amountReceived: Number(amountReceived) || 0,
+        advanceAmount: Number(advanceAmount) || 0,
+        status: status || 'Upcoming'
     });
 
     await event.save();
@@ -31,7 +35,7 @@ const createEvent = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getEvents = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { from, to } = req.query;
+    const { from, to, status } = req.query;
 
     const companyObjectId = new mongoose.Types.ObjectId(companyId);
 
@@ -44,24 +48,61 @@ const getEvents = asyncHandler(async (req, res) => {
             $lte: toDate
         };
     }
+    
+    if (status && status !== 'All') {
+        matchQuery.status = status;
+    }
 
+    // Advanced aggregation to count fleet (Attendance + Manual Fleet) vs external (Market) cars
     const events = await Event.aggregate([
         { $match: matchQuery },
+        // Lookup Manual Vehicle Records (Both Fleet and External source)
         {
             $lookup: {
                 from: 'vehicles',
                 localField: '_id',
                 foreignField: 'eventId',
-                as: 'records'
+                as: 'manualRecords'
+            }
+        },
+        // Lookup Fleet Cars (Attendance)
+        {
+            $lookup: {
+                from: 'attendances',
+                localField: '_id',
+                foreignField: 'eventId',
+                as: 'attendanceRecords'
             }
         },
         {
             $addFields: {
-                totalAmount: { $sum: '$records.dutyAmount' },
-                recordCount: { $size: '$records' }
+                // External is ONLY manual records with source 'External'
+                externalRecords: {
+                    $filter: {
+                        input: '$manualRecords',
+                        as: 'v',
+                        cond: { $ne: [ '$$v.vehicleSource', 'Fleet' ] }
+                    }
+                },
+                // Fleet is Attendance + manual records with source 'Fleet'
+                fleetManualRecords: {
+                    $filter: {
+                        input: '$manualRecords',
+                        as: 'v',
+                        cond: { $eq: [ '$$v.vehicleSource', 'Fleet' ] }
+                    }
+                }
             }
         },
-        { $project: { records: 0 } },
+        {
+            $addFields: {
+                externalCount: { $size: '$externalRecords' },
+                fleetCount: { $add: [ { $size: '$attendanceRecords' }, { $size: '$fleetManualRecords' } ] },
+                // Expense is strictly what we pay to external/market cars
+                totalExpense: { $sum: '$externalRecords.dutyAmount' }
+            }
+        },
+        { $project: { manualRecords: 0, attendanceRecords: 0, externalRecords: 0, fleetManualRecords: 0 } },
         { $sort: { date: -1 } }
     ]);
 
@@ -73,23 +114,49 @@ const getEvents = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getEventDetails = asyncHandler(async (req, res) => {
     const { eventId } = req.params;
+    const { from, to } = req.query; // Optional time range for duties
 
     const event = await Event.findById(eventId);
     if (!event) {
         return res.status(404).json({ message: 'Event not found' });
     }
 
-    // Find all "records" (Vehicles where isOutsideCar is true and eventId matches)
-    const records = await Vehicle.find({ eventId, isOutsideCar: true }).sort({ createdAt: -1 });
+    // 1. Manual Records from Vehicles table
+    let vehicleQuery = { eventId };
+    if (from && to) {
+        vehicleQuery.createdAt = { $gte: new Date(from), $lte: new Date(to) };
+    }
+    const allManualDuties = await Vehicle.find(vehicleQuery).sort({ createdAt: -1 });
 
-    const totalAmount = records.reduce((sum, r) => sum + (r.dutyAmount || 0), 0);
+    // Separate based on vehicleSource
+    const externalDuties = allManualDuties.filter(d => d.vehicleSource !== 'Fleet');
+    const manualFleetDuties = allManualDuties.filter(d => d.vehicleSource === 'Fleet');
+
+    // 2. Real Fleet Duties (Attendance table)
+    const Attendance = require('../models/Attendance');
+    let fleetQuery = { eventId };
+    if (from && to) {
+        fleetQuery.date = { $gte: from, $lte: to };
+    }
+    const realAttendanceDuties = await Attendance.find(fleetQuery).populate('vehicle').populate('driver').sort({ date: -1 });
+
+    // Combine manual fleet and real attendance
+    const combinedFleetDuties = [
+        ...realAttendanceDuties.map(d => ({ ...d.toObject(), isAttendance: true })),
+        ...manualFleetDuties.map(d => ({ ...d.toObject(), isAttendance: false }))
+    ].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+
+    const totalExpense = externalDuties.reduce((sum, r) => sum + (r.dutyAmount || 0), 0);
 
     res.json({
         event: {
             ...event.toObject(),
-            totalAmount // Dynamic calculate
+            totalExpense,
+            fleetCount: combinedFleetDuties.length,
+            externalCount: externalDuties.length
         },
-        records
+        externalDuties,
+        fleetDuties: combinedFleetDuties
     });
 });
 
@@ -106,6 +173,11 @@ const updateEvent = asyncHandler(async (req, res) => {
         event.location = req.body.location || event.location;
         event.description = req.body.description || event.description;
         event.status = req.body.status || event.status;
+        
+        // New financial fields
+        if (req.body.totalRevenue !== undefined) event.totalRevenue = Number(req.body.totalRevenue);
+        if (req.body.amountReceived !== undefined) event.amountReceived = Number(req.body.amountReceived);
+        if (req.body.advanceAmount !== undefined) event.advanceAmount = Number(req.body.advanceAmount);
 
         const updatedEvent = await event.save();
         res.json(updatedEvent);
@@ -121,11 +193,13 @@ const deleteEvent = asyncHandler(async (req, res) => {
     const event = await Event.findById(req.params.id);
 
     if (event) {
-        // Also remove eventId from linked vehicles? 
-        // Or delete the linked vehicles if they are strictly "event records"?
-        // The user said "jitni bhi car lete hu muje usme iski report... aa jye"
-        // Let's delete the records too if they are outside cars created specifically for this event.
+        // Only delete the "OutsideCar" vehicles created for this event
         await Vehicle.deleteMany({ eventId: event._id, isOutsideCar: true });
+        
+        // Remove eventId from Fleet Attendance instead of deleting attendance
+        const Attendance = require('../models/Attendance');
+        await Attendance.updateMany({ eventId: event._id }, { $unset: { eventId: "" } });
+        
         await event.deleteOne();
         res.json({ message: 'Event and associated records deleted' });
     } else {

@@ -26,11 +26,23 @@ const eventSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['Active', 'Completed'],
-        default: 'Active'
+        enum: ['Upcoming', 'Running', 'Closed'],
+        default: 'Upcoming'
     },
-    // We will link duties (Vehicles where isOutsideCar: true) to this event
-    totalAmount: {
+    // Financial Tracking
+    totalRevenue: {
+        type: Number,
+        default: 0
+    },
+    amountReceived: {
+        type: Number,
+        default: 0
+    },
+    advanceAmount: {
+        type: Number,
+        default: 0
+    },
+    totalExpense: { // What we pay to external cars / drivers
         type: Number,
         default: 0
     }
