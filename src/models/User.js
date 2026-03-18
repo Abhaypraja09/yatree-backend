@@ -132,6 +132,7 @@ const userSchema = new mongoose.Schema({
         driversService: { type: Boolean, default: false },
         buySell: { type: Boolean, default: false },
         vehiclesManagement: { type: Boolean, default: false },
+        fleetOperations: { type: Boolean, default: false },
         reports: { type: Boolean, default: true }
     }
 }, {

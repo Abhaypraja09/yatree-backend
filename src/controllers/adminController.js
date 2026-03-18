@@ -14,6 +14,7 @@ const StaffAttendance = require('../models/StaffAttendance');
 const AccidentLog = require('../models/AccidentLog');
 const PartsWarranty = require('../models/PartsWarranty');
 const LeaveRequest = require('../models/LeaveRequest');
+const Event = require('../models/Event');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -47,14 +48,14 @@ const createDriver = async (req, res, next) => {
         } else {
             // Company drivers must not share a mobile/username with other company drivers, staff, executives, or admins.
             // They CAN share with a Freelancer.
-             userExists = await User.findOne({
+            userExists = await User.findOne({
                 $or: [
                     { mobile, isFreelancer: { $ne: true } },
                     ...(username ? [{ username }] : [])
                 ]
             });
         }
-        
+
         if (userExists) {
             const field = userExists.mobile === mobile ? 'mobile number' : 'username';
             const roleStr = userExists.role + (userExists.isFreelancer ? ' (Freelancer)' : '');
@@ -279,7 +280,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     // Monthly mode: use month/year params. Range mode: use from/to. Single mode: use date param.
     const isMonthlyMode = !!(qMonth && qYear);
     const isRangeMode = !!(from && to) && !isMonthlyMode;
-    
+
     const targetDate = isRangeMode ? to : (date || todayIST); // reference day = end of range or selected date
     const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
     const alertThreshold = baseDate.plus({ days: 30 });
@@ -297,7 +298,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         monthStart = baseDate.startOf('month').toJSDate();
         monthEnd = baseDate.endOf('month').toJSDate();
     }
-    const monthStartStr = isMonthlyMode 
+    const monthStartStr = isMonthlyMode
         ? DateTime.fromJSDate(monthStart).toFormat('yyyy-MM-dd')
         : (isRangeMode ? from : baseDate.startOf('month').toFormat('yyyy-MM-dd'));
     const monthEndStr = isMonthlyMode
@@ -332,6 +333,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         monthlyAccidentData, // Monthly accident cost
         totalWarrantyData, // Total warranty cost
         outsideCarsThisMonth, // Outside cars for the entire month
+        eventsThisMonth,
         allDrivers,
         allVehicles,
         fuelEntriesToday,
@@ -439,17 +441,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             }
         ]),
         Maintenance.find({
-            $and: [
-                { company: companyObjectId },
-                {
-                    $or: [
-                        { nextServiceDate: { $lte: alertThreshold.toJSDate(), $gte: baseDate.minus({ days: 30 }).toJSDate() } },
-                        { nextServiceKm: { $gt: 0 } }
-                    ]
-                }
-            ],
+            company: companyObjectId,
             status: 'Completed'
-        }).populate('vehicle', 'carNumber lastOdometer').sort({ createdAt: -1 }).lean(),
+        }).populate('vehicle', 'carNumber lastOdometer').sort({ billDate: -1, createdAt: -1 }).lean(),
         User.countDocuments({ company: companyObjectId, role: 'Staff' }),
         StaffAttendance.find({
             company: companyObjectId,
@@ -560,8 +554,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         ]),
         Vehicle.find({
             company: companyObjectId,
-            isOutsideCar: true,
-            createdAt: { $gte: monthStart, $lte: monthEnd }
+            isOutsideCar: true
+        }).sort({ createdAt: -1 }).limit(5000).lean(),
+        Event.find({
+            company: companyObjectId,
+            date: { $gte: monthStart, $lte: monthEnd }
         }).lean(),
         User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
         Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean(),
@@ -583,6 +580,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             { $group: { _id: null, total: { $sum: '$fastagHistory.amount' } } }
         ])
     ]);
+
+
 
     // OPTIMIZATION: Create Maps for O(1) lookups instead of .filter in loops
     const attendanceByDriverMap = new Map();
@@ -774,40 +773,46 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     upcomingServices.forEach(s => {
         if (!s.vehicle) return;
 
-        const category = s.category || s.maintenanceType || 'General';
-        const alertKey = `${s.vehicle._id.toString()}_${category}`;
+        const types = (s.maintenanceType || 'General').split(', ').map(t => t.trim()).filter(Boolean);
+        let isLatestForAnyType = false;
 
-        // Skip if we already processed a more recent record for this vehicle and category
-        if (maintenanceAlertsSet.has(alertKey)) return;
-        maintenanceAlertsSet.add(alertKey);
+        types.forEach(t => {
+            const trackerKey = `${s.vehicle._id.toString()}_${t}`;
+            if (!maintenanceAlertsSet.has(trackerKey)) {
+                maintenanceAlertsSet.add(trackerKey);
+                isLatestForAnyType = true;
+            }
+        });
+
+        // Skip if this record isn't the latest for any of its categories
+        if (!isLatestForAnyType) return;
+
+        const category = s.category || s.maintenanceType || 'General';
 
         if (s.nextServiceDate) {
             const serviceDate = DateTime.fromJSDate(s.nextServiceDate).setZone('Asia/Kolkata').startOf('day');
             const diffDays = Math.ceil(serviceDate.diff(baseDate, 'days').days);
-            // Ignore if impossibly old (more than 1 year overdue)
-                if (diffDays <= 30 && diffDays > -365) {
-                    const isOverdue = diffDays < 0;
-                    expiringAlerts.push({
-                        type: 'Service',
-                        identifier: s.vehicle.carNumber || 'N/A',
-                        documentType: `${category} Service`,
-                        expiryDate: s.nextServiceDate,
-                        daysLeft: diffDays,
-                        status: isOverdue ? 'Overdue' : 'Due Soon'
-                    });
-                }
+            if (diffDays <= 30 && diffDays > -365) {
+                const isOverdue = diffDays < 0;
+                expiringAlerts.push({
+                    type: 'Service',
+                    identifier: s.vehicle.carNumber || 'N/A',
+                    documentType: `${category.split(',')[0]} Service`,
+                    expiryDate: s.nextServiceDate,
+                    daysLeft: diffDays,
+                    status: isOverdue ? 'Overdue' : 'Due Soon'
+                });
+            }
         }
 
         if (s.nextServiceKm && s.nextServiceKm > 0) {
             const currentKm = s.vehicle.lastOdometer || 0;
             const kmRemaining = s.nextServiceKm - currentKm;
 
-            // Only alert if within threshold, and ignore if impossibly overdue (more than 50,000 KM)
-            // Stale alerts like 17 lakh KM overdue indicate data entry errors.
             if (kmRemaining <= 500 && kmRemaining > -50000) {
                 const isOverdue = kmRemaining <= 0;
-                const taskLabel = (category || 'Maintenance').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-                
+                const taskLabel = (category.split(',')[0] || 'Maintenance').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
                 expiringAlerts.push({
                     type: 'Service',
                     identifier: s.vehicle.carNumber,
@@ -844,8 +849,26 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }
     });
 
-    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0) +
-        outsideCarsToday.reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
+
+    const dailyOutsideCarsTotal = outsideCarsThisMonth
+        .filter(v => {
+            const dutyDate = v.carNumber?.split('#')[1];
+            // Mirror OutsideCars.jsx: (v.transactionType || 'Buy') === 'Buy'
+            const isPayout = (v.transactionType || 'Buy') === 'Buy';
+            const isEvent = v.eventId;
+            return dutyDate === targetDate && !isEvent && isPayout;
+        })
+        .reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
+
+    const dailyEventTotal = outsideCarsThisMonth
+        .filter(v => {
+            const dutyDate = v.carNumber?.split('#')[1];
+            // Mirror EventManagement.jsx: Sum dutyAmount for anything with eventId
+            return dutyDate === targetDate && v.eventId;
+        })
+        .reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
+
+    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
     const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
 
     const monthlyWorkedDrivers = new Map();
@@ -868,7 +891,32 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         }
     });
 
-    const outsideCarsMonthlyTotal = outsideCarsThisMonth.reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
+    // Extract month and year from qMonth/qYear or baseDate
+    const targetMonthStr = isMonthlyMode ? qMonth.padStart(2, '0') : baseDate.toFormat('MM');
+    const targetYearStr = isMonthlyMode ? qYear : baseDate.toFormat('yyyy');
+    const monthPrefix = `${targetYearStr}-${targetMonthStr}`;
+
+
+    const outsideCarsMonthlyTotal = outsideCarsThisMonth
+        .filter(v => {
+            const dutyDate = v.carNumber?.split('#')[1];
+            const matchesMonth = dutyDate?.startsWith(monthPrefix);
+            // Mirror OutsideCars.jsx: (v.transactionType || 'Buy') === 'Buy'
+            const isPayout = (v.transactionType || 'Buy') === 'Buy';
+            const isEvent = v.eventId;
+            return matchesMonth && !isEvent && isPayout;
+        })
+        .reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
+
+    // Event Management (M) Box: Should match the "Total Revenue" on Event Management page
+    // Sums all external duties (isOutsideCar) assigned to events as seen in Revenue box
+    const monthlyEventTotal = outsideCarsThisMonth
+        .filter(v => {
+            const dutyDate = v.carNumber?.split('#')[1];
+            const matchesMonth = dutyDate?.startsWith(monthPrefix);
+            return matchesMonth && v.eventId;
+        })
+        .reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
 
     // NEW LOGIC: Calculate monthlyRegularSalaryTotal using the exact same logic as Driver Salaries page
     const baseMonth = isMonthlyMode ? parseInt(qMonth) : baseDate.month;
@@ -883,7 +931,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     } catch (err) {
         console.error('Failed to get exact salary summaries for Dashboard', err);
     }
-    
+
     const monthlyRegularSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalEarned || 0), 0);
     const monthlyRegularAdvanceTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalAdvances || 0), 0);
     const monthlyNetSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.netPayable || 0), 0);
@@ -913,7 +961,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const totalAdvancePending = advanceData[0]?.total || 0;
     const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
     const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
-    
+
     // Split Maintenance into General and Services
     let monthlyMaintenanceGeneral = 0;
     let monthlyDriverServicesAmount = 0;
@@ -926,7 +974,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     let monthlyParkingActual = 0;
     let monthlyParkingCarServiceMaint = 0;
     let monthlyParkingCarServiceDriver = 0;
-    
+
     monthlyParkingData.forEach(p => {
         if (p._id.type === 'car_service') {
             if (p._id.isService) monthlyParkingCarServiceDriver += p.total;
@@ -978,6 +1026,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         dailySalaryTotal, dailyNightStayCount: attendanceToday.filter(att => Number(att.punchOut?.nightStayAmount) > 0).length,
         dailyFreelancerSalaryTotal, monthlySalaryTotal, monthlyRegularSalaryTotal, monthlyRegularAdvanceTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
         monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
+        dailyOutsideCarsTotal,
+        monthlyEventTotal,
         ...(() => {
             let total = 0;
             let entities = new Set();
@@ -1042,7 +1092,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
     if (req.user && req.user.role === 'Executive') {
         const p = req.user.permissions || {};
-        
+
         // Remove Drivers Service data
         if (!p.driversService) {
             finalResponse.totalDrivers = 0;
@@ -1088,9 +1138,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             finalResponse.dailyFuelEntries = [];
             finalResponse.liveVehiclesFeed = [];
         }
-        
+
         // Recalculate totalExpenseAmount
-        finalResponse.totalExpenseAmount = 
+        finalResponse.totalExpenseAmount =
             (p.vehiclesManagement ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost + finalResponse.monthlyDriverServicesAmount) : 0);
     }
 
@@ -1380,6 +1430,8 @@ const updateDriver = asyncHandler(async (req, res) => {
         });
 
         const updatedDriver = await driver.save();
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
         res.json({
             _id: updatedDriver._id,
             name: updatedDriver.name,
@@ -1481,6 +1533,9 @@ const updateVehicle = asyncHandler(async (req, res) => {
         { new: true, runValidators: false }
     ).populate('currentDriver', 'name mobile');
 
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
     res.json(updatedVehicle);
 });
 
@@ -1497,6 +1552,8 @@ const deleteDriver = asyncHandler(async (req, res) => {
             await Vehicle.findByIdAndUpdate(driver.assignedVehicle, { currentDriver: null });
         }
         await User.deleteOne({ _id: driver._id });
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
         res.json({ message: 'Driver removed successfully' });
     } else {
         res.status(404).json({ message: 'Driver not found' });
@@ -1529,6 +1586,9 @@ const deleteAttendance = asyncHandler(async (req, res) => {
             await syncVehicleOdometer(vehicleId);
         }
 
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
+
         res.json({ message: 'Attendance record deleted successfully' });
     } else {
         res.status(404).json({ message: 'Attendance record not found' });
@@ -1555,6 +1615,8 @@ const deleteVehicle = asyncHandler(async (req, res) => {
             await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null });
         }
         await Vehicle.deleteOne({ _id: vehicle._id });
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
         res.json({ message: 'Vehicle removed successfully' });
     } else {
         res.status(404).json({ message: 'Vehicle not found' });
@@ -1673,33 +1735,47 @@ const verifyDriverDocument = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getDailyReports = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date, from, to, bypassCache } = req.query; // format: YYYY-MM-DD
+    const { date, from, to, bypassCache, _t } = req.query; // format: YYYY-MM-DD
 
-    const cacheKey = `reports_${companyId}_${from || ''}_${to || ''}_${date || ''}`;
-    if (!bypassCache && DASHBOARD_CACHE.has(cacheKey)) {
+    const cacheKey = `reports_${companyId}_${from || ''}_${to || ''}_${date || ''}_${_t || ''}`;
+    if (!bypassCache && !_t && DASHBOARD_CACHE.has(cacheKey)) {
         const cached = DASHBOARD_CACHE.get(cacheKey);
         if (Date.now() - cached.time < CACHE_TTL) {
             return res.json(cached.data);
         }
     }
 
-    const query = {
+    const baseQuery = {
         $or: [
             { company: new mongoose.Types.ObjectId(companyId) },
             { company: companyId }
         ]
     };
-    let startDate, endDate;
 
+    let startDate, endDate;
+    let dateQuery = {};
     if (from && to) {
-        query.date = { $gte: from, $lte: to };
+        dateQuery = { date: { $gte: from, $lte: to } };
         startDate = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
         endDate = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
     } else if (date) {
-        query.date = date;
+        dateQuery = { date };
         startDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
         endDate = DateTime.fromISO(date, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
     }
+
+    // Include both date-filtered and all incomplete records
+    const query = {
+        $and: [
+            baseQuery,
+            {
+                $or: [
+                    dateQuery,
+                    { status: 'incomplete' }
+                ]
+            }
+        ]
+    };
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendance = await Attendance.find(query)
@@ -1828,7 +1904,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
     const enrichedAttendance = attendance.map(a => {
         const attendanceId = String(a._id || '');
         const vId = String(a.vehicle?._id || a.vehicle || '');
-        const attDate = a.date;
+        const attDate = a.date instanceof Date ? a.date.toISOString().split('T')[0] : String(a.date);
         const vKey = `${vId}_${attDate}`;
 
         const matchedFuels = fuelByAttId.get(attendanceId) || fuelByVehicleDate.get(vKey) || [];
@@ -1841,9 +1917,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         const totalFuel = fuelFromCollection > 0 ? fuelFromCollection : existingFuel;
 
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
-        const totalParking = (a.punchOut && a.punchOut.tollParkingAmount !== undefined) 
-            ? a.punchOut.tollParkingAmount 
-            : (parkingFromCollection > 0 ? parkingFromCollection : existingParking);
+        const totalParking = parkingFromCollection > 0 ? parkingFromCollection : existingParking;
 
         return {
             ...a,
@@ -1941,14 +2015,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
     if (startDate && endDate) {
         maintenanceQuery.billDate = { $gte: startDate, $lte: endDate };
     }
-    
+
     // Keyword-based exclusion for Maintenance
     const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
-    
+
     let maintenance = await Maintenance.find(maintenanceQuery)
         .populate('vehicle', 'carNumber model')
         .sort({ billDate: -1 });
-        
+
     // Apply strict filtering for Daily Reports to match Maintenance page
     maintenance = maintenance.filter(m => {
         const cat = String(m.category || '').toLowerCase();
@@ -1976,12 +2050,17 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     // 7. Fetch Parking Records (Exclude Car Services)
     const parkingQuery = {
-        $or: [
-            { company: new mongoose.Types.ObjectId(companyId) },
-            { company: companyId }
-        ],
-        // Only return regular parking (not car wash/puncture)
-        $or: [{ serviceType: 'parking' }, { serviceType: { $exists: false } }, { serviceType: null }]
+        $and: [
+            {
+                $or: [
+                    { company: new mongoose.Types.ObjectId(companyId) },
+                    { company: companyId }
+                ]
+            },
+            {
+                $or: [{ serviceType: 'parking' }, { serviceType: { $exists: false } }, { serviceType: null }]
+            }
+        ]
     };
     if (startDate && endDate) {
         parkingQuery.date = { $gte: startDate, $lte: endDate };
@@ -2033,12 +2112,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     if (req.user && req.user.role === 'Executive') {
         const p = req.user.permissions || {};
-        
+
         if (!p.driversService) {
             finalResponse.attendance = finalResponse.attendance.filter(a => a.isOutsideCar);
             finalResponse.advances = [];
         }
-        
+
         if (!p.buySell) {
             finalResponse.attendance = finalResponse.attendance.filter(a => !a.isOutsideCar);
         }
@@ -2182,13 +2261,13 @@ const updateFastagRecharge = asyncHandler(async (req, res) => {
     // Adjust balance: subtract old and add new
     const oldAmount = Number(historyEntry.amount) || 0;
     const newAmount = Number(amount);
-    
+
     if (isNaN(newAmount) || newAmount <= 0) {
         return res.status(400).json({ message: 'Invalid amount' });
     }
 
     vehicle.fastagBalance = (vehicle.fastagBalance || 0) - oldAmount + newAmount;
-    
+
     // Update entry
     historyEntry.amount = newAmount;
     historyEntry.method = method || historyEntry.method;
@@ -2220,7 +2299,7 @@ const deleteFastagRecharge = asyncHandler(async (req, res) => {
 
     // Remove entry
     vehicle.fastagHistory.pull(req.params.historyId);
-    
+
     await vehicle.save();
     res.json({ message: 'Fastag entry deleted', newBalance: vehicle.fastagBalance });
 });
@@ -2292,6 +2371,10 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 
 
     await attendance.save();
+    
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
     logToFile(`[FREELANCER_PUNCH_IN] Attendance record saved: ${attendance._id}`);
 
     // 4. Update Driver
@@ -2324,128 +2407,132 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 const freelancerPunchOut = asyncHandler(async (req, res) => {
     try {
         const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
-    logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
+        logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
 
-    const driver = await User.findById(driverId);
-    if (!driver) {
-        return res.status(404).json({ message: 'Driver not found' });
-    }
-
-    // Extract date from provided time to match specific attendance record
-    const targetDate = time ? time.split('T')[0] : null;
-
-    // Find the incomplete attendance
-    let attendance = null;
-    if (targetDate) {
-        attendance = await Attendance.findOne({
-            driver: driverId,
-            date: targetDate,
-            status: 'incomplete'
-        });
-    }
-
-    if (!attendance) {
-        attendance = await Attendance.findOne({
-            driver: driverId,
-            status: 'incomplete'
-        }).sort({ createdAt: -1 });
-    }
-
-    if (!attendance) {
-        return res.status(400).json({ message: 'No active punch-in found for this driver' });
-    }
-
-    if (dailyWage) {
-        attendance.dailyWage = Number(dailyWage);
-    }
-
-    attendance.punchOut = {
-        km: km || 0,
-        time: time ? new Date(time) : new Date(),
-        otherRemarks: review,
-        tollParkingAmount: Number(parkingAmount) || 0,
-        parkingPaidBy: parkingPaidBy || 'Self'
-    };
-
-    if (req.files) {
-        if (req.files.selfie) attendance.punchOut.selfie = req.files.selfie[0].path;
-        if (req.files.kmPhoto) attendance.punchOut.kmPhoto = req.files.kmPhoto[0].path;
-        if (req.files.parkingPhoto) attendance.punchOut.parkingReceipt = req.files.parkingPhoto[0].path;
-        if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
-    }
-
-    attendance.fuel = {
-        filled: true,
-        amount: fuelAmount || 0
-    };
-
-    // Create a Fuel entry if amount > 0 (Manual entry style as requested)
-    if (Number(fuelAmount) > 0) {
-        await Fuel.create({
-            vehicle: attendance.vehicle,
-            company: driver.company,
-            fuelType: 'Diesel', // Default or could be passed
-            date: attendance.date ? new Date(attendance.date) : new Date(),
-            amount: Number(fuelAmount),
-            quantity: 0, // Manual entries might not have this initially
-            rate: 0,
-            odometer: km || 0,
-            stationName: 'Freelancer Entry',
-            paymentMode: 'Cash',
-            paymentSource: 'Yatree Office',
-            driver: driver.name,
-            source: 'Admin',
-            createdBy: req.user._id
-        });
-    }
-
-    attendance.dropLocation = dropLocation;
-    attendance.totalKM = (km || 0) - (attendance.punchIn.km || 0);
-    attendance.status = 'completed';
-    // Create a Parking entry if amount > 0
-    if (Number(parkingAmount) > 0) {
-        await Parking.create({
-            vehicle: attendance.vehicle,
-            company: driver.company,
-            driver: driver.name,
-            driverId: driver._id,
-            attendanceId: attendance._id,
-            date: attendance.date ? new Date(attendance.date) : new Date(),
-            amount: Number(parkingAmount),
-            location: dropLocation || 'Duty End',
-            remark: review || 'Freelancer Duty Off',
-            source: 'Admin',
-            receiptPhoto: attendance.punchOut.parkingReceipt,
-            createdBy: req.user._id,
-            isReimbursable: true
-        });
-    }
-
-    // Update driver status
-    driver.tripStatus = 'approved';
-    driver.assignedVehicle = null;
-    driver.freelancerReview = review;
-    await driver.save();
-
-    // Clear vehicle status
-    if (attendance.vehicle) {
-        const v = await Vehicle.findById(attendance.vehicle);
-        if (v) {
-            v.currentDriver = null;
-            if (Number(km) > (v.lastOdometer || 0)) {
-                v.lastOdometer = Number(km);
-            }
-            await v.save();
+        const driver = await User.findById(driverId);
+        if (!driver) {
+            return res.status(404).json({ message: 'Driver not found' });
         }
-    }
 
-    await attendance.save();
-    res.json({ message: 'Duty ended successfully', attendance });
-} catch (error) {
-    console.error('ERROR IN FREELANCER_PUNCH_OUT:', error);
-    logToFile(`[FREELANCER_PUNCH_OUT] ERROR: ${error.message}`);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-}
+        // Extract date from provided time to match specific attendance record
+        const targetDate = time ? time.split('T')[0] : null;
+
+        // Find the incomplete attendance
+        let attendance = null;
+        if (targetDate) {
+            attendance = await Attendance.findOne({
+                driver: driverId,
+                date: targetDate,
+                status: 'incomplete'
+            });
+        }
+
+        if (!attendance) {
+            attendance = await Attendance.findOne({
+                driver: driverId,
+                status: 'incomplete'
+            }).sort({ createdAt: -1 });
+        }
+
+        if (!attendance) {
+            return res.status(400).json({ message: 'No active punch-in found for this driver' });
+        }
+
+        if (dailyWage) {
+            attendance.dailyWage = Number(dailyWage);
+        }
+
+        attendance.punchOut = {
+            km: km || 0,
+            time: time ? new Date(time) : new Date(),
+            otherRemarks: review,
+            tollParkingAmount: Number(parkingAmount) || 0,
+            parkingPaidBy: parkingPaidBy || 'Self'
+        };
+
+        if (req.files) {
+            if (req.files.selfie) attendance.punchOut.selfie = req.files.selfie[0].path;
+            if (req.files.kmPhoto) attendance.punchOut.kmPhoto = req.files.kmPhoto[0].path;
+            if (req.files.parkingPhoto) attendance.punchOut.parkingReceipt = req.files.parkingPhoto[0].path;
+            if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
+        }
+
+        attendance.fuel = {
+            filled: true,
+            amount: fuelAmount || 0
+        };
+
+        // Create a Fuel entry if amount > 0 (Manual entry style as requested)
+        if (Number(fuelAmount) > 0) {
+            await Fuel.create({
+                vehicle: attendance.vehicle,
+                company: driver.company,
+                fuelType: 'Diesel', // Default or could be passed
+                date: attendance.date ? new Date(attendance.date) : new Date(),
+                amount: Number(fuelAmount),
+                quantity: 0, // Manual entries might not have this initially
+                rate: 0,
+                odometer: km || 0,
+                stationName: 'Freelancer Entry',
+                paymentMode: 'Cash',
+                paymentSource: 'Yatree Office',
+                driver: driver.name,
+                source: 'Admin',
+                createdBy: req.user._id
+            });
+        }
+
+        attendance.dropLocation = dropLocation;
+        attendance.totalKM = Math.max(0, (Number(km) || 0) - (attendance.punchIn.km || 0));
+        attendance.status = 'completed';
+        // Create a Parking entry if amount > 0
+        if (Number(parkingAmount) > 0) {
+            await Parking.create({
+                vehicle: attendance.vehicle,
+                company: driver.company,
+                driver: driver.name,
+                driverId: driver._id,
+                attendanceId: attendance._id,
+                date: attendance.date ? new Date(attendance.date) : new Date(),
+                amount: Number(parkingAmount),
+                location: dropLocation || 'Duty End',
+                remark: review || 'Freelancer Duty Off',
+                source: 'Admin',
+                receiptPhoto: attendance.punchOut.parkingReceipt,
+                createdBy: req.user._id,
+                isReimbursable: true
+            });
+        }
+
+        // Update driver status
+        driver.tripStatus = 'approved';
+        driver.assignedVehicle = null;
+        driver.freelancerReview = review;
+        await driver.save();
+
+        // Clear vehicle status
+        if (attendance.vehicle) {
+            const v = await Vehicle.findById(attendance.vehicle);
+            if (v) {
+                v.currentDriver = null;
+                if (Number(km) > (v.lastOdometer || 0)) {
+                    v.lastOdometer = Number(km);
+                }
+                await v.save();
+            }
+        }
+
+        await attendance.save();
+        
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
+
+        res.json({ message: 'Duty ended successfully', attendance });
+    } catch (error) {
+        console.error('ERROR IN FREELANCER_PUNCH_OUT:', error);
+        logToFile(`[FREELANCER_PUNCH_OUT] ERROR: ${error.message}`);
+        res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    }
 });
 
 // @desc    Admin Punch In (Manual by Admin)
@@ -2491,6 +2578,9 @@ const adminPunchIn = asyncHandler(async (req, res) => {
     attendance.createdAt = new Date(dutyDate + 'T12:00:00Z');
 
     await attendance.save();
+
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
 
     // Update Driver
     driver.tripStatus = 'active';
@@ -2568,9 +2658,12 @@ const adminPunchOut = asyncHandler(async (req, res) => {
     }
 
     attendance.dropLocation = dropLocation || 'Office';
-    attendance.totalKM = (Number(km) || 0) - (attendance.punchIn.km || 0);
+    attendance.totalKM = Math.max(0, (Number(km) || 0) - (attendance.punchIn.km || 0));
     attendance.status = 'completed';
     await attendance.save();
+
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
 
     // Create Parking entry
     if (Number(parkingAmount) > 0) {
@@ -2678,7 +2771,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
         outsideTrip: {
             bonusAmount: Number(otherBonus) || 0
         },
-        totalKM: (Number(punchOutKM) || 0) - (Number(punchInKM) || 0),
+        totalKM: Math.max(0, (Number(punchOutKM) || 0) - (Number(punchInKM) || 0)),
         pickUpLocation: pickUpLocation || 'Office',
         dropLocation: dropLocation || 'Office',
         fuel: {
@@ -2845,6 +2938,9 @@ const addMaintenanceRecord = asyncHandler(async (req, res) => {
         }
     }
 
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
     res.status(201).json(record);
 });
 
@@ -2936,7 +3032,7 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         doc.pendingExpenses.forEach(exp => {
             const remark = (exp.remark || '').toLowerCase();
             const fuelTypeStr = (exp.fuelType || '').toLowerCase();
-            
+
             const isWash = exp.type === 'wash' || fuelTypeStr.includes('wash') || remark.includes('wash');
             const isPuncture = exp.type === 'puncture' || fuelTypeStr.includes('punc') || remark.includes('punc');
             const isTissue = exp.type === 'tissue' || fuelTypeStr.includes('tissue') || remark.includes('tissue');
@@ -2968,14 +3064,14 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         combined = combined.filter(r => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
-            
+
             // Strictly check for Wash, Puncture, Tissue, Water
             const isWash = cat.includes('wash') || desc.includes('wash');
             const isPuncture = cat.includes('punc') || desc.includes('punc');
             const isTissue = cat.includes('tissue') || desc.includes('tissue');
-            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) || 
-                           (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
-            
+            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
+                (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
+
             return isWash || isPuncture || isTissue || isWater;
         });
     } else {
@@ -2983,13 +3079,13 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         combined = combined.filter(r => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
-            
+
             const isWash = cat.includes('wash') || desc.includes('wash');
             const isPuncture = cat.includes('punc') || desc.includes('punc');
             const isTissue = cat.includes('tissue') || desc.includes('tissue');
-            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('pump')) || 
-                           (desc.includes('water') && !desc.includes('repair') && !desc.includes('pump'));
-            
+            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('pump')) ||
+                (desc.includes('water') && !desc.includes('repair') && !desc.includes('pump'));
+
             return !(isWash || isPuncture || isTissue || isWater);
         });
     }
@@ -3013,11 +3109,34 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
 // @route   PUT /api/admin/maintenance/:id
 // @access  Private/Admin
 const updateMaintenanceRecord = asyncHandler(async (req, res) => {
-    const maintenance = await Maintenance.findById(req.params.id);
+    // Clear dashboard cache on any mutation
+    DASHBOARD_CACHE.clear();
+    const { id } = req.params;
+    let targetDoc = null;
+    let docType = 'maintenance';
 
-    if (!maintenance) {
+    // 1. Try Maintenance Collection
+    targetDoc = await Maintenance.findById(id);
+
+    // 2. Try Parking Collection
+    if (!targetDoc) {
+        targetDoc = await Parking.findById(id);
+        if (targetDoc) docType = 'parking';
+    }
+
+    // 3. Try Attendance Pending Expenses
+    let attendanceDoc = null;
+    if (!targetDoc) {
+        attendanceDoc = await Attendance.findOne({ 'pendingExpenses._id': id });
+        if (attendanceDoc) {
+            targetDoc = attendanceDoc.pendingExpenses.find(e => e._id.toString() === id);
+            docType = 'attendance';
+        }
+    }
+
+    if (!targetDoc) {
         res.status(404);
-        throw new Error('Maintenance record not found');
+        throw new Error('Record not found in any collection');
     }
 
     const {
@@ -3037,33 +3156,53 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         driverId
     } = req.body;
 
-    if (vehicleId) maintenance.vehicle = vehicleId;
-    if (driverId !== undefined) maintenance.driver = driverId || null;
-    if (maintenanceType) maintenance.maintenanceType = maintenanceType;
-    if (category) maintenance.category = category;
-    if (partsChanged) maintenance.partsChanged = JSON.parse(partsChanged);
-    if (description) maintenance.description = description;
-    if (garageName) maintenance.garageName = garageName;
-    if (billNumber) maintenance.billNumber = billNumber;
-    if (billDate) maintenance.billDate = billDate;
-    if (amount) maintenance.amount = Number(amount);
-    if (paymentMode) maintenance.paymentMode = paymentMode;
-    if (currentKm) maintenance.currentKm = Number(currentKm);
-    if (nextServiceKm) maintenance.nextServiceKm = Number(nextServiceKm);
-    if (status) maintenance.status = status;
+    if (docType === 'maintenance') {
+        if (vehicleId) targetDoc.vehicle = vehicleId;
+        if (driverId !== undefined) targetDoc.driver = driverId || null;
+        if (maintenanceType) targetDoc.maintenanceType = maintenanceType;
+        if (category) targetDoc.category = category;
+        if (partsChanged) targetDoc.partsChanged = (typeof partsChanged === 'string' ? JSON.parse(partsChanged) : partsChanged);
+        if (description) targetDoc.description = description;
+        if (garageName) targetDoc.garageName = garageName;
+        if (billNumber) targetDoc.billNumber = billNumber;
+        if (billDate) targetDoc.billDate = billDate;
+        if (amount) targetDoc.amount = Number(amount);
+        if (paymentMode) targetDoc.paymentMode = paymentMode;
+        if (currentKm) targetDoc.currentKm = Number(currentKm);
+        if (nextServiceKm) targetDoc.nextServiceKm = Number(nextServiceKm);
+        if (status) targetDoc.status = status;
+        if (req.file) targetDoc.billPhoto = req.file.path;
 
-    if (req.file) {
-        maintenance.billPhoto = req.file.path;
+        const updated = await targetDoc.save();
+        res.json(updated);
+    } else if (docType === 'parking') {
+        if (amount) targetDoc.amount = Number(amount);
+        if (category) targetDoc.remark = category;
+        if (description) targetDoc.notes = description;
+        if (billDate) targetDoc.date = billDate;
+        if (req.file) targetDoc.receiptPhoto = req.file.path;
+
+        const updated = await targetDoc.save();
+        res.json(updated);
+    } else if (docType === 'attendance') {
+        if (amount) targetDoc.amount = Number(amount);
+        if (category) targetDoc.fuelType = category; // Attendance uses fuelType for the expense label
+        if (description) targetDoc.remark = description;
+        if (req.file) targetDoc.slipPhoto = req.file.path;
+        if (status) targetDoc.status = status;
+        if (currentKm) targetDoc.km = Number(currentKm);
+
+        await attendanceDoc.save();
+        res.json(targetDoc);
     }
-
-    const updatedMaintenance = await maintenance.save();
-    res.json(updatedMaintenance);
 });
 
 // @desc    Delete maintenance record
 // @route   DELETE /api/admin/maintenance/:id
 // @access  Private/Admin
 const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
+    // Clear dashboard cache on any mutation
+    DASHBOARD_CACHE.clear();
     const { id } = req.params;
 
     // 1. Try Maintenance Collection
@@ -3087,6 +3226,9 @@ const deleteMaintenanceRecord = asyncHandler(async (req, res) => {
         await attendanceDoc.save();
         return res.json({ message: 'Pending expense removed from attendance' });
     }
+
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
 
     res.status(404).json({ message: 'Record not found in any collection' });
 });
@@ -3616,6 +3758,9 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
     }
 
     await attendance.save();
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
     res.json({ message: `Expense ${status} successfully`, attendance });
 });
 
@@ -3728,11 +3873,11 @@ const updateAdvance = asyncHandler(async (req, res) => {
 
 const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelancerOnly = false) => {
     // 1. Get all drivers in company
-    const driverQuery = { 
-        company: companyId, 
-        role: 'Driver' 
+    const driverQuery = {
+        company: companyId,
+        role: 'Driver'
     };
-    
+
     if (isFreelancerOnly) {
         driverQuery.isFreelancer = true;
     } else {
@@ -3766,23 +3911,23 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
     }
 
     // 3. Concurrent Bulk Fetches
-    const attendanceQuery = { 
-        driver: { $in: driverIds }, 
-        status: 'completed' 
+    const attendanceQuery = {
+        driver: { $in: driverIds },
+        status: 'completed'
     };
     if (startStr && endStr) {
         // Match by string date field (most records) OR by punchIn.time (fallback for older records)
         attendanceQuery.$or = [
             { date: { $gte: startStr, $lte: endStr } },
-            { 
+            {
                 date: { $exists: false },
                 'punchIn.time': { $gte: startJS, $lte: endJS }
             }
         ];
     }
 
-    const advanceQuery = { 
-        driver: { $in: driverIds } 
+    const advanceQuery = {
+        driver: { $in: driverIds }
     };
     if (startJS) advanceQuery.date = { $gte: startJS, $lte: endJS };
     advanceQuery.remark = { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ };
@@ -4006,16 +4151,18 @@ const updateExecutive = asyncHandler(async (req, res) => {
         executive.mobile = mobile || executive.mobile;
         executive.username = username || executive.username;
         executive.status = status || executive.status;
-        
+
         if (permissions) {
             executive.permissions = { ...executive.permissions, ...permissions };
         }
-        
+
         if (password) {
             executive.password = password;
         }
 
         const updatedUser = await executive.save();
+        // Clear dashboard cache on mutation
+        DASHBOARD_CACHE.clear();
         res.json(updatedUser);
     } else {
         res.status(404).json({ message: 'Executive user not found' });
@@ -4238,11 +4385,11 @@ const getAllStaff = asyncHandler(async (req, res) => {
 const createStaff = asyncHandler(async (req, res) => {
     const { name, mobile, password, companyId, salary, username } = req.body;
 
-    const userExists = await User.findOne({ 
+    const userExists = await User.findOne({
         $or: [
-            { mobile, isFreelancer: { $ne: true } }, 
+            { mobile, isFreelancer: { $ne: true } },
             ...(username ? [{ username }] : [])
-        ] 
+        ]
     });
     if (userExists) {
         return res.status(400).json({ message: 'Staff with this mobile or username already exists' });
@@ -4782,7 +4929,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
     if (parkingAmount !== undefined) {
         const newParkingAmt = Number(parkingAmount) || 0;
         attendance.punchOut.tollParkingAmount = newParkingAmt;
-        
+
         // Sync standalone Parking record
         // Search by attendanceId OR fallback to vehicle + date to catch unlinked records
         let existingParking = await Parking.findOne({ attendanceId: attendance._id });
@@ -4825,7 +4972,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
     if (allowanceTA !== undefined) attendance.punchOut.allowanceTA = Number(allowanceTA) || 0;
     if (nightStayAmount !== undefined) attendance.punchOut.nightStayAmount = Number(nightStayAmount) || 0;
     if (parkingPaidBy !== undefined) attendance.punchOut.parkingPaidBy = parkingPaidBy;
-    
+
     attendance.markModified('punchOut');
 
     // 4. Fuel Data
@@ -4881,7 +5028,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
 
     // 6. Recalculate Totals
     if (attendance.punchIn?.km !== undefined && attendance.punchOut?.km !== undefined) {
-        attendance.totalKM = (Number(attendance.punchOut.km) || 0) - (Number(attendance.punchIn.km) || 0);
+        attendance.totalKM = Math.max(0, (Number(attendance.punchOut.km) || 0) - (Number(attendance.punchIn.km) || 0));
     }
 
     // Explicitly mark changed top-level fields
@@ -4944,6 +5091,10 @@ const updateAttendance = asyncHandler(async (req, res) => {
     }
 
     console.log(`[ATTENDANCE_UPDATE] SUCCESS. ID: ${updatedAttendance._id}, TotalKM: ${updatedAttendance.totalKM}, Wage: ${updatedAttendance.dailyWage}, Parking: ${updatedAttendance.punchOut?.tollParkingAmount}`);
+
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
     res.json(updatedAttendance);
 });
 
@@ -4966,7 +5117,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         if (from && to) {
             startDT = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day');
             endDT = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day');
-            
+
             if (!startDT.isValid || !endDT.isValid) {
                 res.status(400);
                 throw new Error('Invalid date range provided');
@@ -5088,7 +5239,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         });
 
         // Aggregated totals - Including bonuses
-        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage, 0); 
+        const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage, 0);
         const totalBonuses = dailyBreakdown.reduce((sum, d) => sum + d.sameDayReturn + d.nightStay + d.otherBonuses, 0);
         const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
             standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
@@ -5174,7 +5325,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         // Separate Maintenance records: General Maintenance vs Service Hub (Wash/Punc)
         const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
         const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
-        
+
         // General Maintenance (Repairs, Parts, etc. - NOT Car Service type and NO service keywords)
         const vGeneralMaint = vMaintAll.filter(m => {
             if (m.maintenanceType === 'Car Service') return false;
@@ -5193,7 +5344,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             const typeValue = String(m.maintenanceType || '').toLowerCase();
             return serviceRegex.test(cat) || serviceRegex.test(desc) || serviceRegex.test(typeValue);
         });
-        
+
         // Service Hub records from Parking (serviceType: 'car_service')
         const vParkingServices = parkingData.filter(p => p.vehicle?.toString() === vId);
 
@@ -5214,7 +5365,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             const remark = (s.remark || '').toLowerCase();
             const description = (s.description || '').toLowerCase();
             const searchTarget = `${category} ${remark} ${description}`.toLowerCase();
-            
+
             const date = s.billDate || s.date || s.createdAt;
             const amount = Number(s.amount) || 0;
 
@@ -5364,18 +5515,31 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean()
     ]);
 
-    const mappedDrivers = liveDriversFeed.map(driver => {
+    // Ensure all drivers with attendance today are in the feed, even if not in the default Driver list
+    const driversInAttendance = attendanceToday
+        .map(a => a.driver)
+        .filter(d => d && !liveDriversFeed.some(df => df._id.toString() === d._id.toString()));
+    
+    const combinedDrivers = [...liveDriversFeed, ...driversInAttendance];
+    
+    const mappedDrivers = combinedDrivers.map(driver => {
         const atts = attendanceToday.filter(a => a.driver?._id?.toString() === driver._id.toString());
         let status = 'Absent';
         if (atts.some(a => a.status === 'incomplete')) status = 'Present';
         else if (atts.some(a => a.status === 'completed')) status = 'Completed';
         return { ...driver, attendances: atts, status };
+    }).filter(driver => {
+        // Only show freelancers if they have active or completed attendance for the target date
+        if (driver.isFreelancer === true) {
+            return driver.status !== 'Absent';
+        }
+        return true; // Always show regular drivers
     });
 
     const liveVehiclesFeed = allVehicles.map(v => {
         const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === v._id.toString());
         const hasActive = vehicleAtts.some(a => a.status === 'incomplete');
-        
+
         return {
             ...v,
             status: hasActive ? 'In Use' : 'Idle',
@@ -5391,7 +5555,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         liveDriversFeed: mappedDrivers,
         liveVehiclesFeed,
         dailyFuelEntries: fuelEntriesToday,
-        dutyHistoryThisMonth: attendanceToday, 
+        dutyHistoryThisMonth: attendanceToday,
         lastUpdated: new Date().toISOString()
     };
 
@@ -5471,5 +5635,4 @@ module.exports = {
     addBackdatedAttendance,
     deleteStaffAttendance,
     addPendingExpenseFromAdmin,
-    getLiveFeed
 };

@@ -71,5 +71,6 @@ const parkingSchema = new mongoose.Schema({
 // Indexes for faster monthly analytics
 parkingSchema.index({ company: 1, date: 1 });
 parkingSchema.index({ vehicle: 1, date: 1 });
+parkingSchema.index({ attendanceId: 1 });
 
 module.exports = mongoose.model('Parking', parkingSchema);

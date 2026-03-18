@@ -117,5 +117,6 @@ const attendanceSchema = new mongoose.Schema({
 attendanceSchema.index({ driver: 1, date: 1 });
 attendanceSchema.index({ company: 1, date: 1 });
 attendanceSchema.index({ date: 1 });
+attendanceSchema.index({ vehicle: 1, status: 1, date: -1 });
 
 module.exports = mongoose.model('Attendance', attendanceSchema);

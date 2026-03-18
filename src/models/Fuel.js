@@ -91,5 +91,6 @@ const fuelSchema = new mongoose.Schema({
 // Indexes for faster monthly analytics
 fuelSchema.index({ company: 1, date: 1 });
 fuelSchema.index({ vehicle: 1, date: 1 });
+fuelSchema.index({ attendance: 1 });
 
 module.exports = mongoose.model('Fuel', fuelSchema);
