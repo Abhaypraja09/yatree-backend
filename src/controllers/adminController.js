@@ -1135,27 +1135,37 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             // Clean attendanceDetails of outside trip info if needed
         }
 
-        // Remove Vehicles Management data
+        // 3. Vehicles Maintenance
         if (!p.vehiclesManagement) {
             finalResponse.totalVehicles = 0;
-            finalResponse.totalFastagBalance = 0;
-            finalResponse.monthlyFuelAmount = 0;
             finalResponse.monthlyMaintenanceAmount = 0;
+            finalResponse.monthlyAccidentAmount = 0;
+            finalResponse.yearlyAccidentAmount = 0;
+            finalResponse.totalWarrantyCost = 0;
+            finalResponse.reportedIssues = [];
+            finalResponse.liveVehiclesFeed = [];
+            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Service');
+        }
+
+        // 4. Fleet Operations
+        if (!p.fleetOperations) {
+            finalResponse.monthlyFuelAmount = 0;
             finalResponse.monthlyParkingAmount = 0;
             finalResponse.monthlyDriverServicesAmount = 0;
             finalResponse.monthlyBorderTaxAmount = 0;
-            finalResponse.monthlyAccidentAmount = 0;
-            finalResponse.totalWarrantyCost = 0;
-            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle' && a.type !== 'Service');
+            finalResponse.totalFastagBalance = 0;
+            finalResponse.monthlyFastagTotal = 0;
             finalResponse.dailyFastagTotal = 0;
             finalResponse.dailyFuelAmount = { total: 0, count: 0 };
             finalResponse.dailyFuelEntries = [];
-            finalResponse.liveVehiclesFeed = [];
+            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle'); 
         }
 
-        // Recalculate totalExpenseAmount
-        finalResponse.totalExpenseAmount =
-            (p.vehiclesManagement ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost + finalResponse.monthlyDriverServicesAmount) : 0);
+        // Recalculate totalExpenseAmount based on allowed visibility
+        const currentMaint = p.vehiclesManagement ? (finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost) : 0;
+        const currentFleet = p.fleetOperations ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyDriverServicesAmount) : 0;
+        
+        finalResponse.totalExpenseAmount = currentMaint + currentFleet;
     }
 
     DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
@@ -1779,12 +1789,9 @@ const getDailyReports = asyncHandler(async (req, res) => {
     }
 
     const query = {
-        $and: [
-            baseQuery,
-            Object.keys(dateQuery).length > 0 ? dateQuery : {}
-        ]
+        ...baseQuery,
+        ...dateQuery
     };
-
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendance = await Attendance.find(query)
