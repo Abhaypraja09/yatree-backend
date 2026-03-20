@@ -1158,13 +1158,13 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             finalResponse.dailyFastagTotal = 0;
             finalResponse.dailyFuelAmount = { total: 0, count: 0 };
             finalResponse.dailyFuelEntries = [];
-            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle'); 
+            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle');
         }
 
         // Recalculate totalExpenseAmount based on allowed visibility
         const currentMaint = p.vehiclesManagement ? (finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost) : 0;
         const currentFleet = p.fleetOperations ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyDriverServicesAmount) : 0;
-        
+
         finalResponse.totalExpenseAmount = currentMaint + currentFleet;
     }
 
@@ -2387,7 +2387,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 
 
     await attendance.save();
-    
+
     // Clear dashboard cache on mutation
     DASHBOARD_CACHE.clear();
 
@@ -2422,7 +2422,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
     try {
-        const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy } = req.body;
+        const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy, allowanceTA, nightStayAmount } = req.body;
         logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
 
         const driver = await User.findById(driverId);
@@ -2463,6 +2463,8 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
             time: time ? new Date(time) : new Date(),
             otherRemarks: review,
             tollParkingAmount: Number(parkingAmount) || 0,
+            allowanceTA: Number(allowanceTA) || 0,
+            nightStayAmount: Number(nightStayAmount) || 0,
             parkingPaidBy: parkingPaidBy || 'Self'
         };
 
@@ -2473,29 +2475,39 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
             if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
         }
 
-        attendance.fuel = {
-            filled: true,
-            amount: fuelAmount || 0
-        };
-
-        // Create a Fuel entry if amount > 0 (Manual entry style as requested)
+        // 4. Fuel Data (Deduplicated with Admin source)
         if (Number(fuelAmount) > 0) {
-            await Fuel.create({
-                vehicle: attendance.vehicle,
-                company: driver.company,
-                fuelType: 'Diesel', // Default or could be passed
-                date: attendance.date ? new Date(attendance.date) : new Date(),
-                amount: Number(fuelAmount),
-                quantity: 0, // Manual entries might not have this initially
-                rate: 0,
-                odometer: km || 0,
-                stationName: 'Freelancer Entry',
-                paymentMode: 'Cash',
-                paymentSource: 'Yatree Office',
-                driver: driver.name,
-                source: 'Admin',
-                createdBy: req.user._id
-            });
+            attendance.fuel = { filled: true, amount: Number(fuelAmount) };
+
+            // Check if fuel entry already exists for this attendance (e.g. from Driver App)
+            const existingFuel = await Fuel.findOne({ attendance: attendance._id });
+            if (!existingFuel) {
+                await Fuel.create({
+                    vehicle: attendance.vehicle,
+                    company: driver.company,
+                    fuelType: 'Diesel',
+                    date: attendance.date ? new Date(attendance.date) : new Date(),
+                    amount: Number(fuelAmount),
+                    quantity: Number(fuelAmount) / 100, // Estimate instead of 1L
+                    rate: 100,
+                    odometer: km || 0,
+                    stationName: 'Freelancer Entry',
+                    paymentMode: 'Cash',
+                    paymentSource: 'Yatree Office',
+                    driver: driver.name,
+                    source: 'Admin',
+                    attendance: attendance._id,
+                    createdBy: req.user._id
+                });
+            } else {
+                // Duplicate found - just sync the amount if needed, but don't overwrite real qty/rate
+                existingFuel.amount = Number(fuelAmount);
+                if (existingFuel.quantity < 0.1) { // If it was a dummy 0 value
+                    existingFuel.quantity = Number(fuelAmount) / 100;
+                    existingFuel.rate = 100;
+                }
+                await existingFuel.save();
+            }
         }
 
         attendance.dropLocation = dropLocation;
@@ -2539,7 +2551,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         }
 
         await attendance.save();
-        
+
         // Clear dashboard cache on mutation
         DASHBOARD_CACHE.clear();
 
@@ -2780,8 +2792,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
             remarks: 'Manual Entry',
             otherRemarks: review || '',
             tollParkingAmount: Number(parkingAmount) || 0,
-            allowanceTA: allowanceTA ? (driver.sameDayReturnBonus || 100) : 0,
-            nightStayAmount: nightStayAmount ? (driver.nightStayBonus || 500) : 0,
+            allowanceTA: Number(allowanceTA) || 0,
+            nightStayAmount: Number(nightStayAmount) || 0,
             parkingPaidBy: parkingPaidBy || 'Self'
         },
         outsideTrip: {
@@ -2796,22 +2808,25 @@ const addManualDuty = asyncHandler(async (req, res) => {
         }
     });
 
-    // Create standalone Fuel entry for manual duties so it shows up correctly in Live Feed sums
+    // Deduplicated Fuel Entry
     if (Number(fuelAmount) > 0) {
-        await Fuel.create({
-            vehicle: vehicleId,
-            company: companyId,
-            fuelType: 'Diesel',
-            date: new Date(date),
-            amount: Number(fuelAmount),
-            quantity: 1, // Default for manual entries if not specified
-            rate: Number(fuelAmount),
-            odometer: Number(punchInKM) || 0,
-            driver: driver.name,
-            createdBy: req.user._id,
-            source: 'Admin',
-            attendance: attendance._id
-        });
+        const existingFuel = await Fuel.findOne({ attendance: attendance._id });
+        if (!existingFuel) {
+            await Fuel.create({
+                vehicle: vehicleId,
+                company: companyId,
+                fuelType: 'Diesel',
+                date: new Date(date),
+                amount: Number(fuelAmount),
+                quantity: Number(fuelAmount) / 100, // Estimate instead of 1L
+                rate: 100,
+                odometer: Number(punchInKM) || 0,
+                driver: driver.name,
+                createdBy: req.user._id,
+                source: 'Admin',
+                attendance: attendance._id
+            });
+        }
     }
 
     // Create standalone Parking entry for manual duties
@@ -4018,7 +4033,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 const dateStr = att.date;
                 let wage = 0;
                 if (!datesProcessed.has(dateStr)) {
-                    wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 500;
+                    wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 0;
                     datesProcessed.add(dateStr);
                 }
                 const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
@@ -4027,10 +4042,12 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
                 if (!dailyAggs.has(dateStr)) {
-                    dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0 });
+                    dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0, pureWage: 0, bonusTotal: 0 });
                 }
                 const current = dailyAggs.get(dateStr);
                 current.earnings += (wage + bonuses);
+                current.pureWage += wage;
+                current.bonusTotal += bonuses;
                 if (Number(att.punchOut?.nightStayAmount) > 0) current.nights += 1;
                 if (Number(att.punchOut?.allowanceTA) > 0) current.sameDays += 1;
             });
@@ -4057,11 +4074,24 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             const allTimeRecovered = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
             const pendingAdvance = allTimeGiven - allTimeRecovered;
 
+            // Aggregator recalculation for cleaner summary
+            let totalWages = 0;
+            let totalBonuses = 0;
+            let totalParking = 0;
+            dailyAggs.forEach(v => {
+                totalWages += (v.pureWage || 0);
+                totalBonuses += (v.bonusTotal || 0);
+            });
+            totalParking = Array.from(externalParkingByDay.values()).reduce((s, v) => s + v, 0);
+
             return {
                 driverId: driver._id,
                 name: driver.name,
                 mobile: driver.mobile,
                 totalEarned: totalCalculatedEarnings,
+                totalWages,
+                totalBonus: totalBonuses,
+                totalParking,
                 totalAdvances: totalAdvancesThisMonth,
                 totalRecovered: totalRecoveredThisMonth,
                 pendingAdvance,
@@ -5005,7 +5035,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
             if (newFuelAmt > 0) {
                 if (existingFuel) {
                     existingFuel.amount = newFuelAmt;
-                    existingFuel.rate = newFuelAmt; // Default rate for manual updates
+                    existingFuel.rate = (existingFuel.quantity || 1) > 0 ? Number((newFuelAmt / (existingFuel.quantity || 1)).toFixed(2)) : 100; // Recalculate rate correctly
                     existingFuel.date = attendance.date ? new Date(attendance.date) : existingFuel.date;
                     await existingFuel.save();
                 } else {
@@ -5017,8 +5047,8 @@ const updateAttendance = asyncHandler(async (req, res) => {
                         fuelType: 'Diesel',
                         date: attendance.date ? new Date(attendance.date) : new Date(),
                         amount: newFuelAmt,
-                        quantity: 1,
-                        rate: newFuelAmt,
+                        quantity: Number(newFuelAmt) / 100, // Estimate instead of 1L
+                        rate: 100,
                         odometer: attendance.punchIn?.km || 0,
                         driver: driverDoc?.name || 'Unknown',
                         createdBy: req.user._id,
@@ -5211,7 +5241,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             // Apply wage only ONCE per day (first duty of the day)
             let wage = 0;
             if (!wageUsed.has(att.date)) {
-                wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 500;
+                wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 0;
                 wageUsed.add(att.date);
             }
 
@@ -5535,9 +5565,9 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const driversInAttendance = attendanceToday
         .map(a => a.driver)
         .filter(d => d && !liveDriversFeed.some(df => df._id.toString() === d._id.toString()));
-    
+
     const combinedDrivers = [...liveDriversFeed, ...driversInAttendance];
-    
+
     const mappedDrivers = combinedDrivers.map(driver => {
         const atts = attendanceToday.filter(a => a.driver?._id?.toString() === driver._id.toString());
         let status = 'Absent';
