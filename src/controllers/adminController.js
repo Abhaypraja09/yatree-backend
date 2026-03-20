@@ -1598,10 +1598,48 @@ const deleteAttendance = asyncHandler(async (req, res) => {
             await User.findByIdAndUpdate(attendance.driver, { tripStatus: 'approved' });
         }
 
-        // Delete linked parking entry if it exists
+        // 1. Delete linked parking entries (by direct link)
         await Parking.deleteMany({ attendanceId: attendance._id });
 
+        // 2. Delete linked fuel entries (by direct link)
+        await Fuel.deleteMany({ attendance: attendance._id });
+
+        // 3. BROAD SWEEP (Deeper Deletion):
+        // Deleting all related entries for the same driver, vehicle, and date to ensure clean state
+        const targetDate = attendance.date; // format YYYY-MM-DD
+        const startDay = new Date(`${targetDate}T00:00:00.000Z`);
+        const endDay = new Date(`${targetDate}T23:59:59.999Z`);
         const vehicleId = attendance.vehicle;
+        const driverId = attendance.driver;
+
+        // Delete Parking by Date/Vehicle/Driver (for stray entries)
+        await Parking.deleteMany({
+            company: attendance.company,
+            driverId: driverId,
+            vehicle: vehicleId,
+            date: { $gte: startDay, $lte: endDay }
+        });
+
+        // Delete Fuel by Date/Vehicle/Driver (for stray entries)
+        await Fuel.deleteMany({
+            company: attendance.company,
+            vehicle: vehicleId,
+            date: { $gte: startDay, $lte: endDay }
+        });
+
+        // Delete Advances for that driver on that day (common freelancers workflow)
+        await Advance.deleteMany({
+            company: attendance.company,
+            driver: driverId,
+            date: { $gte: startDay, $lte: endDay }
+        });
+
+        // Delete Border Tax for that day/vehicle
+        await BorderTax.deleteMany({
+            company: attendance.company,
+            vehicle: vehicleId,
+            date: targetDate
+        });
 
         await Attendance.deleteOne({ _id: attendance._id });
 
@@ -1638,6 +1676,34 @@ const deleteVehicle = asyncHandler(async (req, res) => {
         if (vehicle.currentDriver) {
             await User.findByIdAndUpdate(vehicle.currentDriver, { assignedVehicle: null });
         }
+        // If it's an outside car duty voucher, also clean up associated stray entries
+        if (vehicle.isOutsideCar) {
+            const dateSuffix = vehicle.carNumber?.split('#')?.[1]; // e.g., 2023-10-27
+            if (dateSuffix) {
+                const startDay = new Date(`${dateSuffix}T00:00:00.000Z`);
+                const endDay = new Date(`${dateSuffix}T23:59:59.999Z`);
+                
+                await Parking.deleteMany({
+                    company: vehicle.company,
+                    vehicle: vehicle._id,
+                    date: { $gte: startDay, $lte: endDay }
+                });
+                
+                await Fuel.deleteMany({
+                    company: vehicle.company,
+                    vehicle: vehicle._id,
+                    date: { $gte: startDay, $lte: endDay }
+                });
+
+                // Delete Border Tax
+                await BorderTax.deleteMany({
+                    company: vehicle.company,
+                    vehicle: vehicle._id,
+                    date: dateSuffix
+                });
+            }
+        }
+
         await Vehicle.deleteOne({ _id: vehicle._id });
         // Clear dashboard cache on mutation
         DASHBOARD_CACHE.clear();
