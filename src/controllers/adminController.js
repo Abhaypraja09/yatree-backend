@@ -15,6 +15,7 @@ const AccidentLog = require('../models/AccidentLog');
 const PartsWarranty = require('../models/PartsWarranty');
 const LeaveRequest = require('../models/LeaveRequest');
 const Event = require('../models/Event');
+const Loan = require('../models/Loan');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -3602,7 +3603,7 @@ const getPendingParkingExpenses = asyncHandler(async (req, res) => {
                         attendanceId: doc._id,
                         driver: doc.driver?.name || 'Unknown',
                         carNumber: doc.vehicle?.carNumber || 'N/A',
-                        date: doc.date
+                        date: exp.createdAt || doc.date
                     });
                 }
             });
@@ -3643,7 +3644,7 @@ const getPendingMaintenanceExpenses = asyncHandler(async (req, res) => {
                         attendanceId: doc._id,
                         driver: doc.driver?.name || 'Unknown',
                         carNumber: doc.vehicle?.carNumber || 'N/A',
-                        date: doc.date
+                        date: exp.createdAt || doc.date
                     });
                 }
             });
@@ -4041,11 +4042,12 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
     };
 
-    const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances] = await Promise.all([
+    const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances, allLoans] = await Promise.all([
         Attendance.find(attendanceQuery).lean(),
         Advance.find(advanceQuery).lean(),
         Parking.find(parkingQuery).lean(),
-        Advance.find(allTimeAdvanceQuery).lean()
+        Advance.find(allTimeAdvanceQuery).lean(),
+        Loan.find({ company: companyId }).lean()
     ]);
 
     // Grouping records by driver for efficient lookup
@@ -4081,6 +4083,14 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             if (!parkingByDriver.has(dId)) parkingByDriver.set(dId, []);
             parkingByDriver.get(dId).push(p);
         }
+    });
+
+    const loansByDriver = new Map();
+    allLoans.forEach(l => {
+        if (!l.driver) return;
+        const dId = l.driver.toString();
+        if (!loansByDriver.has(dId)) loansByDriver.set(dId, []);
+        loansByDriver.get(dId).push(l);
     });
 
     // 4. Summarize each driver
@@ -4140,6 +4150,26 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             const allTimeRecovered = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
             const pendingAdvance = allTimeGiven - allTimeRecovered;
 
+            // Loan/EMI calculation
+            const driverLoans = loansByDriver.get(dId) || [];
+            let totalEMIDeducted = 0;
+            let activeLoansInfo = [];
+
+            driverLoans.forEach(loan => {
+                if (loan.status === 'Active' && loan.remainingAmount > 0) {
+                    // Check if EMI is already paid for THIS month/year
+                    const repayment = (loan.repayments || []).find(r => r.month === parseInt(month) && r.year === parseInt(year));
+                    if (repayment) {
+                        totalEMIDeducted += repayment.amount;
+                        activeLoansInfo.push({ loanId: loan._id, emi: repayment.amount, isPaid: true });
+                    } else {
+                        // Project the EMI if not paid but it's an active loan
+                        totalEMIDeducted += loan.monthlyEMI;
+                        activeLoansInfo.push({ loanId: loan._id, emi: loan.monthlyEMI, isPaid: false });
+                    }
+                }
+            });
+
             // Aggregator recalculation for cleaner summary
             let totalWages = 0;
             let totalBonuses = 0;
@@ -4161,7 +4191,9 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 totalAdvances: totalAdvancesThisMonth,
                 totalRecovered: totalRecoveredThisMonth,
                 pendingAdvance,
-                netPayable: totalCalculatedEarnings - totalAdvancesThisMonth,
+                totalEMI: totalEMIDeducted,
+                activeLoans: activeLoansInfo,
+                netPayable: totalCalculatedEarnings - totalAdvancesThisMonth - totalEMIDeducted,
                 workingDays: datesProcessed.size,
                 nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
                 sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
@@ -5675,6 +5707,67 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     res.json(finalResponse);
 });
 
+const getAllLoans = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const loans = await Loan.find({ company: companyId }).populate('driver', 'name mobile').sort({ createdAt: -1 });
+    res.json(loans);
+});
+
+const createLoan = asyncHandler(async (req, res) => {
+    const { driverId, companyId, totalAmount, monthlyEMI, startDate, remarks } = req.body;
+    const loan = new Loan({
+        driver: driverId,
+        company: companyId,
+        totalAmount: Number(totalAmount),
+        monthlyEMI: Number(monthlyEMI),
+        remainingAmount: Number(totalAmount),
+        startDate: startDate || new Date(),
+        remarks,
+        createdBy: req.user._id
+    });
+    await loan.save();
+    res.status(201).json(loan);
+});
+
+const updateLoan = asyncHandler(async (req, res) => {
+    const { totalAmount, monthlyEMI, status, remarks, remainingAmount } = req.body;
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (totalAmount !== undefined) loan.totalAmount = Number(totalAmount);
+    if (monthlyEMI !== undefined) loan.monthlyEMI = Number(monthlyEMI);
+    if (remainingAmount !== undefined) loan.remainingAmount = Number(remainingAmount);
+    if (status) loan.status = status;
+    if (remarks) loan.remarks = remarks;
+
+    await loan.save();
+    res.json(loan);
+});
+
+const deleteLoan = asyncHandler(async (req, res) => {
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+    await loan.deleteOne();
+    res.json({ message: 'Loan removed' });
+});
+
+const recordLoanRepayment = asyncHandler(async (req, res) => {
+    const { loanId, month, year, amount } = req.body;
+    const loan = await Loan.findById(loanId);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    // Deduct from remaining
+    loan.remainingAmount -= Number(amount);
+    if (loan.remainingAmount <= 0) {
+        loan.remainingAmount = 0;
+        loan.status = 'Completed';
+    }
+
+    loan.repayments.push({ month: Number(month), year: Number(year), amount: Number(amount) });
+    await loan.save();
+    res.json(loan);
+});
+
 module.exports = {
     createDriver,
     createVehicle,
@@ -5747,4 +5840,9 @@ module.exports = {
     addBackdatedAttendance,
     deleteStaffAttendance,
     addPendingExpenseFromAdmin,
+    getAllLoans,
+    createLoan,
+    updateLoan,
+    deleteLoan,
+    recordLoanRepayment
 };

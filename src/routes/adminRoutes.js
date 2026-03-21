@@ -71,7 +71,12 @@ const {
     deleteStaffAttendance,
     addPendingExpenseFromAdmin,
     getPendingMaintenanceExpenses,
-    getLiveFeed
+    getLiveFeed,
+    getAllLoans,
+    createLoan,
+    updateLoan,
+    deleteLoan,
+    recordLoanRepayment
 } = require('../controllers/adminController');
 const {
     createEvent,
@@ -173,6 +178,13 @@ router.put('/advances/:id', adminOrExecutive, updateAdvance);
 router.delete('/advances/:id', adminOrExecutive, deleteAdvance);
 router.get('/salary-summary/:companyId', adminOrExecutive, getDriverSalarySummary);
 router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails);
+
+// Loan Management
+router.get('/loans/:companyId', adminOrExecutive, getAllLoans);
+router.post('/loans', adminOrExecutive, createLoan);
+router.put('/loans/:id', adminOrExecutive, updateLoan);
+router.delete('/loans/:id', adminOrExecutive, deleteLoan);
+router.post('/loans/repayment', adminOrExecutive, recordLoanRepayment);
 
 // Executive Management (Super Admin only)
 router.get('/executives', admin, getAllExecutives);

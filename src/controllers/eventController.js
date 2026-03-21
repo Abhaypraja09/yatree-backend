@@ -98,8 +98,8 @@ const getEvents = asyncHandler(async (req, res) => {
             $addFields: {
                 externalCount: { $size: '$externalRecords' },
                 fleetCount: { $add: [ { $size: '$attendanceRecords' }, { $size: '$fleetManualRecords' } ] },
-                // Expense is strictly what we pay to external/market cars
-                totalExpense: { $sum: '$externalRecords.dutyAmount' }
+                // Calculate Total Operational Revenue from ALL manual duty entries (fleet and external)
+                totalRevenue: { $sum: '$manualRecords.dutyAmount' }
             }
         },
         { $project: { manualRecords: 0, attendanceRecords: 0, externalRecords: 0, fleetManualRecords: 0 } },
@@ -146,12 +146,12 @@ const getEventDetails = asyncHandler(async (req, res) => {
         ...manualFleetDuties.map(d => ({ ...d.toObject(), isAttendance: false }))
     ].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
 
-    const totalExpense = externalDuties.reduce((sum, r) => sum + (r.dutyAmount || 0), 0);
+    const totalRevenue = allManualDuties.reduce((sum, r) => sum + (r.dutyAmount || 0), 0);
 
     res.json({
         event: {
             ...event.toObject(),
-            totalExpense,
+            totalRevenue,
             fleetCount: combinedFleetDuties.length,
             externalCount: externalDuties.length
         },
