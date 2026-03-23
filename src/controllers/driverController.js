@@ -114,8 +114,8 @@ const getDriverDashboard = async (req, res) => {
             mobile: driver.mobile,
             company: driver.company,
             tripStatus: effectiveStatus,
-            nightStayBonus: driver.nightStayBonus !== undefined ? driver.nightStayBonus : 500,
-            sameDayReturnBonus: driver.sameDayReturnBonus !== undefined ? driver.sameDayReturnBonus : 100
+            nightStayBonus: driver.nightStayBonus !== undefined ? driver.nightStayBonus : 0,
+            sameDayReturnBonus: driver.sameDayReturnBonus !== undefined ? driver.sameDayReturnBonus : 0
         },
         vehicle: (attendance?.status === 'incomplete' ? attendance.vehicle : null) || driver.assignedVehicle || null,
         availableVehicles,
@@ -275,7 +275,7 @@ const punchOut = async (req, res) => {
                 calcTA = driver.sameDayReturnBonus || 100;
             }
             if (types.some(t => t.includes('night') || t.includes('stay'))) {
-                calcNight = driver.nightStayBonus || 500;
+                calcNight = driver.nightStayBonus || 0;
             }
         }
 
@@ -368,7 +368,7 @@ const punchOut = async (req, res) => {
 
         const tripTypes = (outsideTripType || '').split(',');
         const allowanceTAAmount = tripTypes.includes('Same Day') ? (driver.sameDayReturnBonus !== undefined ? driver.sameDayReturnBonus : 100) : 0;
-        const nightStayAmount = tripTypes.includes('Night Stay') ? (driver.nightStayBonus !== undefined ? driver.nightStayBonus : 500) : 0;
+        const nightStayAmount = tripTypes.includes('Night Stay') ? (driver.nightStayBonus !== undefined ? driver.nightStayBonus : 0) : 0;
 
         attendance.punchOut.allowanceTA = allowanceTAAmount;
         attendance.punchOut.nightStayAmount = nightStayAmount;

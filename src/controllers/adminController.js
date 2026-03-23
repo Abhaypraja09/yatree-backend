@@ -850,15 +850,27 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     attendanceToday.forEach(att => {
         if (att.driver) {
             const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
-            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Number(att.driver.salary) : 0) || 500;
+            // Use same logic as Reports.jsx: Base wage once, sum all bonuses and self-paid parking
+            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
             const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
             const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
             const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
+            const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
 
             if (att.driver.isFreelancer === true || att.isFreelancer === true) {
-                if (!freelancerWorkedDriversMap.has(driverId)) freelancerWorkedDriversMap.set(driverId, wage + bonuses);
+                if (!freelancerWorkedDriversMap.has(driverId)) {
+                    freelancerWorkedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
+                } else {
+                    const current = freelancerWorkedDriversMap.get(driverId);
+                    freelancerWorkedDriversMap.set(driverId, { w: current.w, b: current.b + bonuses, p: current.p + parking });
+                }
             } else {
-                if (!workedDriversMap.has(driverId)) workedDriversMap.set(driverId, wage + bonuses);
+                if (!workedDriversMap.has(driverId)) {
+                    workedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
+                } else {
+                    const current = workedDriversMap.get(driverId);
+                    workedDriversMap.set(driverId, { w: current.w, b: current.b + bonuses, p: current.p + parking });
+                }
             }
         }
     });
@@ -1683,13 +1695,13 @@ const deleteVehicle = asyncHandler(async (req, res) => {
             if (dateSuffix) {
                 const startDay = new Date(`${dateSuffix}T00:00:00.000Z`);
                 const endDay = new Date(`${dateSuffix}T23:59:59.999Z`);
-                
+
                 await Parking.deleteMany({
                     company: vehicle.company,
                     vehicle: vehicle._id,
                     date: { $gte: startDay, $lte: endDay }
                 });
-                
+
                 await Fuel.deleteMany({
                     company: vehicle.company,
                     vehicle: vehicle._id,
@@ -1862,12 +1874,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendance = await Attendance.find(query)
-        .populate('driver', 'name mobile isFreelancer')
+        .populate('driver', 'name mobile isFreelancer salary dailyWage')
         .populate('vehicle', 'carNumber model isOutsideCar carType dutyAmount fastagNumber fastagBalance')
         .sort({ date: -1, createdAt: -1 })
         .lean();
 
-    const attendance = rawAttendance.map(a => ({
+    const enrichedAttendanceBasic = rawAttendance.map(a => ({
         ...a,
         isFreelancer: a.isFreelancer || a.driver?.isFreelancer || false,
         isOutsideCar: a.vehicle?.isOutsideCar || false, // Pass this to UI
@@ -1984,7 +1996,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         parkingByVehicleDate.get(key).push(p);
     });
 
-    const enrichedAttendance = attendance.map(a => {
+    const enrichedAttendance = enrichedAttendanceBasic.map(a => {
         const attendanceId = String(a._id || '');
         const vId = String(a.vehicle?._id || a.vehicle || '');
         const attDate = a.date instanceof Date ? a.date.toISOString().split('T')[0] : String(a.date);
@@ -2002,8 +2014,15 @@ const getDailyReports = asyncHandler(async (req, res) => {
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
         const totalParking = parkingFromCollection > 0 ? parkingFromCollection : existingParking;
 
+        // Apply salary fallback logic here so reports match Driver Salaries page
+        let finalDailyWage = Number(a.dailyWage) || 0;
+        if (!finalDailyWage && a.driver) {
+            finalDailyWage = (a.driver.dailyWage ? Number(a.driver.dailyWage) : 0) || (a.driver.salary ? Math.round(Number(a.driver.salary) / 26) : 0) || 500;
+        }
+
         return {
             ...a,
+            dailyWage: finalDailyWage,
             fuel: {
                 ...(a.fuel || {}),
                 amount: totalFuel,
@@ -5679,13 +5698,48 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         return true; // Always show regular drivers
     });
 
+    // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Dashboard)
+    const workedDriversMap = new Map();
+    const freelancerWorkedDriversMap = new Map();
+
+    attendanceToday.forEach(att => {
+        if (att.driver) {
+            const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
+            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
+            const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+            const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+            const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
+            const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
+
+            if (att.driver.isFreelancer === true || att.isFreelancer === true) {
+                if (!freelancerWorkedDriversMap.has(driverId)) {
+                    freelancerWorkedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
+                } else {
+                    const cur = freelancerWorkedDriversMap.get(driverId);
+                    freelancerWorkedDriversMap.set(driverId, { w: cur.w, b: cur.b + bonuses, p: cur.p + parking });
+                }
+            } else {
+                if (!workedDriversMap.has(driverId)) {
+                    workedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
+                } else {
+                    const cur = workedDriversMap.get(driverId);
+                    workedDriversMap.set(driverId, { w: cur.w, b: cur.b + bonuses, p: cur.p + parking });
+                }
+            }
+        }
+    });
+
+    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
+    const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
+
     const liveVehiclesFeed = allVehicles.map(v => {
         const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === v._id.toString());
         const hasActive = vehicleAtts.some(a => a.status === 'incomplete');
+        const wasUsedToday = vehicleAtts.length > 0;
 
         return {
             ...v,
-            status: hasActive ? 'In Use' : 'Idle',
+            status: hasActive ? 'In Use' : (wasUsedToday ? 'Used' : 'Idle'),
             attendances: vehicleAtts // Pass full attendance array for the UI to render driver names
         };
     });
@@ -5695,6 +5749,11 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         totalVehicles,
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
+        dailyStats: {
+            regularSalary: dailySalaryTotal,
+            freelancerSalary: dailyFreelancerSalaryTotal,
+            grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal
+        },
         liveDriversFeed: mappedDrivers,
         liveVehiclesFeed,
         dailyFuelEntries: fuelEntriesToday,
