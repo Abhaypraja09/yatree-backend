@@ -3163,14 +3163,13 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
 
-            // Strictly check for Wash, Puncture, Tissue, Water
             const isWash = cat.includes('wash') || desc.includes('wash');
             const isPuncture = cat.includes('punc') || desc.includes('punc');
             const isTissue = cat.includes('tissue') || desc.includes('tissue');
             const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
                 (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
-
-            return isWash || isPuncture || isTissue || isWater;
+            const isOtherService = (r.maintenanceType || '') === 'Driver Services';
+            return isWash || isPuncture || isTissue || isWater || isOtherService;
         });
     } else {
         // Exclude driver services from the main maintenance view

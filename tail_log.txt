@@ -1,50 +1,100 @@
-﻿[2026-02-24T09:14:20.125Z] Password matched
-[2026-02-24T09:36:37.398Z] CRON: Cron Jobs Initialized
-[2026-02-24T09:50:08.534Z] CRON: Cron Jobs Initialized
-[2026-02-24T09:53:02.538Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:05:23.573Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:14:27.036Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:22:26.297Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:49:42.619Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:50:14.240Z] CRON: Cron Jobs Initialized
-[2026-02-24T10:56:43.465Z] CRON: Cron Jobs Initialized
-[2026-02-24T11:00:09.877Z] CRON: Cron Jobs Initialized
-[2026-02-24T11:07:40.801Z] CRON: Cron Jobs Initialized
-[2026-02-24T11:17:38.339Z] CRON: Cron Jobs Initialized
-[2026-02-24T11:29:45.116Z] CRON: Cron Jobs Initialized
-[2026-02-24T12:00:17.838Z] CRON: Cron Jobs Initialized
-[2026-02-24T13:02:12.043Z] CRON: Cron Jobs Initialized
-[2026-02-25T04:55:27.064Z] CRON: Cron Jobs Initialized
-[2026-02-25T04:55:56.910Z] Login attempt started
-[2026-02-25T04:55:56.912Z] Login request for: 9999888877
-[2026-02-25T04:55:57.084Z] User found: System Admin (Role: Admin)
-[2026-02-25T04:55:57.262Z] Password matched
-[2026-02-25T05:00:00.763Z] CRON: Starting Daily Warranty Expiry Check
-[2026-02-25T05:00:00.842Z] CRON: Daily warranty expiry check completed. Found 0 alerts.
-[2026-02-25T05:19:51.672Z] CRON: Cron Jobs Initialized
-[2026-02-25T05:39:56.064Z] Login attempt started
-[2026-02-25T05:39:56.074Z] Login request for: admin@fleet.com
-[2026-02-25T05:39:56.097Z] Login failed: User [admin@fleet.com] not found. Tried finding by mobile or username (regex).
-[2026-02-25T05:40:07.878Z] Login attempt started
-[2026-02-25T05:40:07.879Z] Login request for: 9999888877
-[2026-02-25T05:40:07.917Z] User found: System Admin (Role: Admin)
-[2026-02-25T05:40:08.063Z] Password matched
-[2026-02-25T06:11:00.493Z] CRON: Cron Jobs Initialized
-[2026-02-25T06:13:13.053Z] CRON: Cron Jobs Initialized
-[2026-02-25T06:13:26.906Z] Login attempt started
-[2026-02-25T06:13:26.908Z] Login request for: 9999888877
-[2026-02-25T06:13:26.993Z] User found: System Admin (Role: Admin)
-[2026-02-25T06:13:27.121Z] Password matched
-[2026-02-25T06:18:41.722Z] CRON: Cron Jobs Initialized
-[2026-02-25T06:19:08.266Z] CRON: Cron Jobs Initialized
-[2026-02-25T06:19:23.865Z] Login attempt started
-[2026-02-25T06:19:23.867Z] Login request for: Abhay
-[2026-02-25T06:19:23.916Z] User found: Abhay (Role: Driver)
-[2026-02-25T06:19:24.082Z] Password matched
-[2026-02-25T06:19:25.213Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
-[2026-02-25T06:19:25.268Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 5
-[2026-02-25T06:19:25.357Z] DRIVER_CTRL: getDriverDashboard - Final Status: approved, Current Car: RJ-27-TB-1387
-[2026-02-25T06:19:25.501Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
-[2026-02-25T06:19:25.549Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 5
-[2026-02-25T06:19:25.608Z] DRIVER_CTRL: getDriverDashboard - Final Status: approved, Current Car: RJ-27-TB-1387
-[2026-02-25T08:40:16.079Z] CRON: Cron Jobs Initialized
+﻿    at next (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\express\lib\router\index.js:280:10)
+    at next (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\express\lib\router\route.js:141:14)
+    at C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\src\app.js:81:16
+    at Layer.handle [as handle_request] (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\express\lib\router\route.js:149:13)
+[2026-03-21T09:06:40.544Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:05:20.838Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:12:42.362Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:31:54.160Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:38:06.067Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:38:24.097Z] CRON: Cron Jobs Initialized
+[2026-03-21T10:41:57.149Z] CRON: Cron Jobs Initialized
+[2026-03-21T11:12:04.967Z] CRON: Cron Jobs Initialized
+[2026-03-21T11:31:15.137Z] CRON: Cron Jobs Initialized
+[2026-03-21T11:32:59.105Z] CRON: Cron Jobs Initialized
+[2026-03-21T11:39:00.809Z] CRON: Cron Jobs Initialized
+[2026-03-21T12:32:46.608Z] CRON: Cron Jobs Initialized
+[2026-03-23T04:22:47.259Z] CRON: Cron Jobs Initialized
+[2026-03-23T04:23:10.495Z] Login attempt started
+[2026-03-23T04:23:10.495Z] Login request for: 9999888877
+[2026-03-23T04:23:10.570Z] User found: System Admin (Role: Admin)
+[2026-03-23T04:23:10.661Z] Password matched
+[2026-03-23T04:30:00.489Z] CRON: Starting Daily Document Expiry Check (30, 7, 1 days advance)
+[2026-03-23T04:30:00.601Z] CRON: Daily document expiry check completed.
+[2026-03-23T04:43:51.155Z] DEBUG: [FREELANCER_PUNCH_IN] Triggered for Driver: 69b91500f317f9906f6b00af, Vehicle: 6993111da5a80aa58c682b04, Time: 2026-03-23T10:13:00+05:30
+[2026-03-23T04:43:51.657Z] DEBUG: [FREELANCER_PUNCH_IN] Attendance record saved: 69c0c5071863b458ddf8a1de
+[2026-03-23T04:43:51.661Z] DEBUG: [FREELANCER_PUNCH_IN] Updating Driver Abhay: TripStatus approved -> active
+[2026-03-23T04:43:51.743Z] DEBUG: [FREELANCER_PUNCH_IN] Driver saved successfully. New Status: active
+[2026-03-23T04:43:51.745Z] DEBUG: [FREELANCER_PUNCH_IN] Assigning vehicle RJ-27-TA-6110 to driver 69b91500f317f9906f6b00af
+[2026-03-23T04:43:51.786Z] DEBUG: [FREELANCER_PUNCH_IN] Vehicle saved successfully.
+[2026-03-23T04:44:22.643Z] DEBUG: [FREELANCER_PUNCH_IN] Triggered for Driver: 69b91500f317f9906f6b00af, Vehicle: 6993111da5a80aa58c682b04, Time: 2026-03-23T06:30:00+05:30
+[2026-03-23T04:44:23.041Z] DEBUG: [FREELANCER_PUNCH_IN] Attendance record saved: 69c0c5261863b458ddf8a339
+[2026-03-23T04:44:23.042Z] DEBUG: [FREELANCER_PUNCH_IN] Updating Driver Abhay: TripStatus approved -> active
+[2026-03-23T04:44:23.190Z] DEBUG: [FREELANCER_PUNCH_IN] Driver saved successfully. New Status: active
+[2026-03-23T04:44:23.192Z] DEBUG: [FREELANCER_PUNCH_IN] Assigning vehicle RJ-27-TA-6110 to driver 69b91500f317f9906f6b00af
+[2026-03-23T04:44:23.275Z] DEBUG: [FREELANCER_PUNCH_IN] Vehicle saved successfully.
+[2026-03-23T05:00:00.222Z] CRON: Starting Daily Warranty Expiry Check
+[2026-03-23T05:00:01.940Z] CRON: Daily warranty expiry check completed. Found 0 alerts.
+[2026-03-23T05:03:22.816Z] CRON: Cron Jobs Initialized
+[2026-03-23T05:16:18.325Z] CRON: Cron Jobs Initialized
+[2026-03-23T05:19:34.087Z] CRON: Cron Jobs Initialized
+[2026-03-23T05:50:47.982Z] CRON: Cron Jobs Initialized
+[2026-03-23T06:08:55.266Z] CRON: Cron Jobs Initialized
+[2026-03-23T06:16:54.583Z] Login attempt started
+[2026-03-23T06:16:54.585Z] Login request for: Abhay
+[2026-03-23T06:16:54.676Z] User found: Abhay (Role: Driver)
+[2026-03-23T06:16:54.842Z] Password matched
+[2026-03-23T06:16:55.282Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:16:55.371Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:16:55.501Z] DRIVER_CTRL: getDriverDashboard - Final Status: approved, Current Car: RJ-27-PB-5054
+[2026-03-23T06:17:28.230Z] DRIVER_CTRL: PunchIn - Start - KM: 123456, Vehicle: 6982f51f508a22188c61894c
+[2026-03-23T06:17:28.647Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:17:28.716Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:17:28.777Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-1370
+[2026-03-23T06:17:40.238Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:17:40.443Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:17:40.646Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-1370
+[2026-03-23T06:23:39.564Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:23:39.765Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:23:39.969Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-1370
+[2026-03-23T06:23:48.291Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:23:48.350Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:23:48.410Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-1370
+[2026-03-23T06:26:09.270Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:26:09.476Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:26:09.688Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-1370
+[2026-03-23T06:26:59.504Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:26:59.598Z] DRIVER_CTRL: getDriverDashboard - User: 698b03eb6bd90f103e7c9abc, Comp: 6982e8b7d0b069a49db197b9, Found: 3
+[2026-03-23T06:26:59.762Z] DRIVER_CTRL: getDriverDashboard - Final Status: completed, Current Car: RJ-27-TB-1370
+[2026-03-23T06:27:15.627Z] Login attempt started
+[2026-03-23T06:27:15.629Z] Login request for: 9999888877
+[2026-03-23T06:27:15.810Z] User found: System Admin (Role: Admin)
+[2026-03-23T06:27:15.937Z] Password matched
+[2026-03-23T06:47:52.339Z] Login attempt started
+[2026-03-23T06:47:52.341Z] Login request for: Gopal123
+[2026-03-23T06:47:52.579Z] User found: Gopal Audichiy (Role: Driver)
+[2026-03-23T06:47:52.702Z] Password matched
+[2026-03-23T06:47:53.824Z] DRIVER_CTRL: getDriverDashboard - User: 6993463109a83283ae7365ae, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:47:53.898Z] DRIVER_CTRL: getDriverDashboard - User: 6993463109a83283ae7365ae, Comp: 6982e8b7d0b069a49db197b9, Found: 4
+[2026-03-23T06:47:54.122Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-7020
+[2026-03-23T06:49:00.253Z] DRIVER_CTRL: getDriverDashboard - User: 6993463109a83283ae7365ae, Company: 6982e8b7d0b069a49db197b9
+[2026-03-23T06:49:00.288Z] DRIVER_CTRL: getDriverDashboard - User: 6993463109a83283ae7365ae, Comp: 6982e8b7d0b069a49db197b9, Found: 4
+[2026-03-23T06:49:00.354Z] DRIVER_CTRL: getDriverDashboard - Final Status: active, Current Car: RJ-27-TB-7020
+[2026-03-23T06:49:56.095Z] Login attempt started
+[2026-03-23T06:49:56.096Z] Login request for: 9999888877
+[2026-03-23T06:49:56.304Z] User found: System Admin (Role: Admin)
+[2026-03-23T06:49:56.441Z] Password matched
+[2026-03-23T07:05:53.483Z] CRON: Cron Jobs Initialized
+[2026-03-23T07:06:37.922Z] GLOBAL_ERROR: Attendance validation failed: pendingExpenses.0.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`., pendingExpenses.1.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`. - Stack: ValidationError: Attendance validation failed: pendingExpenses.0.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`., pendingExpenses.1.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`.
+    at Document.invalidate (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\document.js:3381:32)
+    at Subdocument.invalidate (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\types\subdocument.js:257:12)
+    at C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\document.js:3142:17
+    at C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\schemaType.js:1446:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+[2026-03-23T07:06:42.275Z] GLOBAL_ERROR: Attendance validation failed: pendingExpenses.0.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`., pendingExpenses.1.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`. - Stack: ValidationError: Attendance validation failed: pendingExpenses.0.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`., pendingExpenses.1.paymentSource: `Yatree Office` is not a valid enum value for path `paymentSource`.
+    at Document.invalidate (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\document.js:3381:32)
+    at Subdocument.invalidate (C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\types\subdocument.js:257:12)
+    at C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\document.js:3142:17
+    at C:\Users\ABHAY\OneDrive\Desktop\TEXI\taxi-fleet-crm\backend\node_modules\mongoose\lib\schemaType.js:1446:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
