@@ -25,6 +25,7 @@ const {
     freelancerPunchIn,
     freelancerPunchOut,
     deleteBorderTax,
+    updateBorderTax,
     addMaintenanceRecord,
     getMaintenanceRecords,
     deleteMaintenanceRecord,
@@ -155,6 +156,7 @@ router.patch('/attendance/:attendanceId/expense/:expenseId', adminOrExecutive, a
 
 router.post('/border-tax', adminOrExecutive, upload.single('receiptPhoto'), addBorderTax);
 router.get('/border-tax/:companyId', adminOrExecutive, getBorderTaxEntries);
+router.put('/border-tax/:id', adminOrExecutive, upload.single('receiptPhoto'), updateBorderTax);
 router.delete('/border-tax/:id', adminOrExecutive, deleteBorderTax);
 
 router.post('/fuel', adminOrExecutive, addFuelEntry);

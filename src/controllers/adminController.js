@@ -1931,7 +1931,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
     if (startDate && endDate) {
         fuelQueryForAttendance.date = { $gte: startDate, $lte: endDate };
     } else if (date) {
-        fuelQueryForAttendance.date = { $gte: new Date(`${date}T00:00:00`), $lte: new Date(`${date}T23:59:59`) };
+        fuelQueryForAttendance.date = { $gte: DateTime.fromISO(`${date}`, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate(), $lte: DateTime.fromISO(`${date}`, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate() };
     }
     const allFuelForAttendance = await Fuel.find(fuelQueryForAttendance).populate('vehicle', 'carNumber').lean();
 
@@ -1945,7 +1945,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
     if (startDate && endDate) {
         parkingQueryForAttendance.date = { $gte: startDate, $lte: endDate };
     } else if (date) {
-        parkingQueryForAttendance.date = { $gte: new Date(`${date}T00:00:00`), $lte: new Date(`${date}T23:59:59`) };
+        parkingQueryForAttendance.date = { $gte: DateTime.fromISO(`${date}`, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate(), $lte: DateTime.fromISO(`${date}`, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate() };
     }
     const allParkingForAttendance = await Parking.find({
         ...parkingQueryForAttendance,
@@ -2560,7 +2560,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
                     odometer: km || 0,
                     stationName: 'Freelancer Entry',
                     paymentMode: 'Cash',
-                    paymentSource: 'Yatree Office',
+                    paymentSource: 'Office',
                     driver: driver.name,
                     source: 'Admin',
                     attendance: attendance._id,
@@ -2663,7 +2663,7 @@ const adminPunchIn = asyncHandler(async (req, res) => {
         dailyWage: driver.dailyWage || 0,
         punchIn: {
             km: Number(km) || 0,
-            time: time ? new Date(time) : new Date(),
+            time: time ? DateTime.fromISO(time, { zone: 'Asia/Kolkata' }).toJSDate() : new Date(),
         },
         pickUpLocation: pickUpLocation || 'Office',
         status: 'incomplete'
@@ -2738,7 +2738,7 @@ const adminPunchOut = asyncHandler(async (req, res) => {
 
     attendance.punchOut = {
         km: Number(km) || 0,
-        time: time ? new Date(time) : new Date(),
+        time: time ? DateTime.fromISO(time, { zone: 'Asia/Kolkata' }).toJSDate() : new Date(),
         otherRemarks: review || '',
         tollParkingAmount: Number(parkingAmount) || 0,
         parkingPaidBy: parkingPaidBy || 'Self'
@@ -2748,7 +2748,7 @@ const adminPunchOut = asyncHandler(async (req, res) => {
         attendance.fuel = {
             filled: true,
             amount: Number(fuelAmount) || 0,
-            entries: [{ amount: Number(fuelAmount), paymentSource: 'Yatree Office' }]
+            entries: [{ amount: Number(fuelAmount), paymentSource: 'Office' }]
         };
     }
 
@@ -3156,7 +3156,7 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             }
         });
     });
-    let combined = [...mainRecords, ...mappedParking, ...mappedPending];
+    let combined = [...mainRecords, ...mappedParking];
 
     if (requestType === 'driver_services') {
         combined = combined.filter(r => {
@@ -3402,7 +3402,7 @@ const addFuelEntry = asyncHandler(async (req, res) => {
         odometer: Number(odometer),
         stationName,
         paymentMode,
-        paymentSource: paymentSource || 'Yatree Office',
+        paymentSource: paymentSource || 'Office',
         driver,
         slipPhoto,
         createdBy: req.user._id
@@ -3425,7 +3425,7 @@ const addFuelEntry = asyncHandler(async (req, res) => {
                     amount: Number(amount),
                     km: Number(odometer),
                     fuelType: fuelType,
-                    paymentSource: paymentSource || 'Yatree Office'
+                    paymentSource: paymentSource || 'Office'
                 });
                 attendance.fuel.amount = (attendance.fuel.amount || 0) + Number(amount);
                 await attendance.save();
@@ -3558,7 +3558,7 @@ const getPendingFuelExpenses = asyncHandler(async (req, res) => {
                         rate: exp.rate, // Pass Rate if available
                         km: exp.km,
                         fuelType: exp.fuelType || 'Diesel',
-                        paymentSource: exp.paymentSource || 'Yatree Office',
+                        paymentSource: exp.paymentSource || 'Office',
                         slipPhoto: exp.slipPhoto,
                         status: 'pending'
                     });
@@ -3745,13 +3745,13 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
             const finalSlipPhoto = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
 
             // Sanitize paymentSource — driver app may send 'Guest' but model requires 'Guest / Client'
-            const validPaymentSources = ['Yatree Office', 'Guest / Client'];
-            const rawPaymentSource = expense.paymentSource || 'Yatree Office';
+            const validPaymentSources = ['Office', 'Guest / Client'];
+            const rawPaymentSource = expense.paymentSource || 'Office';
             const finalPaymentSource = validPaymentSources.includes(rawPaymentSource)
                 ? rawPaymentSource
                 : rawPaymentSource.toLowerCase().includes('guest')
                     ? 'Guest / Client'
-                    : 'Yatree Office';
+                    : 'Office';
 
             console.log(`[approveRejectExpense] Creating fuel entry: vehicleId=${vehicleId}, amount=${finalAmount}, qty=${finalQuantity}, rate=${finalRate}, odometer=${finalOdometer}, paymentSource=${finalPaymentSource}`);
 
@@ -5052,7 +5052,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
         attendance.markModified('punchIn');
     }
     if (punchInTime !== undefined) {
-        attendance.punchIn.time = punchInTime ? new Date(punchInTime) : undefined;
+        attendance.punchIn.time = punchInTime ? DateTime.fromISO(punchInTime, { zone: 'Asia/Kolkata' }).toJSDate() : undefined;
         attendance.markModified('punchIn');
     }
 
@@ -5063,7 +5063,7 @@ const updateAttendance = asyncHandler(async (req, res) => {
         attendance.markModified('punchOut');
     }
     if (punchOutTime !== undefined) {
-        attendance.punchOut.time = punchOutTime ? new Date(punchOutTime) : undefined;
+        attendance.punchOut.time = punchOutTime ? DateTime.fromISO(punchOutTime, { zone: 'Asia/Kolkata' }).toJSDate() : undefined;
         attendance.markModified('punchOut');
     }
     if (remarks !== undefined) {
@@ -5614,7 +5614,7 @@ const addPendingExpenseFromAdmin = asyncHandler(async (req, res) => {
         rate: rate ? Number(rate) : 0,
         km: odometer ? Number(odometer) : 0,
         slipPhoto: slipPhoto || null,
-        paymentSource: paymentSource || 'Yatree Office',
+        paymentSource: paymentSource || 'Office',
         status: 'pending'
     });
 
@@ -5768,6 +5768,23 @@ const recordLoanRepayment = asyncHandler(async (req, res) => {
     res.json(loan);
 });
 
+const updateBorderTax = asyncHandler(async (req, res) => {
+    const { amount, borderName, date, remarks, driverId } = req.body;
+    const entry = await BorderTax.findById(req.params.id);
+    if (entry) {
+        if (amount) entry.amount = Number(amount);
+        if (borderName) entry.borderName = borderName;
+        if (date) entry.date = date;
+        if (remarks) entry.remarks = remarks;
+        if (driverId) entry.driver = driverId;
+        if (req.file) entry.receiptPhoto = req.file.path.replace(/\\/g, '/');
+        const updatedEntry = await entry.save();
+        res.json(updatedEntry);
+    } else {
+        res.status(404).json({ message: 'Entry not found' });
+    }
+});
+
 module.exports = {
     createDriver,
     createVehicle,
@@ -5793,6 +5810,7 @@ module.exports = {
     freelancerPunchIn,
     freelancerPunchOut,
     deleteBorderTax,
+    updateBorderTax,
     addMaintenanceRecord,
     getMaintenanceRecords,
     deleteMaintenanceRecord,

@@ -28,7 +28,7 @@ const run = async () => {
                 amount: p.amount,
                 slipPhoto: p.slipPhoto || null,
                 status: 'pending',
-                paymentSource: 'Yatree Office',
+                paymentSource: 'Office',
                 createdAt: new Date()
             }));
 

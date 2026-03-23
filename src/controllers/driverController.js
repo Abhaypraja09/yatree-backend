@@ -326,7 +326,7 @@ const punchOut = async (req, res) => {
                     slipPhoto: slip ? slip.path : null,
                     slipPhoto: slip ? slip.path : null,
                     fuelType: fTypes[index] || 'Diesel',
-                    paymentSource: fSources[index] || 'Yatree Office'
+                    paymentSource: fSources[index] || 'Office'
                 });
             });
         }
@@ -357,7 +357,7 @@ const punchOut = async (req, res) => {
                     amount: amount,
                     slipPhoto: slip ? slip.path : null,
                     status: 'pending',
-                    paymentSource: 'Yatree Office' // Default, consistent with addExpense
+                    paymentSource: 'Office' // Default, consistent with addExpense
                 });
             });
         }
@@ -494,7 +494,7 @@ const addExpense = async (req, res) => {
                 rate: type === 'fuel' ? (Number(ratesArr[index]) || 0) : 0,
                 km: Number(kmsArr[index]) || 0,
                 slipPhoto: file ? file.path : null, // Slip is now optional
-                paymentSource: sourcesArr[index] || 'Yatree Office',
+                paymentSource: sourcesArr[index] || 'Office',
                 status: 'pending'
             });
         });
