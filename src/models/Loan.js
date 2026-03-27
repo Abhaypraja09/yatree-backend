@@ -19,6 +19,10 @@ const loanSchema = new mongoose.Schema({
         type: Number,
         required: true
     },
+    tenureMonths: {
+        type: Number,
+        required: true
+    },
     remainingAmount: {
         type: Number,
         required: true

@@ -132,15 +132,23 @@ const staffPunchIn = asyncHandler(async (req, res) => {
         });
     }
 
-    attendance = await StaffAttendance.create({
-        staff: req.user._id,
-        company: req.user.company?._id || req.user.company,
-        date: today,
-        punchIn: { time: new Date(), location: { latitude, longitude, address }, photo },
-        status: 'present'
-    });
-
-    res.status(201).json(attendance);
+    try {
+        attendance = await StaffAttendance.create({
+            staff: req.user._id,
+            company: req.user.company?._id || req.user.company,
+            date: today,
+            punchIn: { time: new Date(), location: { latitude, longitude, address }, photo },
+            status: 'present'
+        });
+        console.log(`[STAFF_PUNCH] SUCCESS: ${req.user.name} Punched In at ${today}`);
+        res.status(201).json(attendance);
+    } catch (createError) {
+        console.error(`[STAFF_PUNCH] FAILED: ${req.user.name} create error:`, createError.message);
+        if (createError.code === 11000) {
+            return res.status(400).json({ message: 'Today\'s attendance already exists (Duplicate Signal).' });
+        }
+        throw createError;
+    }
 });
 
 // @desc    Staff Punch Out

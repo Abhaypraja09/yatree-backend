@@ -21,7 +21,7 @@ const asyncHandler = require('express-async-handler');
 
 console.log('--- ADMIN CONTROLLER LOADED (V1.1) ---');
 /* --- PERFORMANCE CACHE --- */
-const DASHBOARD_CACHE = new Map();
+const DASHBOARD_CACHE = require('../utils/cache');
 const CACHE_TTL = 3 * 60 * 1000; // 3 mins cache for heavy financial stats
 
 // @desc    Create a new driver
@@ -894,8 +894,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         })
         .reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
 
-    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
-    const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + Number(val || 0), 0);
+    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
+    const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
 
     const monthlyWorkedDrivers = new Map();
     const monthlyFreelancerWorkedDrivers = new Map();
@@ -1996,6 +1996,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         parkingByVehicleDate.get(key).push(p);
     });
 
+    const seenWageEntries = new Set();
     const enrichedAttendance = enrichedAttendanceBasic.map(a => {
         const attendanceId = String(a._id || '');
         const vId = String(a.vehicle?._id || a.vehicle || '');
@@ -2014,10 +2015,19 @@ const getDailyReports = asyncHandler(async (req, res) => {
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
         const totalParking = parkingFromCollection > 0 ? parkingFromCollection : existingParking;
 
-        // Apply salary fallback logic here so reports match Driver Salaries page
-        let finalDailyWage = Number(a.dailyWage) || 0;
-        if (!finalDailyWage && a.driver) {
-            finalDailyWage = (a.driver.dailyWage ? Number(a.driver.dailyWage) : 0) || (a.driver.salary ? Math.round(Number(a.driver.salary) / 26) : 0) || 500;
+        // Ensure wage is only added ONCE per driver per day
+        const driverId = a.driver?._id?.toString() || a.driver?.toString() || 'unk';
+        const wageKey = `${driverId}_${attDate}`;
+        let finalDailyWage = 0;
+
+        if (!seenWageEntries.has(wageKey)) {
+            finalDailyWage = Number(a.dailyWage) || 0;
+            if (!finalDailyWage && a.driver) {
+                finalDailyWage = (a.driver.dailyWage ? Number(a.driver.dailyWage) : 0) || (a.driver.salary ? Math.round(Number(a.driver.salary) / 26) : 0) || 0;
+            }
+            if (finalDailyWage > 0) {
+                seenWageEntries.add(wageKey);
+            }
         }
 
         return {
@@ -2508,7 +2518,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const freelancerPunchOut = asyncHandler(async (req, res) => {
     try {
-        const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy, allowanceTA, nightStayAmount } = req.body;
+        const { driverId, km, time, fuelAmount, parkingAmount, review, dailyWage, dropLocation, parkingPaidBy, allowanceTA, nightStayAmount, parkingsJson } = req.body;
         logToFile(`[FREELANCER_PUNCH_OUT] Triggered for Driver: ${driverId}, Time: ${time}, KM: ${km}`);
 
         const driver = await User.findById(driverId);
@@ -2559,6 +2569,30 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
             if (req.files.kmPhoto) attendance.punchOut.kmPhoto = req.files.kmPhoto[0].path;
             if (req.files.parkingPhoto) attendance.punchOut.parkingReceipt = req.files.parkingPhoto[0].path;
             if (req.files.carSelfie) attendance.punchOut.carSelfie = req.files.carSelfie[0].path;
+
+            // Handle Multi-Parking Receipts
+            if (parkingsJson) {
+                try {
+                    const parkings = JSON.parse(parkingsJson);
+                    const photos = req.files.parkingPhotos || [];
+                    let photoIdx = 0;
+                    
+                    const processedParkings = parkings.map(p => {
+                        const entry = { amount: Number(p.amount) || 0 };
+                        if (p.index !== undefined && photos[photoIdx]) {
+                            entry.slipPhoto = photos[photoIdx].path;
+                            photoIdx++;
+                        }
+                        return entry;
+                    });
+                    
+                    attendance.parking = processedParkings;
+                    // If multiple slips, pick first for legacy field
+                    if (processedParkings.length > 0 && processedParkings[0].slipPhoto) {
+                        attendance.punchOut.parkingReceipt = processedParkings[0].slipPhoto;
+                    }
+                } catch (e) { logToFile(`[ERROR] Parsing parkingsJson: ${e.message}`); }
+            }
         }
 
         // 4. Fuel Data (Deduplicated with Admin source)
@@ -2599,8 +2633,29 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
         attendance.dropLocation = dropLocation;
         attendance.totalKM = Math.max(0, (Number(km) || 0) - (attendance.punchIn.km || 0));
         attendance.status = 'completed';
-        // Create a Parking entry if amount > 0
-        if (Number(parkingAmount) > 0) {
+        // Create Parking records
+        if (attendance.parking && attendance.parking.length > 0) {
+            for (const p of attendance.parking) {
+                if (p.amount > 0) {
+                    await Parking.create({
+                        vehicle: attendance.vehicle,
+                        company: driver.company,
+                        driver: driver.name,
+                        driverId: driver._id,
+                        attendanceId: attendance._id,
+                        date: attendance.date ? new Date(attendance.date) : new Date(),
+                        amount: p.amount,
+                        location: dropLocation || 'Duty End',
+                        remark: review || 'Freelancer Duty Off',
+                        source: 'Admin',
+                        receiptPhoto: p.slipPhoto || attendance.punchOut.parkingReceipt,
+                        createdBy: req.user._id,
+                        isReimbursable: true
+                    });
+                }
+            }
+        } else if (Number(parkingAmount) > 0) {
+            // Fallback for single legacy amount
             await Parking.create({
                 vehicle: attendance.vehicle,
                 company: driver.company,
@@ -4094,10 +4149,11 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
     });
     allParking.forEach(p => {
         let dId = p.driverId?.toString();
+        // Fallback to name only if record has NO driverId linked
         if (!dId && p.driver) {
             dId = driverNamesMap.get(p.driver.trim().toLowerCase());
         }
-        if (dId) {
+        if (dId && attByDriver.has(dId)) { // Ensure the link is valid for the current group
             if (!parkingByDriver.has(dId)) parkingByDriver.set(dId, []);
             parkingByDriver.get(dId).push(p);
         }
@@ -4174,16 +4230,31 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             let activeLoansInfo = [];
 
             driverLoans.forEach(loan => {
-                if (loan.status === 'Active' && loan.remainingAmount > 0) {
-                    // Check if EMI is already paid for THIS month/year
-                    const repayment = (loan.repayments || []).find(r => r.month === parseInt(month) && r.year === parseInt(year));
-                    if (repayment) {
-                        totalEMIDeducted += repayment.amount;
-                        activeLoansInfo.push({ loanId: loan._id, emi: repayment.amount, isPaid: true });
-                    } else {
-                        // Project the EMI if not paid but it's an active loan
-                        totalEMIDeducted += loan.monthlyEMI;
-                        activeLoansInfo.push({ loanId: loan._id, emi: loan.monthlyEMI, isPaid: false });
+                if (loan.status === 'Active') {
+                    // Safety: Skip loans with invalid/missing start dates for calculations
+                    if (!loan.startDate) return;
+
+                    const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
+                    const currentReportMonth = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+                    
+                    // Loan must have started and must not have exceeded tenure
+                    const diff = currentReportMonth.diff(loanStart, 'months').months;
+                    const monthsSinceStart = Math.floor(diff + 0.05); // Standardizing the month diff
+                    
+                    const actualTenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 1);
+                    const isWithinTenure = monthsSinceStart >= 0 && monthsSinceStart < actualTenure;
+
+                    if (isWithinTenure && loan.remainingAmount > 0) {
+                        // Check if EMI is already paid for THIS month/year
+                        const repayment = (loan.repayments || []).find(r => r.month === parseInt(month) && r.year === parseInt(year));
+                        if (repayment) {
+                            totalEMIDeducted += repayment.amount;
+                            activeLoansInfo.push({ loanId: loan._id, emi: repayment.amount, isPaid: true });
+                        } else {
+                            // Project the EMI if not paid but it's an active loan
+                            totalEMIDeducted += loan.monthlyEMI;
+                            activeLoansInfo.push({ loanId: loan._id, emi: loan.monthlyEMI, isPaid: false });
+                        }
                     }
                 }
             });
@@ -5320,16 +5391,20 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             throw new Error('Driver not found');
         }
 
-        // 2. Fetch Parking Entries — sanitize name for regex safety
+        // 2. Fetch Parking Entries — prioritize driverId, fallback to name ONLY if no driverId exists on record
         const escapedName = driver.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const parking = await Parking.find({
-            $or: [
-                { driverId: driverId },
-                { driver: { $regex: new RegExp(`^${escapedName}$`, 'i') } }
-            ],
+            company: driver.company || req.user.company, // Access via req.user or driver.company
             date: { $gte: startOfMonth, $lte: endOfMonth },
             serviceType: { $ne: 'car_service' },
-            isReimbursable: { $ne: false }
+            isReimbursable: { $ne: false },
+            $or: [
+                { driverId: driverId },
+                { 
+                    driver: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+                    $or: [{ driverId: { $exists: false } }, { driverId: null }]
+                }
+            ]
         }).sort({ date: 1 });
 
         // 3. Fetch Advances
@@ -5466,8 +5541,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         }),
         Parking.find({
             company: companyId,
-            date: { $gte: monthStart, $lte: monthEnd },
-            serviceType: 'car_service'
+            date: { $gte: monthStart, $lte: monthEnd }
         }),
         Attendance.find({
             company: companyId,
@@ -5488,7 +5562,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
         const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
 
-        // General Maintenance (Repairs, Parts, etc. - NOT Car Service type and NO service keywords)
+        // General Maintenance
         const vGeneralMaint = vMaintAll.filter(m => {
             if (m.maintenanceType === 'Car Service') return false;
             const cat = String(m.category || '').toLowerCase();
@@ -5498,7 +5572,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         });
         const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
-        // Service Hub records from Maintenance (Type: 'Car Service' OR contains service keywords)
+        // Service Hub records from Maintenance
         const vMaintServices = vMaintAll.filter(m => {
             if (m.maintenanceType === 'Car Service') return true;
             const cat = String(m.category || '').toLowerCase();
@@ -5507,8 +5581,12 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             return serviceRegex.test(cat) || serviceRegex.test(desc) || serviceRegex.test(typeValue);
         });
 
-        // Service Hub records from Parking (serviceType: 'car_service')
-        const vParkingServices = parkingData.filter(p => p.vehicle?.toString() === vId);
+        // Split Parking into 'parking' and 'car_service'
+        const vParkingEntries = parkingData.filter(p => p.vehicle?.toString() === vId);
+        const vParkingServices = vParkingEntries.filter(p => p.serviceType === 'car_service');
+        const vActualParking = vParkingEntries.filter(p => p.serviceType !== 'car_service');
+
+        const totalParkingAmount = vActualParking.reduce((sum, p) => sum + (p.amount || 0), 0);
 
         let washCount = 0;
         let punctureCount = 0;
@@ -5516,7 +5594,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         let punctureAmount = 0;
         let vServicesArray = { wash: [], puncture: [] };
 
-        // Process all service hub candidates (Maintenance + Parking)
+        // Process all service hub candidates
         const allCandidates = [
             ...vMaintServices.map(m => ({ ...m.toObject(), type: 'maint' })),
             ...vParkingServices.map(p => ({ ...p.toObject(), type: 'parking' }))
@@ -5536,14 +5614,13 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                 punctureAmount += amount;
                 vServicesArray.puncture.push({ date, amount, id: s._id, source: s.type });
             } else {
-                // Default everything else in 'Car Service' to Wash if not explicitly puncture
                 washCount++;
                 washAmount += amount;
                 vServicesArray.wash.push({ date, amount, id: s._id, source: s.type });
             }
         });
 
-        // Unique Drivers and Salary Breakdown
+        // Unique Drivers and Salary
         const vAtt = attendanceData.filter(a => a.vehicle?.toString() === vId);
         const driversMap = new Map();
         let totalDriverSalary = 0;
@@ -5586,6 +5663,11 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                     date: m.billDate,
                     description: m.description
                 }))
+            },
+            parking: {
+                totalAmount: totalParkingAmount,
+                count: vActualParking.length,
+                records: vActualParking.map(p => ({ date: p.date, amount: p.amount, location: p.location, remark: p.remark }))
             },
             services: {
                 wash: { count: washCount, amount: washAmount, records: vServicesArray.wash },
@@ -5656,11 +5738,17 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const todayISTString = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
     const targetDate = date || todayISTString;
     const companyObjectId = new mongoose.Types.ObjectId(companyId);
-
     const cacheKey = `livefeed_${companyId}_${targetDate}`;
+    
+    // Explicitly allow manual refresh from the client
+    if (req.query.refresh === 'true') {
+        DASHBOARD_CACHE.delete(cacheKey);
+    }
+
     if (DASHBOARD_CACHE.has(cacheKey)) {
         const cached = DASHBOARD_CACHE.get(cacheKey);
-        if (Date.now() - cached.time < 30 * 1000) { // 30s cache for live feed is fast but mostly up to date
+        if (Date.now() - cached.time < 30 * 1000) { // 30s cache for live feed
+            console.log(`[LIVE_FEED] Returning Cached Data for ${companyId} - ${targetDate}`);
             return res.json(cached.data);
         }
     }
@@ -5669,8 +5757,13 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const startDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
     const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
 
+    // EXCLUDE 'deleted' status explicitly (safety measure for soft-delete)
     const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles] = await Promise.all([
-        Attendance.find({ company: companyObjectId, date: targetDate }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber model').lean(),
+        Attendance.find({ 
+            company: companyObjectId, 
+            date: targetDate, 
+            status: { $in: ['incomplete', 'completed'] } 
+        }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
         User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage').lean(),
@@ -5678,9 +5771,17 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     ]);
 
     // Ensure all drivers with attendance today are in the feed, even if not in the default Driver list
-    const driversInAttendance = attendanceToday
-        .map(a => a.driver)
-        .filter(d => d && !liveDriversFeed.some(df => df._id.toString() === d._id.toString()));
+    const driversInAttendanceRaw = attendanceToday.map(a => a.driver).filter(d => d);
+    const seenDriverIds = new Set(liveDriversFeed.map(df => df._id.toString()));
+    const driversInAttendance = [];
+    
+    driversInAttendanceRaw.forEach(d => {
+        const dId = d._id ? d._id.toString() : d.toString();
+        if (!seenDriverIds.has(dId)) {
+            driversInAttendance.push(d);
+            seenDriverIds.add(dId);
+        }
+    });
 
     const combinedDrivers = [...liveDriversFeed, ...driversInAttendance];
 
@@ -5691,11 +5792,8 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         else if (atts.some(a => a.status === 'completed')) status = 'Completed';
         return { ...driver, attendances: atts, status };
     }).filter(driver => {
-        // Only show freelancers if they have active or completed attendance for the target date
-        if (driver.isFreelancer === true) {
-            return driver.status !== 'Absent';
-        }
-        return true; // Always show regular drivers
+        // Only show drivers (regular or freelancer) if they have active or completed attendance for the target date
+        return driver.status !== 'Absent';
     });
 
     // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Dashboard)
@@ -5744,9 +5842,12 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         };
     });
 
+    const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
+
     const finalResponse = {
         date: targetDate,
         totalVehicles,
+        activeVehiclesCount, // New field for backend/API consumers
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
         dailyStats: {
@@ -5761,6 +5862,8 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         lastUpdated: new Date().toISOString()
     };
 
+    console.log(`[LIVE_FEED] Company: ${companyId}, Date: ${targetDate}, Active Fleet: ${activeVehiclesCount}/${totalVehicles}`);
+    
     DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
     res.json(finalResponse);
 });
@@ -5772,33 +5875,38 @@ const getAllLoans = asyncHandler(async (req, res) => {
 });
 
 const createLoan = asyncHandler(async (req, res) => {
-    const { driverId, companyId, totalAmount, monthlyEMI, startDate, remarks } = req.body;
+    const { driverId, companyId, totalAmount, monthlyEMI, tenureMonths, startDate, remarks } = req.body;
     const loan = new Loan({
         driver: driverId,
         company: companyId,
         totalAmount: Number(totalAmount),
         monthlyEMI: Number(monthlyEMI),
+        tenureMonths: Number(tenureMonths) || 1,
         remainingAmount: Number(totalAmount),
         startDate: startDate || new Date(),
         remarks,
         createdBy: req.user._id
     });
     await loan.save();
+    DASHBOARD_CACHE.clear(); // Important: Clear cache so salary summaries reflect the new loan immediately
     res.status(201).json(loan);
 });
 
 const updateLoan = asyncHandler(async (req, res) => {
-    const { totalAmount, monthlyEMI, status, remarks, remainingAmount } = req.body;
+    const { totalAmount, monthlyEMI, tenureMonths, status, remarks, remainingAmount, startDate } = req.body;
     const loan = await Loan.findById(req.params.id);
     if (!loan) return res.status(404).json({ message: 'Loan not found' });
 
     if (totalAmount !== undefined) loan.totalAmount = Number(totalAmount);
     if (monthlyEMI !== undefined) loan.monthlyEMI = Number(monthlyEMI);
+    if (tenureMonths !== undefined) loan.tenureMonths = Number(tenureMonths);
     if (remainingAmount !== undefined) loan.remainingAmount = Number(remainingAmount);
     if (status) loan.status = status;
     if (remarks) loan.remarks = remarks;
+    if (startDate) loan.startDate = new Date(startDate);
 
     await loan.save();
+    DASHBOARD_CACHE.clear();
     res.json(loan);
 });
 
@@ -5806,6 +5914,7 @@ const deleteLoan = asyncHandler(async (req, res) => {
     const loan = await Loan.findById(req.params.id);
     if (!loan) return res.status(404).json({ message: 'Loan not found' });
     await loan.deleteOne();
+    DASHBOARD_CACHE.clear();
     res.json({ message: 'Loan removed' });
 });
 

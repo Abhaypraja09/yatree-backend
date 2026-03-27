@@ -124,6 +124,7 @@ const freelancerUpload = upload.fields([
     { name: 'selfie', maxCount: 1 },
     { name: 'kmPhoto', maxCount: 1 },
     { name: 'parkingPhoto', maxCount: 1 },
+    { name: 'parkingPhotos', maxCount: 10 },
     { name: 'carSelfie', maxCount: 1 }
 ]);
 

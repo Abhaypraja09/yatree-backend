@@ -4,6 +4,7 @@ const Vehicle = require('../models/Vehicle');
 const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
 const { DateTime } = require('luxon');
+const DASHBOARD_CACHE = require('../utils/cache');
 
 // Helper to get current date in IST (format: YYYY-MM-DD)
 const getTodayIST = () => {
@@ -206,9 +207,10 @@ const punchIn = async (req, res) => {
         }
         await vehicle.save();
 
-        // Update driver trip status
         driver.tripStatus = 'active';
         await driver.save();
+
+        DASHBOARD_CACHE.clear(); // Ensure admins see the update immediately
 
         res.status(201).json({ message: 'Punched in successfully', attendance });
     } catch (error) {
@@ -412,6 +414,8 @@ const punchOut = async (req, res) => {
             }
         }
 
+        DASHBOARD_CACHE.clear(); // Critical: Ensure active fleet count decreases immediately
+
         res.json({ message: 'Punched out successfully', attendance });
     } catch (error) {
         console.error("PunchOut Error:", error);
@@ -500,6 +504,7 @@ const addExpense = async (req, res) => {
         });
 
         await attendance.save();
+        DASHBOARD_CACHE.clear(); // Ensure expenses reflect in live feed stats
 
         // Update vehicle lastOdometer if any KM provided in expenses
         if (kmsArr && kmsArr.length > 0) {
