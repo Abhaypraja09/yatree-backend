@@ -84,23 +84,25 @@ const loginUser = async (req, res) => {
             });
         }
 
-        // Try to find user by mobile OR username (case-insensitive)
-        const user = await User.findOne({
+        // Try to find user by mobile OR exact username (case-insensitive where possible)
+        let user = await User.findOne({
             $or: [
-                { mobile: mobile },
-                { username: { $regex: new RegExp(`^${mobile.trim()}$`, 'i') } }
+                { mobile: mobile.trim() },
+                { username: { $regex: new RegExp(`^${mobile.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') } },
+                { username: mobile.trim() } // Direct fallback match
             ],
             isFreelancer: { $ne: true }
         }).populate('company');
 
         if (!user) {
-            logError(`Login failed: User [${mobile}] not found. Tried finding by mobile or username (regex).`);
-            // Let's also try a direct match just in case regex is buggy
-            const fallback = await User.findOne({ username: mobile });
-            if (fallback) {
-                logError(`CRITICAL: Regex check failed but direct match found for [${mobile}]. Role: ${fallback.role}`);
+            logError(`Login failed: User [${mobile}] not found in standard lookup.`);
+            // Direct fallback exact match again just in case
+            user = await User.findOne({ username: mobile }).populate('company');
+            if (user && user.isFreelancer !== true) {
+                logError(`WARNING: Fallback match worked for [${mobile}]. Fixing auth flow.`);
+            } else {
+                return res.status(401).json({ message: 'Invalid mobile or password' });
             }
-            return res.status(401).json({ message: 'Invalid mobile or password' });
         }
 
         logError(`User found: ${user.name} (Role: ${user.role})`);

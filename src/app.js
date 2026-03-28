@@ -14,7 +14,22 @@ dotenv.config();
 const app = express();
 
 // 1. Performance Middlewares
-app.use(compression()); // Compresses JS/CSS to load much faster
+app.use(compression({
+    level: 6,        // Compression level (1=fast, 9=smaller, 6 is the sweet spot)
+    threshold: 512,  // Compress anything over 512 bytes
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
+
+// Keep-alive connections for faster repeated requests
+app.use((req, res, next) => {
+    res.set('Connection', 'keep-alive');
+    res.set('Keep-Alive', 'timeout=30, max=100');
+    next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));

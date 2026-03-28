@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
+const Loan = require('../models/Loan');
 const { DateTime } = require('luxon');
 const DASHBOARD_CACHE = require('../utils/cache');
 
@@ -581,6 +582,12 @@ const getDriverLedger = async (req, res) => {
         console.log(`[DEBUG] Found ${attendance.length} attendance records`);
         console.log(`[DEBUG] Found ${parkingEntries.length} admin parking entries`);
 
+        // 4. Fetch Loans
+        const loans = await Loan.find({
+            driver: driverId,
+            status: { $ne: 'Cancelled' }
+        }).sort({ startDate: 1 });
+
         // Calculate Summary
         let totalEarned = 0;
         let workingDays = 0;
@@ -685,6 +692,27 @@ const getDriverLedger = async (req, res) => {
         const totalRecovered = advances.reduce((sum, adv) => sum + (adv.recoveredAmount || 0), 0);
         const pendingAdvance = totalAdvances - totalRecovered;
 
+        let totalEMI = 0;
+        if (month && year) {
+            const selM = parseInt(month);
+            const selY = parseInt(year);
+            const currentPeriod = DateTime.fromObject({ year: selY, month: selM, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+
+            loans.forEach(loan => {
+                if (loan.status === 'Active' && loan.startDate && loan.remainingAmount > 0) {
+                    const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
+                    const diff = currentPeriod.diff(loanStart, 'months').months;
+                    const monthsSinceStart = Math.floor(diff + 0.05);
+                    const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 1);
+                    
+                    if (monthsSinceStart >= 0 && monthsSinceStart < tenure) {
+                        const repayment = (loan.repayments || []).find(r => r.month === selM && r.year === selY);
+                        totalEMI += repayment ? (Number(repayment.amount) || 0) : (Number(loan.monthlyEMI) || 0);
+                    }
+                }
+            });
+        }
+
         res.json({
             summary: {
                 totalEarned,
@@ -692,7 +720,8 @@ const getDriverLedger = async (req, res) => {
                 totalAdvances,
                 totalRecovered,
                 pendingAdvance,
-                netPayable: totalEarned - pendingAdvance
+                totalEMI,
+                netPayable: totalEarned - pendingAdvance - totalEMI
             },
             history: combinedHistory,
             advances: advances.map(adv => ({
@@ -702,7 +731,8 @@ const getDriverLedger = async (req, res) => {
                 recovered: adv.recoveredAmount,
                 status: adv.status,
                 remark: adv.remark
-            }))
+            })),
+            loans: loans || []
         });
     } catch (error) {
         console.error("Ledger Error:", error);

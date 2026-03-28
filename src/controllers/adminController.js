@@ -22,7 +22,7 @@ const asyncHandler = require('express-async-handler');
 console.log('--- ADMIN CONTROLLER LOADED (V1.1) ---');
 /* --- PERFORMANCE CACHE --- */
 const DASHBOARD_CACHE = require('../utils/cache');
-const CACHE_TTL = 3 * 60 * 1000; // 3 mins cache for heavy financial stats
+const CACHE_TTL = 10 * 60 * 1000; // 10 mins cache for heavy financial stats
 
 // @desc    Create a new driver
 // @route   POST /api/admin/drivers
@@ -417,7 +417,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     date: { $gte: monthStart, $lte: monthEnd }
                 }
             },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
+            { $group: { _id: null, total: { $sum: '$amount' }, quantity: { $sum: '$quantity' } } }
         ]),
         Maintenance.aggregate([
             {
@@ -987,6 +987,16 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const totalAdvancePending = advanceData[0]?.total || 0;
     const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
     const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
+    const monthlyFuelQuantity = monthlyFuelData[0]?.quantity || 0;
+
+    // Calculate total distance for the month for fleet average
+    let monthlyTotalDistance = 0;
+    allAttendanceThisMonth.forEach(att => {
+        if (att.punchIn?.km && att.punchOut?.km) {
+            const d = att.punchOut.km - att.punchIn.km;
+            if (d > 0) monthlyTotalDistance += d;
+        }
+    });
 
     // Split Maintenance into General and Services
     let monthlyMaintenanceGeneral = 0;
@@ -1041,10 +1051,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
         pendingApprovalsCount, totalFastagBalance, monthlyFastagTotal, dailyFastagTotal, totalAdvancePending: monthlyRegularAdvanceTotal,
-        monthlyFuelAmount, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
+        monthlyFuelAmount, monthlyFuelQuantity, monthlyTotalDistance, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
         monthlyBorderTaxAmount, monthlyAccidentAmount, yearlyAccidentAmount, totalWarrantyCost,
         totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost + monthlyDriverServicesAmount,
         totalStaff, countStaffPresent: staffAttendanceToday.length,
+    
         staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,
         expiringAlerts, reportedIssues: reportedIssuesList,
         regularAdvances: regularAdvancesList.filter(adv => adv.driver),
@@ -1182,6 +1193,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     }
 
     DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
+    res.set('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
     res.json(finalResponse);
 });
 
@@ -2128,20 +2140,9 @@ const getDailyReports = asyncHandler(async (req, res) => {
         maintenanceQuery.billDate = { $gte: startDate, $lte: endDate };
     }
 
-    // Keyword-based exclusion for Maintenance
-    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
-
-    let maintenance = await Maintenance.find(maintenanceQuery)
+    const maintenance = await Maintenance.find(maintenanceQuery)
         .populate('vehicle', 'carNumber model')
         .sort({ billDate: -1 });
-
-    // Apply strict filtering for Daily Reports to match Maintenance page
-    maintenance = maintenance.filter(m => {
-        const cat = String(m.category || '').toLowerCase();
-        const desc = String(m.description || '').toLowerCase();
-        const typeValue = String(m.maintenanceType || '').toLowerCase();
-        return !serviceRegex.test(cat) && !serviceRegex.test(desc) && !serviceRegex.test(typeValue);
-    });
 
     // 6. Fetch Advances
     const advancesQuery = {
@@ -2160,18 +2161,11 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('driver', 'name mobile')
         .sort({ date: -1 });
 
-    // 7. Fetch Parking Records (Exclude Car Services)
+    // 7. Fetch All Parking Records (Including Car Services)
     const parkingQuery = {
-        $and: [
-            {
-                $or: [
-                    { company: new mongoose.Types.ObjectId(companyId) },
-                    { company: companyId }
-                ]
-            },
-            {
-                $or: [{ serviceType: 'parking' }, { serviceType: { $exists: false } }, { serviceType: null }]
-            }
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
         ]
     };
     if (startDate && endDate) {
@@ -4783,7 +4777,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         .sort({ date: -1 });
 
     // If month/year provided, calculate summary
-    const { month, year } = req.query;
+    const { month, year, staffId: targetStaffId } = req.query;
     if (month && year) {
         const reqMonth = parseInt(month, 10);
         const reqYear = parseInt(year, 10);
@@ -4794,13 +4788,41 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         const startStrQuery = searchStartDT.toFormat('yyyy-MM-dd');
         const endStrQuery = searchEndDT.toFormat('yyyy-MM-dd');
 
-        const rangeAttendance = await StaffAttendance.find({
+        const attQuery = {
             company: companyId,
             date: { $gte: startStrQuery, $lte: endStrQuery }
+        };
+        if (targetStaffId) attQuery.staff = targetStaffId;
+
+        const rangeAttendance = await StaffAttendance.find(attQuery);
+
+        const staffQuery = { company: companyId, role: 'Staff' };
+        if (targetStaffId) staffQuery._id = targetStaffId;
+        const allStaff = await User.find(staffQuery);
+
+        const leaveQuery = {
+            company: companyId,
+            status: 'Approved',
+            endDate: { $gte: startStrQuery }
+        };
+        if (targetStaffId) leaveQuery.staff = targetStaffId;
+
+        const allApprovedLeaves = await LeaveRequest.find(leaveQuery);
+
+        // Index for performance
+        const attByStaff = {};
+        rangeAttendance.forEach(a => {
+            const sId = String(a.staff);
+            if (!attByStaff[sId]) attByStaff[sId] = [];
+            attByStaff[sId].push(a);
         });
 
-        const allStaff = await User.find({ company: companyId, role: 'Staff' });
-        const allApprovedLeaves = await LeaveRequest.find({ company: companyId, status: 'Approved' });
+        const leavesByStaff = {};
+        allApprovedLeaves.forEach(l => {
+            const sId = String(l.staff);
+            if (!leavesByStaff[sId]) leavesByStaff[sId] = [];
+            leavesByStaff[sId].push(l);
+        });
         const now = DateTime.now().setZone('Asia/Kolkata');
         const todayStr = now.toFormat('yyyy-MM-dd');
 
@@ -4834,9 +4856,8 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
             const effectiveEnd = cycleEnd > todayStr ? todayStr : cycleEnd;
 
-            // Filter specific to this staff's cycle
-            const staffAtt = rangeAttendance.filter(a =>
-                String(a.staff) === String(s._id) &&
+            // Filter specific to this staff's cycle using pre-indexed data
+            const staffAtt = (attByStaff[String(s._id)] || []).filter(a =>
                 a.date >= cycleStart &&
                 a.date <= effectiveEnd
             );
@@ -4879,7 +4900,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
 
             // VERIFIED LEAVE LOGIC: Only count absences as 'paid' if there is an approved LeaveRequest for that day
-            const myLeaves = allApprovedLeaves.filter(l => String(l.staff) === String(s._id));
+            const myLeaves = leavesByStaff[String(s._id)] || [];
             let verifiedPaidLeaves = 0;
 
             // We check each day in the cycle for an approved leave
@@ -4909,8 +4930,8 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             const baseSalary = s.salary || 0;
             const perDaySalary = baseSalary / 30; // 30 day basis
 
-            // Positive Accrual Logic: Salary = (Actual Progress + Paid Buffer Days) * Rate
-            const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysWorked) * perDaySalary;
+            // Positive Accrual Logic: Salary = (Actual Progress + Paid Buffer Days + Sunday Holidays + Extra Sundays) * Rate
+            const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysPassed + sundaysWorked) * perDaySalary;
 
             // Cycle Metadata for UI Heatmap
             const fullCycleAttendance = [];
@@ -5414,6 +5435,13 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
         });
 
+        // 4. Fetch Loans (to show tenure/EMI in PDF/UI)
+        const loanQuery = {
+            driver: mongoose.Types.ObjectId.isValid(driverId) ? new mongoose.Types.ObjectId(driverId) : driverId,
+            status: { $ne: 'Cancelled' }
+        };
+        const loans = await Loan.find(loanQuery).sort({ startDate: 1 });
+
         // Group external parking for logic
         const externalByDay = new Map();
         parking.forEach(p => {
@@ -5481,19 +5509,44 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
             standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+        
+        let totalEMI = 0;
+        if (month && year) {
+            const selM = parseInt(month);
+            const selY = parseInt(year);
+            const currentPeriod = DateTime.fromObject({ year: selY, month: selM, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+
+            loans.forEach(loan => {
+                if (loan.status === 'Active' && loan.startDate && loan.remainingAmount > 0) {
+                    const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
+                    const diff = currentPeriod.diff(loanStart, 'months').months;
+                    const monthsSinceStart = Math.floor(diff + 0.05);
+                    const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 1);
+                    
+                    if (monthsSinceStart >= 0 && monthsSinceStart < tenure) {
+                        // Check if already recorded repayment for this period
+                        const repayment = (loan.repayments || []).find(r => r.month === selM && r.year === selY);
+                        totalEMI += repayment ? (Number(repayment.amount) || 0) : (Number(loan.monthlyEMI) || 0);
+                    }
+                }
+            });
+        }
+
         const grandTotal = totalWages + parkingTotal + totalBonuses;
-        const netPayable = grandTotal - totalAdvances;
+        const netPayable = grandTotal - totalAdvances - totalEMI;
 
         res.json({
             vID: "WAGE_FIX_V2", // VERIFICATION TAG
             driver,
             breakdown: dailyBreakdown,
             advances,
+            loans: loans || [],
             parkingEntries: parking,
             summary: {
                 totalWages,
                 parkingTotal,
                 totalAdvances,
+                totalEMI,
                 grandTotal,
                 netPayable,
                 workingDays: attendanceDates.size
@@ -5527,10 +5580,10 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     const vehicles = await Vehicle.find({
         company: companyId,
         isOutsideCar: { $ne: true }
-    }).select('carNumber model');
+    }).select('carNumber model fastagHistory');
 
     // 2. Fetch all related data for the month concurrently
-    const [fuelData, maintenanceData, parkingData, attendanceData] = await Promise.all([
+    const [fuelData, maintenanceData, parkingData, attendanceData, borderTaxData] = await Promise.all([
         Fuel.find({
             company: companyId,
             date: { $gte: monthStart, $lte: monthEnd }
@@ -5546,7 +5599,11 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         Attendance.find({
             company: companyId,
             date: { $gte: monthStartStr, $lte: monthEndStr }
-        }).populate('driver', 'name')
+        }).populate('driver', 'name'),
+        BorderTax.find({
+            company: companyId,
+            date: { $gte: monthStart, $lte: monthEnd }
+        })
     ]);
 
     // 3. Process data per vehicle
@@ -5557,6 +5614,17 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vFuel = fuelData.filter(f => f.vehicle?.toString() === vId);
         const totalFuelAmount = vFuel.reduce((sum, f) => sum + (f.amount || 0), 0);
         const totalFuelQuantity = vFuel.reduce((sum, f) => sum + (f.quantity || 0), 0);
+
+        // Fastag (from vehicle history)
+        const vFastag = (v.fastagHistory || []).filter(h => {
+            const hDate = new Date(h.date);
+            return hDate >= monthStart && hDate <= monthEnd;
+        });
+        const totalFastagAmount = vFastag.reduce((sum, h) => sum + (h.amount || 0), 0);
+
+        // Border Tax
+        const vBorderTax = borderTaxData.filter(b => b.vehicle?.toString() === vId);
+        const totalBorderTaxAmount = vBorderTax.reduce((sum, b) => sum + (b.amount || 0), 0);
 
         // Separate Maintenance records: General Maintenance vs Service Hub (Wash/Punc)
         const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
@@ -5624,6 +5692,13 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vAtt = attendanceData.filter(a => a.vehicle?.toString() === vId);
         const driversMap = new Map();
         let totalDriverSalary = 0;
+        let totalDistance = 0;
+
+        // Pending expenses from attendance (to match dashboard logic)
+        let vPendingMaintAmount = 0;
+        let vPendingWashAmount = 0;
+        let vPendingPuncAmount = 0;
+        let vPendingParkingAmount = 0;
 
         vAtt.forEach(a => {
             const driverName = a.driver?.name || 'Unknown';
@@ -5638,6 +5713,49 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                 driversMap.set(driverName, wage);
             }
             totalDriverSalary += wage;
+
+            // Distance calculation
+            if (a.punchIn?.km && a.punchOut?.km) {
+                const dist = a.punchOut.km - a.punchIn.km;
+                if (dist > 0) totalDistance += dist;
+            }
+
+            // Pending Expenses (Approved/Pending ones that aren't yet in standalone collections)
+            if (a.pendingExpenses) {
+                a.pendingExpenses.forEach(exp => {
+                    if (exp.status === 'deleted' || exp.status === 'approved') return; // Approved ones are already in standalone models
+                    const amt = Number(exp.amount) || 0;
+                    if (exp.type === 'parking') {
+                        const isService = serviceRegex.test(exp.fuelType || '') || serviceRegex.test(exp.remark || '');
+                        if (isService) {
+                            const search = `${exp.fuelType || ''} ${exp.remark || ''}`.toLowerCase();
+                            if (search.includes('puncture') || search.includes('puncher')) {
+                                vPendingPuncAmount += amt;
+                                vServicesArray.puncture.push({ date: a.date, amount: amt, id: exp._id, source: 'pending' });
+                            } else {
+                                vPendingWashAmount += amt;
+                                vServicesArray.wash.push({ date: a.date, amount: amt, id: exp._id, source: 'pending' });
+                            }
+                        } else {
+                            vPendingParkingAmount += amt;
+                        }
+                    } else if (exp.type === 'other') {
+                        const isService = serviceRegex.test(exp.fuelType || '') || serviceRegex.test(exp.remark || '');
+                        if (isService) {
+                            const search = `${exp.fuelType || ''} ${exp.remark || ''}`.toLowerCase();
+                            if (search.includes('puncture') || search.includes('puncher')) {
+                                vPendingPuncAmount += amt;
+                                vServicesArray.puncture.push({ date: a.date, amount: amt, id: exp._id, source: 'pending' });
+                            } else {
+                                vPendingWashAmount += amt;
+                                vServicesArray.wash.push({ date: a.date, amount: amt, id: exp._id, source: 'pending' });
+                            }
+                        } else {
+                            vPendingMaintAmount += amt;
+                        }
+                    }
+                });
+            }
         });
 
         return {
@@ -5647,14 +5765,25 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             driverSalary: totalDriverSalary,
             drivers: Array.from(driversMap.keys()),
             driverBreakdown: Array.from(driversMap).map(([name, salary]) => ({ name, salary })),
+            totalDistance,
             fuel: {
                 totalAmount: totalFuelAmount,
                 totalQuantity: totalFuelQuantity,
                 count: vFuel.length,
                 records: vFuel.map(f => ({ date: f.date, amount: f.amount, quantity: f.quantity, receipt: f.receiptNumber }))
             },
+            fastag: {
+                totalAmount: totalFastagAmount,
+                count: vFastag.length,
+                records: vFastag.map(h => ({ date: h.date, amount: h.amount, remarks: h.remarks }))
+            },
+            borderTax: {
+                totalAmount: totalBorderTaxAmount,
+                count: vBorderTax.length,
+                records: vBorderTax.map(b => ({ date: b.date, amount: b.amount, remark: b.remarks || b.borderName }))
+            },
             maintenance: {
-                totalAmount: totalMaintAmount,
+                totalAmount: totalMaintAmount + vPendingMaintAmount,
                 count: vGeneralMaint.length,
                 records: vGeneralMaint.map(m => ({
                     type: m.maintenanceType,
@@ -5665,13 +5794,13 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                 }))
             },
             parking: {
-                totalAmount: totalParkingAmount,
+                totalAmount: totalParkingAmount + vPendingParkingAmount,
                 count: vActualParking.length,
                 records: vActualParking.map(p => ({ date: p.date, amount: p.amount, location: p.location, remark: p.remark }))
             },
             services: {
-                wash: { count: washCount, amount: washAmount, records: vServicesArray.wash },
-                puncture: { count: punctureCount, amount: punctureAmount, records: vServicesArray.puncture }
+                wash: { count: washCount, amount: washAmount + vPendingWashAmount, records: vServicesArray.wash },
+                puncture: { count: punctureCount, amount: punctureAmount + vPendingPuncAmount, records: vServicesArray.puncture }
             }
         };
     });
@@ -5843,16 +5972,20 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     });
 
     const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
+    const totalUsedVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use' || v.status === 'Used').length;
 
     const finalResponse = {
         date: targetDate,
         totalVehicles,
         activeVehiclesCount, // New field for backend/API consumers
+        totalUsedVehiclesCount, // Total unique vehicles used throughout the day
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
         dailyStats: {
             regularSalary: dailySalaryTotal,
+            regularDriversCount: workedDriversMap.size,
             freelancerSalary: dailyFreelancerSalaryTotal,
+            freelancerDriversCount: freelancerWorkedDriversMap.size,
             grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal
         },
         liveDriversFeed: mappedDrivers,
