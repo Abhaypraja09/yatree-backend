@@ -15,11 +15,11 @@ const seed = async () => {
         }
 
         // Create Admin
-        const adminMobile = '9999888877';
+        const adminMobile = 'Yatree';
         const adminData = {
             name: 'System Admin',
             mobile: adminMobile,
-            password: 'adminpassword123',
+            password: '@2526Bigday',
             role: 'Admin'
         };
 

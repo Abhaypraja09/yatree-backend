@@ -246,15 +246,18 @@ const punchOut = async (req, res) => {
             return res.status(400).json({ message: 'Selfie, KM photo, and Car selfie are mandatory' });
         }
 
+        // Search for ANY incomplete shift for this driver, regardless of the date
         const attendance = await Attendance.findOne({
             driver: req.user._id,
             status: 'incomplete'
         }).sort({ createdAt: -1 });
 
-
         if (!attendance) {
-            return res.status(400).json({ message: 'No active shift found to punch out' });
+            console.error(`[PunchOut Error] No active shift found for driver ${req.user._id} (${req.user.name})`);
+            return res.status(400).json({ message: 'No active shift found to punch out. Please refresh your dashboard.' });
         }
+
+        console.log(`[PunchOut] Found active shift ${attendance._id} (Started: ${attendance.date}) for driver ${req.user.name}`);
 
         // Calculate Dynamic Report Fields from Old UI Inputs
 

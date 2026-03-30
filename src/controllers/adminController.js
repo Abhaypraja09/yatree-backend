@@ -725,7 +725,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             status = 'In Use';
             currentAttendance = activeAtt;
         } else if (vehicleAttendances.length > 0) {
-            status = 'Completed';
+            status = 'Used';
             currentAttendance = vehicleAttendances[0];
         }
 
@@ -748,10 +748,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             }
         });
 
+        if (fuelEntries.length > 0 && status === 'Idle') status = 'Used';
+
         return {
-            _id: vehicle._id,
-            carNumber: vehicle.carNumber,
-            model: vehicle.model,
+            ...vehicle,
             status,
             attendances: vehicleAttendances,
             currentDriver: currentAttendance?.driver || null,
@@ -759,6 +759,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             fuelEntries,
             date: targetDate
         };
+    }).filter(v => v.status !== 'Idle')
+    .sort((a, b) => {
+        if (a.status === 'In Use' && b.status !== 'In Use') return -1;
+        if (a.status !== 'In Use' && b.status === 'In Use') return 1;
+        return 0;
     });
 
     const expiringAlerts = [];
@@ -808,10 +813,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             const diffDays = Math.ceil(serviceDate.diff(baseDate, 'days').days);
             if (diffDays <= 30 && diffDays > -365) {
                 const isOverdue = diffDays < 0;
+                const alertLabel = types.length > 1 ? 'Multiple Services' : `${types[0]} Service`;
                 expiringAlerts.push({
                     type: 'Service',
                     identifier: s.vehicle.carNumber || 'N/A',
-                    documentType: `${category.split(',')[0]} Service`,
+                    documentType: alertLabel,
                     expiryDate: s.nextServiceDate,
                     daysLeft: diffDays,
                     status: isOverdue ? 'Overdue' : 'Due Soon'
@@ -827,10 +833,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 const isOverdue = kmRemaining <= 0;
                 const taskLabel = (category.split(',')[0] || 'Maintenance').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
+                const alertLabel = types.length > 1 ? 'Multiple Services' : `${types[0]} Service`;
                 expiringAlerts.push({
                     type: 'Service',
                     identifier: s.vehicle.carNumber,
-                    documentType: `${taskLabel} Service`,
+                    documentType: alertLabel,
                     expiryDate: null,
                     daysLeft: kmRemaining,
                     status: isOverdue ? 'Urgent: Overdue' : 'Service Due',
@@ -1985,12 +1992,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
             const attId = String(f.attendance);
             if (!fuelByAttId.has(attId)) fuelByAttId.set(attId, []);
             fuelByAttId.get(attId).push(f);
+        } else {
+            // ONLY use vehicle+date fallback if NOT already explicitly linked to an attendance
+            const fDateStr = f.date instanceof Date ? f.date.toISOString().split('T')[0] : String(f.date).split('T')[0];
+            const vId = String(f.vehicle?._id || f.vehicle || '');
+            const key = `${vId}_${fDateStr}`;
+            if (!fuelByVehicleDate.has(key)) fuelByVehicleDate.set(key, []);
+            fuelByVehicleDate.get(key).push(f);
         }
-        const fDateStr = f.date instanceof Date ? f.date.toISOString().split('T')[0] : String(f.date).split('T')[0];
-        const vId = String(f.vehicle?._id || f.vehicle || '');
-        const key = `${vId}_${fDateStr}`;
-        if (!fuelByVehicleDate.has(key)) fuelByVehicleDate.set(key, []);
-        fuelByVehicleDate.get(key).push(f);
     });
 
     const parkingByAttId = new Map();
@@ -2000,12 +2009,14 @@ const getDailyReports = asyncHandler(async (req, res) => {
             const attId = String(p.attendanceId);
             if (!parkingByAttId.has(attId)) parkingByAttId.set(attId, []);
             parkingByAttId.get(attId).push(p);
+        } else {
+            // ONLY use vehicle+date fallback if NOT already explicitly linked to an attendance
+            const pDateStr = p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0];
+            const vId = String(p.vehicle?._id || p.vehicle || '');
+            const key = `${vId}_${pDateStr}`;
+            if (!parkingByVehicleDate.has(key)) parkingByVehicleDate.set(key, []);
+            parkingByVehicleDate.get(key).push(p);
         }
-        const pDateStr = p.date instanceof Date ? p.date.toISOString().split('T')[0] : String(p.date).split('T')[0];
-        const vId = String(p.vehicle?._id || p.vehicle || '');
-        const key = `${vId}_${pDateStr}`;
-        if (!parkingByVehicleDate.has(key)) parkingByVehicleDate.set(key, []);
-        parkingByVehicleDate.get(key).push(p);
     });
 
     const seenWageEntries = new Set();
@@ -2015,17 +2026,110 @@ const getDailyReports = asyncHandler(async (req, res) => {
         const attDate = a.date instanceof Date ? a.date.toISOString().split('T')[0] : String(a.date);
         const vKey = `${vId}_${attDate}`;
 
-        const matchedFuels = fuelByAttId.get(attendanceId) || fuelByVehicleDate.get(vKey) || [];
-        const fuelFromCollection = matchedFuels.reduce((s, f) => s + (Number(f.amount) || 0), 0);
+        let matchedFuels = fuelByAttId.get(attendanceId) || [];
+        
+        // If not explicitly linked, try the vehicle/date fallback BUT filter by driver name or odometer if possible
+        if (matchedFuels.length === 0) {
+            const fallbackFuels = fuelByVehicleDate.get(vKey) || [];
+            matchedFuels = fallbackFuels.filter(f => {
+                // Determine if there are multiple duties for this vehicle today
+                // If only one duty exists, we can be more lenient with signals
+                const competitorDuties = enrichedAttendanceBasic.filter(other => 
+                    String(other.vehicle?._id || other.vehicle || '') === vId && 
+                    (other.date instanceof Date ? other.date.toISOString().split('T')[0] : String(other.date)) === attDate &&
+                    String(other._id) !== attendanceId
+                );
+                const hasCompetitors = competitorDuties.length > 0;
 
-        const matchedParking = parkingByAttId.get(attendanceId) || parkingByVehicleDate.get(vKey) || [];
+                // 1. Match by driver name string (stored in fuel record)
+                if (f.driver && a.driver?.name) {
+                    const fName = String(f.driver).toLowerCase();
+                    const aName = String(a.driver.name).toLowerCase();
+                    const isNameMatch = fName.includes(aName) || aName.includes(fName) || fName.split(' ')[0] === aName.split(' ')[0];
+                    if (isNameMatch) return true;
+                    // If name is provided and doesn't match, definitely not this driver
+                    return false;
+                }
+                
+                // 2. Match by Odometer range
+                if (f.odometer && a.punchIn?.km && a.punchOut?.km) {
+                    const fKm = Number(f.odometer);
+                    const inKm = Number(a.punchIn.km);
+                    const outKm = Number(a.punchOut.km);
+                    // Match if within range with a small buffer (5km)
+                    const isInRange = fKm >= (inKm - 5) && fKm <= (outKm + 5);
+                    if (isInRange) return true;
+                    // If odo is definitely outside this duty's range, definitely not this duty
+                    if (fKm > 0) return false;
+                }
+                
+                // 3. Match by Time if timestamped
+                if (f.date && a.punchIn?.time && a.punchOut?.time) {
+                    const fTime = new Date(f.date).getTime();
+                    const inTime = new Date(a.punchIn.time).getTime();
+                    const outTime = new Date(a.punchOut.time).getTime();
+                    // Match if within duty time +/- 1 hour
+                    const isInTime = fTime >= (inTime - 3600000) && fTime <= (outTime + 3600000);
+                    if (isInTime) return true;
+                    // If time is provided and definitely outside, reject
+                    return false;
+                }
+
+                // If we reach here, we have no strong signals (no specific name, odo, or time in either fuel or attendance)
+                // If there's another driver today, don't risk duplicating - only show if there's no better candidate
+                return !hasCompetitors;
+            });
+        }
+        const fuelFromCollection = matchedFuels.reduce((s, f) => s + (Number(f.amount) || 0), 0);
+        const fuelQuantityFromCollection = matchedFuels.reduce((s, f) => s + (Number(f.quantity) || 0), 0);
+
+        let matchedParking = parkingByAttId.get(attendanceId) || [];
+        if (matchedParking.length === 0) {
+            const fallbackParking = parkingByVehicleDate.get(vKey) || [];
+            matchedParking = fallbackParking.filter(p => {
+                const competitorDuties = enrichedAttendanceBasic.filter(other => 
+                    String(other.vehicle?._id || other.vehicle || '') === vId && 
+                    (other.date instanceof Date ? other.date.toISOString().split('T')[0] : String(other.date)) === attDate &&
+                    String(other._id) !== attendanceId
+                );
+                const hasCompetitors = competitorDuties.length > 0;
+
+                if (p.driver && a.driver?.name) {
+                    const pName = String(p.driver).toLowerCase();
+                    const aName = String(a.driver.name).toLowerCase();
+                    const isNameMatch = pName.includes(aName) || aName.includes(pName) || pName.split(' ')[0] === aName.split(' ')[0];
+                    if (isNameMatch) return true;
+                    return false;
+                }
+                
+                // Parking usually has a date/time
+                if (p.date && a.punchIn?.time && a.punchOut?.time) {
+                    const pTime = new Date(p.date).getTime();
+                    const inTime = new Date(a.punchIn.time).getTime();
+                    const outTime = new Date(a.punchOut.time).getTime();
+                    const isInTime = pTime >= (inTime - 3600000) && pTime <= (outTime + 3600000);
+                    if (isInTime) return true;
+                    return false;
+                }
+
+                return !hasCompetitors;
+            });
+        }
         const parkingFromCollection = matchedParking.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
         const existingFuel = Number(a.fuel?.amount) || 0;
-        const totalFuel = fuelFromCollection > 0 ? fuelFromCollection : existingFuel;
+        const totalFuel = (fuelFromCollection > 0 || matchedFuels.length > 0) ? fuelFromCollection : existingFuel;
+        const totalFuelQty = (fuelQuantityFromCollection > 0 || matchedFuels.length > 0) ? fuelQuantityFromCollection : (Number(a.fuel?.liters) || 0);
 
         const existingParking = Number(a.punchOut?.tollParkingAmount) || 0;
         const totalParking = parkingFromCollection > 0 ? parkingFromCollection : existingParking;
+
+        // Calculate Average for this specific duty if KM and Fuel Qty exist
+        let dutyAverage = 0;
+        if (totalFuelQty > 0 && a.punchIn?.km && a.punchOut?.km) {
+            const dist = Number(a.punchOut.km) - Number(a.punchIn.km);
+            if (dist > 0) dutyAverage = Number((dist / totalFuelQty).toFixed(2));
+        }
 
         // Ensure wage is only added ONCE per driver per day
         const driverId = a.driver?._id?.toString() || a.driver?.toString() || 'unk';
@@ -2048,9 +2152,11 @@ const getDailyReports = asyncHandler(async (req, res) => {
             fuel: {
                 ...(a.fuel || {}),
                 amount: totalFuel,
+                liters: totalFuelQty,
+                avgMileage: dutyAverage,
                 entries: a.fuel?.entries?.length
                     ? a.fuel.entries
-                    : matchedFuels.map(f => ({ amount: f.amount, fuelType: f.fuelType, km: f.odometer }))
+                    : matchedFuels.map(f => ({ amount: f.amount, fuelType: f.fuelType, km: f.odometer, quantity: f.quantity }))
             },
             punchOut: a.punchOut
                 ? { ...a.punchOut, tollParkingAmount: totalParking }
@@ -3478,7 +3584,27 @@ const addFuelEntry = asyncHandler(async (req, res) => {
     // Try to link to Attendance to prevent duplication in Reports
     try {
         const searchDate = DateTime.fromJSDate(new Date(date || new Date())).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-        const attendance = await Attendance.findOne({ vehicle: vehicleId, date: searchDate });
+        // Search for all attendance records for this vehicle on this day
+        const attendances = await Attendance.find({ vehicle: vehicleId, date: searchDate }).populate('driver', 'name');
+        
+        let attendance = null;
+        if (attendances.length > 0) {
+            if (attendances.length === 1) {
+                attendance = attendances[0];
+            } else if (driver) {
+                // Try to match by driver name if multiple records exists
+                const dName = String(driver).toLowerCase();
+                attendance = attendances.find(att => {
+                    const attDName = String(att.driver?.name || '').toLowerCase();
+                    return attDName.includes(dName) || dName.includes(attDName) || attDName.split(' ')[0] === dName.split(' ')[0];
+                });
+                // Fallback to the first one if no name match
+                if (!attendance) attendance = attendances[0];
+            } else {
+                attendance = attendances[0];
+            }
+        }
+
         if (attendance) {
             fuelEntry.attendance = attendance._id;
             await fuelEntry.save();
@@ -5148,6 +5274,21 @@ const updateAttendance = asyncHandler(async (req, res) => {
     if (driverId) attendance.driver = driverId;
     if (date) attendance.date = date;
     if (status) attendance.status = status;
+
+    // AUTO-COMPLETE LOGIC: If endKm is provided and > 0, and status is still incomplete
+    // In the Log Book UI, admins often just enter the end KM. This should signal duty off.
+    if (endKm !== undefined && Number(endKm) > 0 && attendance.status === 'incomplete') {
+        attendance.status = 'completed';
+        console.log(`[ATTENDANCE_UPDATE] Auto-closing duty for ID: ${attendance._id} as endKm (${endKm}) was provided.`);
+        
+        // Ensure there is a punch out time if we just marked it as completed
+        if (!punchOutTime && (!attendance.punchOut || !attendance.punchOut.time)) {
+            attendance.punchOut = attendance.punchOut || {};
+            attendance.punchOut.time = new Date();
+            attendance.markModified('punchOut');
+        }
+    }
+
     if (pickUpLocation !== undefined) attendance.pickUpLocation = pickUpLocation;
     if (dropLocation !== undefined) attendance.dropLocation = dropLocation;
     if (dailyWage !== undefined && dailyWage !== '') attendance.dailyWage = Number(dailyWage);
@@ -5611,9 +5752,36 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vId = v._id.toString();
 
         // Fuel
-        const vFuel = fuelData.filter(f => f.vehicle?.toString() === vId);
+        const vFuel = fuelData.filter(f => f.vehicle?.toString() === vId)
+            .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort latest first to find "latest fill"
+        
         const totalFuelAmount = vFuel.reduce((sum, f) => sum + (f.amount || 0), 0);
         const totalFuelQuantity = vFuel.reduce((sum, f) => sum + (f.quantity || 0), 0);
+        
+        // Mileage efficiency calculation: distance / (quantity except last fill for the vehicle)
+        let totalFuelDistance = vFuel.reduce((sum, f) => sum + (Number(f.distance) || 0), 0);
+        
+        // Fallback: If totalFuelDistance is 0 but we have multiple odometer readings in the month, 
+        // use Max - Min odometer as a second-tier source.
+        if (totalFuelDistance === 0 && vFuel.length >= 2) {
+            const odos = vFuel.map(f => Number(f.odometer) || 0).filter(o => o > 0);
+            if (odos.length >= 2) {
+                totalFuelDistance = Math.max(...odos) - Math.min(...odos);
+            }
+        }
+        
+        // To match Fuel page logic: exclude the most recent fill quantity from the average balance 
+        // since that fuel is still in the tank and hasn't powered a trip distance record yet.
+        const efficiencyQuantity = vFuel.reduce((sum, f, idx) => {
+            // vFuel is sorted latest first (new Date(b.date) - new Date(a.date)), 
+            // so idx === 0 is the most recent fill in the filtered result.
+            if (idx === 0 && vFuel.length > 1) return sum; 
+            return sum + (Number(f.quantity) || 0);
+        }, 0);
+
+        const avgMileage = (efficiencyQuantity > 0 && totalFuelDistance > 0) 
+            ? Number((totalFuelDistance / efficiencyQuantity).toFixed(2)) 
+            : 0;
 
         // Fastag (from vehicle history)
         const vFastag = (v.fastagHistory || []).filter(h => {
@@ -5765,12 +5933,22 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             driverSalary: totalDriverSalary,
             drivers: Array.from(driversMap.keys()),
             driverBreakdown: Array.from(driversMap).map(([name, salary]) => ({ name, salary })),
-            totalDistance,
+            // Prefer fuel-based distance (more reliable), fall back to attendance KM diff
+            totalDistance: totalFuelDistance > 0 ? totalFuelDistance : totalDistance,
             fuel: {
                 totalAmount: totalFuelAmount,
                 totalQuantity: totalFuelQuantity,
+                avgMileage: avgMileage,
                 count: vFuel.length,
-                records: vFuel.map(f => ({ date: f.date, amount: f.amount, quantity: f.quantity, receipt: f.receiptNumber }))
+                records: vFuel.map(f => ({ 
+                    date: f.date, 
+                    amount: f.amount, 
+                    quantity: f.quantity, 
+                    receipt: f.receiptNumber, 
+                    distance: f.distance, 
+                    mileage: f.mileage,
+                    costPerKm: f.costPerKm
+                }))
             },
             fastag: {
                 totalAmount: totalFastagAmount,
@@ -5960,19 +6138,33 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
 
     const liveVehiclesFeed = allVehicles.map(v => {
-        const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === v._id.toString());
+        const vIdStr = v._id.toString();
+        const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === vIdStr);
+        const fuelH = fuelEntriesToday.filter(f => (f.vehicle?._id || f.vehicle || '').toString() === vIdStr);
+        
         const hasActive = vehicleAtts.some(a => a.status === 'incomplete');
-        const wasUsedToday = vehicleAtts.length > 0;
+        const wasUsedToday = vehicleAtts.length > 0 || fuelH.length > 0;
 
         return {
             ...v,
             status: hasActive ? 'In Use' : (wasUsedToday ? 'Used' : 'Idle'),
-            attendances: vehicleAtts // Pass full attendance array for the UI to render driver names
+            attendances: vehicleAtts,
+            fuelToday: fuelH
         };
+    }).filter(v => v.status !== 'Idle') // Only show used/in-use vehicles as requested
+    .sort((a, b) => {
+        // Sort Priority: 'In Use' > 'Used'
+        if (a.status === 'In Use' && b.status !== 'In Use') return -1;
+        if (a.status !== 'In Use' && b.status === 'In Use') return 1;
+        
+        // Secondary sort: Most recent attendance first
+        const aLastTime = a.attendances[a.attendances.length - 1]?.punchIn?.time || 0;
+        const bLastTime = b.attendances[b.attendances.length - 1]?.punchIn?.time || 0;
+        return new Date(bLastTime) - new Date(aLastTime);
     });
 
     const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
-    const totalUsedVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use' || v.status === 'Used').length;
+    const totalUsedVehiclesCount = liveVehiclesFeed.length; // Since we filtered for only used
 
     const finalResponse = {
         date: targetDate,
