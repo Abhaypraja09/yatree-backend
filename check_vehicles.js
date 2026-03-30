@@ -1,30 +1,22 @@
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const path = require('path');
+require('dotenv').config();
 
-dotenv.config({ path: path.join(__dirname, '.env') });
+async function check() {
+    await mongoose.connect(process.env.MONGODB_URI);
+    const vehicleSchema = new mongoose.Schema({ carNumber: String, isOutsideCar: Boolean });
+    const attendanceSchema = new mongoose.Schema({ vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle' }, date: String });
+    const Vehicle = mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema);
+    const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', attendanceSchema);
 
-const Vehicle = require('./src/models/Vehicle');
-const User = require('./src/models/User');
+    const vehicles = await Vehicle.find({ carNumber: { $in: ['RJ-27-TA-9822', 'RJ-27-TA-8946'] } });
+    console.log('VEHICLES:', JSON.stringify(vehicles, null, 2));
 
-async function checkVehicles() {
-    try {
-        await mongoose.connect(process.env.MONGODB_URI);
-        console.log('Connected');
-
-        const vehicles = await Vehicle.find({ isOutsideCar: { $ne: true } }).populate('currentDriver', 'name tripStatus');
-
-        console.log(`Total Fleet Vehicles found: ${vehicles.length}`);
-        vehicles.forEach((v, idx) => {
-            const driverInfo = v.currentDriver ? `${v.currentDriver.name} (${v.currentDriver.tripStatus})` : 'UNASSIGNED';
-            console.log(`${idx + 1}. Car: ${v.carNumber}, Driver: ${driverInfo}, ID: ${v._id}`);
-        });
-
-        process.exit();
-    } catch (err) {
-        console.error(err);
-        process.exit(1);
-    }
+    const todayDate = new Date().toISOString().split('T')[0];
+    const atts = await Attendance.find({ date: todayDate }).populate('vehicle').lean();
+    const usedVehiclesCount = new Set(atts.filter(a => a.vehicle).map(a => a.vehicle.carNumber)).size;
+    console.log('UNIQUE CARS USED TODAY IN ATTENDANCE:', usedVehiclesCount);
+    
+    process.exit();
 }
 
-checkVehicles();
+check().catch(err => { console.error(err); process.exit(1); });
