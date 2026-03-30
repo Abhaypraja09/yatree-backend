@@ -15,7 +15,7 @@ const seed = async () => {
         }
 
         // Create Admin
-        const adminMobile = 'Yatree';
+        const adminMobile = 'kavishuser1';
         const adminData = {
             name: 'System Admin',
             mobile: adminMobile,
