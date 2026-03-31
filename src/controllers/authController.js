@@ -181,8 +181,24 @@ const seedCompanies = async (req, res) => {
 // @access  Private
 const getCompanies = async (req, res) => {
     try {
-        console.log('GET COMPANIES REQUEST RECEIVED');
-        const companies = await Company.find({});
+        let query = {};
+        
+        // 🔒 MULTI-TENANCY LOCK: Only SuperAdmin sees all companies
+        // Everyone else only sees their own assigned company
+        if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Admin')) {
+            query = {}; 
+        } else {
+            const userCompanyId = req.user?.company?._id || req.user?.company;
+            if (userCompanyId) {
+                query._id = userCompanyId;
+            } else {
+                // If user has no company assigned, return empty list to be safe
+                return res.json([]);
+            }
+        }
+
+        console.log(`GET COMPANIES REQUEST RECEIVED (${req.user?.role || 'User'} role)`);
+        const companies = await Company.find(query).sort({ name: 1 });
         console.log('COMPANIES FOUND:', companies.length);
         res.json(companies);
     } catch (error) {

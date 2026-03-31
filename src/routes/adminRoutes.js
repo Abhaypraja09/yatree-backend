@@ -86,7 +86,7 @@ const {
     updateEvent,
     deleteEvent
 } = require('../controllers/eventController');
-const { protect, admin, adminOrExecutive } = require('../middleware/authMiddleware');
+const { protect, admin, adminOrExecutive, checkCompany } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
 const multer = require('multer');
 const upload = multer({ storage });
@@ -110,16 +110,16 @@ const vehicleUpload = upload.fields([
 ]);
 
 // Shared Routes (Admin & Executive)
-router.get('/dashboard/:companyId', adminOrExecutive, getDashboardStats);
-router.get('/live-feed/:companyId', adminOrExecutive, getLiveFeed);
-router.get('/vehicle-monthly-details/:companyId', adminOrExecutive, getVehicleMonthlyDetails);
-router.get('/reports/:companyId', adminOrExecutive, getDailyReports);
-router.get('/vehicles/:companyId', adminOrExecutive, getAllVehicles);
-router.get('/drivers/:companyId', adminOrExecutive, getAllDrivers);
-router.post('/drivers', adminOrExecutive, driverUpload, createDriver);
-router.put('/drivers/:id', adminOrExecutive, driverUpload, updateDriver);
-router.post('/vehicles', adminOrExecutive, vehicleUpload, createVehicle);
-router.put('/vehicles/:id', adminOrExecutive, vehicleUpload, updateVehicle);
+router.get('/dashboard/:companyId', adminOrExecutive, checkCompany, getDashboardStats);
+router.get('/live-feed/:companyId', adminOrExecutive, checkCompany, getLiveFeed);
+router.get('/vehicle-monthly-details/:companyId', adminOrExecutive, checkCompany, getVehicleMonthlyDetails);
+router.get('/reports/:companyId', adminOrExecutive, checkCompany, getDailyReports);
+router.get('/vehicles/:companyId', adminOrExecutive, checkCompany, getAllVehicles);
+router.get('/drivers/:companyId', adminOrExecutive, checkCompany, getAllDrivers);
+router.post('/drivers', adminOrExecutive, checkCompany, driverUpload, createDriver);
+router.put('/drivers/:id', adminOrExecutive, checkCompany, driverUpload, updateDriver);
+router.post('/vehicles', adminOrExecutive, checkCompany, vehicleUpload, createVehicle);
+router.put('/vehicles/:id', adminOrExecutive, checkCompany, vehicleUpload, updateVehicle);
 const freelancerUpload = upload.fields([
     { name: 'selfie', maxCount: 1 },
     { name: 'kmPhoto', maxCount: 1 },
@@ -128,11 +128,11 @@ const freelancerUpload = upload.fields([
     { name: 'carSelfie', maxCount: 1 }
 ]);
 
-router.post('/freelancers/punch-in', adminOrExecutive, freelancerUpload, freelancerPunchIn);
-router.post('/freelancers/punch-out', adminOrExecutive, freelancerUpload, freelancerPunchOut);
-router.get('/maintenance/:companyId', adminOrExecutive, getMaintenanceRecords);
-router.get('/maintenance/pending/:companyId', adminOrExecutive, getPendingMaintenanceExpenses);
-router.post('/maintenance', adminOrExecutive, upload.single('billPhoto'), addMaintenanceRecord);
+router.post('/freelancers/punch-in', adminOrExecutive, checkCompany, freelancerUpload, freelancerPunchIn);
+router.post('/freelancers/punch-out', adminOrExecutive, checkCompany, freelancerUpload, freelancerPunchOut);
+router.get('/maintenance/:companyId', adminOrExecutive, checkCompany, getMaintenanceRecords);
+router.get('/maintenance/pending/:companyId', adminOrExecutive, checkCompany, getPendingMaintenanceExpenses);
+router.post('/maintenance', adminOrExecutive, checkCompany, upload.single('billPhoto'), addMaintenanceRecord);
 router.put('/maintenance/:id', adminOrExecutive, upload.single('billPhoto'), updateMaintenanceRecord);
 router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);
 
@@ -141,8 +141,8 @@ router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);
 router.patch('/drivers/:id/status', adminOrExecutive, toggleDriverStatus);
 router.post('/drivers/:id/documents', adminOrExecutive, upload.single('document'), uploadDriverDocument);
 router.patch('/drivers/:id/documents/:docId/verify', adminOrExecutive, verifyDriverDocument);
-router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, approveNewTrip);
-router.post('/assign', adminOrExecutive, assignVehicle);
+router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, checkCompany, approveNewTrip);
+router.post('/assign', adminOrExecutive, checkCompany, assignVehicle);
 router.post('/vehicles/:id/documents', adminOrExecutive, upload.single('document'), uploadVehicleDocument);
 router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
 router.put('/vehicles/:id/fastag-recharge/:historyId', admin, updateFastagRecharge);
@@ -155,36 +155,36 @@ router.delete('/attendance/:id', adminOrExecutive, deleteAttendance);
 router.put('/attendance/:id', adminOrExecutive, updateAttendance);
 router.patch('/attendance/:attendanceId/expense/:expenseId', adminOrExecutive, approveRejectExpense);
 
-router.post('/border-tax', adminOrExecutive, upload.single('receiptPhoto'), addBorderTax);
-router.get('/border-tax/:companyId', adminOrExecutive, getBorderTaxEntries);
+router.post('/border-tax', adminOrExecutive, checkCompany, upload.single('receiptPhoto'), addBorderTax);
+router.get('/border-tax/:companyId', adminOrExecutive, checkCompany, getBorderTaxEntries);
 router.put('/border-tax/:id', adminOrExecutive, upload.single('receiptPhoto'), updateBorderTax);
 router.delete('/border-tax/:id', adminOrExecutive, deleteBorderTax);
 
-router.post('/fuel', adminOrExecutive, addFuelEntry);
-router.get('/fuel/:companyId', adminOrExecutive, getFuelEntries);
+router.post('/fuel', adminOrExecutive, checkCompany, addFuelEntry);
+router.get('/fuel/:companyId', adminOrExecutive, checkCompany, getFuelEntries);
 router.put('/fuel/:id', adminOrExecutive, updateFuelEntry);
 router.delete('/fuel/:id', adminOrExecutive, deleteFuelEntry);
-router.get('/fuel/pending/:companyId', adminOrExecutive, getPendingFuelExpenses);
+router.get('/fuel/pending/:companyId', adminOrExecutive, checkCompany, getPendingFuelExpenses);
 
-router.post('/parking', adminOrExecutive, addParkingEntry);
-router.get('/parking/:companyId', adminOrExecutive, getParkingEntries);
+router.post('/parking', adminOrExecutive, checkCompany, addParkingEntry);
+router.get('/parking/:companyId', adminOrExecutive, checkCompany, getParkingEntries);
 router.put('/parking/:id', adminOrExecutive, updateParkingEntry);
 router.delete('/parking/:id', adminOrExecutive, deleteParkingEntry);
-router.get('/parking/pending/:companyId', adminOrExecutive, getPendingParkingExpenses);
-router.get('/car-services/:companyId', adminOrExecutive, getCarServiceEntries);
+router.get('/parking/pending/:companyId', adminOrExecutive, checkCompany, getPendingParkingExpenses);
+router.get('/car-services/:companyId', adminOrExecutive, checkCompany, getCarServiceEntries);
 
 // Financials (Shared Admin & Executive)
-router.post('/expenses/pending', adminOrExecutive, addPendingExpenseFromAdmin);
-router.post('/advances', adminOrExecutive, addAdvance);
-router.get('/advances/:companyId', adminOrExecutive, getAdvances);
+router.post('/expenses/pending', adminOrExecutive, checkCompany, addPendingExpenseFromAdmin);
+router.post('/advances', adminOrExecutive, checkCompany, addAdvance);
+router.get('/advances/:companyId', adminOrExecutive, checkCompany, getAdvances);
 router.put('/advances/:id', adminOrExecutive, updateAdvance);
 router.delete('/advances/:id', adminOrExecutive, deleteAdvance);
-router.get('/salary-summary/:companyId', adminOrExecutive, getDriverSalarySummary);
+router.get('/salary-summary/:companyId', adminOrExecutive, checkCompany, getDriverSalarySummary);
 router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails);
 
 // Loan Management
-router.get('/loans/:companyId', adminOrExecutive, getAllLoans);
-router.post('/loans', adminOrExecutive, createLoan);
+router.get('/loans/:companyId', adminOrExecutive, checkCompany, getAllLoans);
+router.post('/loans', adminOrExecutive, checkCompany, createLoan);
 router.put('/loans/:id', adminOrExecutive, updateLoan);
 router.delete('/loans/:id', adminOrExecutive, deleteLoan);
 router.post('/loans/repayment', adminOrExecutive, recordLoanRepayment);
@@ -196,16 +196,16 @@ router.put('/executives/:id', admin, updateExecutive);
 router.delete('/executives/:id', admin, deleteExecutive);
 
 // Staff Management
-router.get('/staff/:companyId', adminOrExecutive, getAllStaff);
-router.post('/staff', adminOrExecutive, createStaff);
+router.get('/staff/:companyId', adminOrExecutive, checkCompany, getAllStaff);
+router.post('/staff', adminOrExecutive, checkCompany, createStaff);
 router.put('/staff/:id', adminOrExecutive, updateStaff);
 router.delete('/staff/:id', adminOrExecutive, deleteStaff);
-router.get('/staff-attendance/:companyId', adminOrExecutive, getStaffAttendanceReports);
+router.get('/staff-attendance/:companyId', adminOrExecutive, checkCompany, getStaffAttendanceReports);
 router.delete('/staff-attendance/:id', adminOrExecutive, deleteStaffAttendance);
 router.post('/staff-attendance/backdate', adminOrExecutive, addBackdatedAttendance);
 
 // Leave Requests
-router.get('/leaves/pending/:companyId', adminOrExecutive, getPendingLeaveRequests);
+router.get('/leaves/pending/:companyId', adminOrExecutive, checkCompany, getPendingLeaveRequests);
 router.patch('/leaves/:id', adminOrExecutive, approveRejectLeave);
 
 // Generic Upload Route
@@ -216,16 +216,16 @@ router.post('/upload', adminOrExecutive, upload.single('file'), (req, res) => {
     res.json({ url: req.file.path });
 });
 
-router.post('/manual-duty', adminOrExecutive, addManualDuty);
-router.post('/punch-in', adminOrExecutive, adminPunchIn);
-router.post('/punch-out', adminOrExecutive, adminPunchOut);
-router.get('/accident-logs/:companyId', adminOrExecutive, getAccidentLogs);
-router.post('/accident-logs', adminOrExecutive, upload.array('photos', 5), addAccidentLog);
+router.post('/manual-duty', adminOrExecutive, checkCompany, addManualDuty);
+router.post('/punch-in', adminOrExecutive, checkCompany, adminPunchIn);
+router.post('/punch-out', adminOrExecutive, checkCompany, adminPunchOut);
+router.get('/accident-logs/:companyId', adminOrExecutive, checkCompany, getAccidentLogs);
+router.post('/accident-logs', adminOrExecutive, checkCompany, upload.array('photos', 5), addAccidentLog);
 router.delete('/accident-logs/:id', adminOrExecutive, deleteAccidentLog);
 
 // Event Management
-router.post('/events', adminOrExecutive, createEvent);
-router.get('/events/:companyId', adminOrExecutive, getEvents);
+router.post('/events', adminOrExecutive, checkCompany, createEvent);
+router.get('/events/:companyId', adminOrExecutive, checkCompany, getEvents);
 router.get('/events/details/:eventId', adminOrExecutive, getEventDetails);
 router.put('/events/:id', adminOrExecutive, updateEvent);
 router.delete('/events/:id', adminOrExecutive, deleteEvent);

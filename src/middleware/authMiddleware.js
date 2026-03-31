@@ -45,6 +45,30 @@ const protect = async (req, res, next) => {
     }
 };
 
+const checkCompany = (req, res, next) => {
+    // 🛡️ CRASH PROTECT: Handle undefined user or company safely
+    const userCompanyRaw = req.user?.company?._id || req.user?.company;
+    const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
+
+    // 🛡️ TARGET RESOLUTION: Try params, body, and query for companyId
+    const targetRaw = req.params?.companyId || req.body?.companyId || req.query?.companyId || req.body?.company || req.query?.company;
+    const targetCompanyId = targetRaw ? targetRaw.toString() : null;
+
+    if (!targetCompanyId || !userCompanyId) return next();
+
+    // 👑 ADMIN BYPASS: Platform administrators and superadmins are allowed to cross boundaries.
+    if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Admin')) {
+        return next();
+    }
+
+    if (userCompanyId !== targetCompanyId) {
+        return res.status(403).json({ 
+            message: `Tenant Mismatch Error. (Organization boundary violation detected)` 
+        });
+    }
+    next();
+};
+
 const admin = (req, res, next) => {
     if (req.user && req.user.role === 'Admin') {
         next();
@@ -69,4 +93,4 @@ const adminOrExecutive = (req, res, next) => {
     }
 };
 
-module.exports = { protect, admin, driver, adminOrExecutive };
+module.exports = { protect, admin, driver, adminOrExecutive, checkCompany };

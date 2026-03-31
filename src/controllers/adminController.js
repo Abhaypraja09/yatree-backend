@@ -63,10 +63,7 @@ const createDriver = async (req, res, next) => {
             return res.status(400).json({ message: `A ${roleStr} already exists with this ${field} (${userExists.name})` });
         }
 
-        const company = await Company.findById(companyId);
-        if (!company) {
-            return res.status(400).json({ message: 'Invalid company selected' });
-        }
+        const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
 
         const driver = new User({
             name,
@@ -74,7 +71,7 @@ const createDriver = async (req, res, next) => {
             username,
             password,
             role: 'Driver',
-            company: companyId,
+            company: finalCompanyId,
             isFreelancer: isFreelancer === 'true' || isFreelancer === true,
             licenseNumber,
             dailyWage: Number(dailyWage) || 0,
@@ -132,11 +129,13 @@ const createVehicle = asyncHandler(async (req, res) => {
         }
     });
 
+    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+
     const vehicle = new Vehicle({
         carNumber: formattedCarNumber,
         model: model || (isOutsideCar ? 'Outside Car' : undefined),
         permitType: permitType || (isOutsideCar ? 'None/Outside' : undefined),
-        company: companyId,
+        company: finalCompanyId,
         carType: carType || 'SUV',
         isOutsideCar: isOutsideCar === 'true' || isOutsideCar === true,
         dutyAmount: Number(dutyAmount) || 0,
@@ -202,7 +201,10 @@ const assignVehicle = asyncHandler(async (req, res) => {
     vehicle.currentDriver = driverId;
     await vehicle.save();
 
-    res.json({ message: 'Vehicle assigned successfully', driver, vehicle });
+    // 🛠️ CACHE FIX: Clear dashboard cache on mutation to ensure real-time update
+    DASHBOARD_CACHE.clear();
+
+    res.status(200).json({ message: 'Vehicle assigned successfully' });
 });
 
 // @desc    Block or Unblock driver
@@ -259,7 +261,9 @@ const syncVehicleOdometer = async (vehicleId) => {
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query; // Support single date OR date range
+    const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query;
+
+    console.log(`[DASHBOARD] Fetching for Co: ${companyId}, Admin: ${req.user.name}`);
 
     const cacheKey = `${companyId}_${qMonth}_${qYear}_${date}_${from}_${to}`;
     if (!bypassCache && DASHBOARD_CACHE.has(cacheKey)) {
@@ -307,14 +311,16 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         : (isRangeMode ? to : baseDate.endOf('month').toFormat('yyyy-MM-dd'));
 
     const isTodaySelected = targetDate === todayIST;
-
     const yStart = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('year').toJSDate();
     const yEnd = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).endOf('year').toJSDate();
 
     // Run independent heavy queries concurrently with optimization (.lean & selective projection)
     const [
         totalVehicles,
+        totalInternalVehicles,
         totalDrivers,
+        totalInternalDriversCount,
+        totalFreelancerDriversCount,
         attendanceToday,
         pendingApprovalsCount,
         vehiclesWithExpiringDocs,
@@ -345,13 +351,25 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         yearlyAccidentData
     ] = await Promise.all([
         Vehicle.countDocuments({
+            company: companyObjectId
+        }),
+        Vehicle.countDocuments({
             company: companyObjectId,
             isOutsideCar: { $ne: true }
         }),
         User.countDocuments({
             company: companyObjectId,
+            role: 'Driver'
+        }),
+        User.countDocuments({
+            company: companyObjectId,
             role: 'Driver',
             isFreelancer: { $ne: true }
+        }),
+        User.countDocuments({
+            company: companyObjectId,
+            role: 'Driver',
+            isFreelancer: true
         }),
         Attendance.find({
             company: companyObjectId,
@@ -1054,7 +1072,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
 
     const finalResponse = {
-        date: targetDate, totalVehicles, totalDrivers: liveDriversFeed.length,
+        date: targetDate, totalVehicles, totalInternalVehicles, 
+        totalDrivers, internalDriversCount: totalInternalDriversCount, freelancerDriversCount: totalFreelancerDriversCount,
         countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
         activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
         pendingApprovalsCount, totalFastagBalance, monthlyFastagTotal, dailyFastagTotal, totalAdvancePending: monthlyRegularAdvanceTotal,
@@ -1064,7 +1083,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         totalStaff, countStaffPresent: staffAttendanceToday.length,
     
         staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,
-        expiringAlerts, reportedIssues: reportedIssuesList,
+        expiringAlerts: (expiringAlerts || []), 
+        reportedIssues: reportedIssuesList,
         regularAdvances: regularAdvancesList.filter(adv => adv.driver),
         totalAdvancesSum: monthlyRegularAdvanceTotal + totalFreelancerAdvancePending,
         dailyAdvancesSum: dailySalaryTotal + (dailyAdvanceData[0]?.total || 0),
@@ -1217,7 +1237,7 @@ const getAllDrivers = asyncHandler(async (req, res) => {
     const page = Number(req.query.pageNumber) || 1;
 
     try {
-        const query = {
+        const driverQuery = {
             $or: [
                 { company: new mongoose.Types.ObjectId(companyId) },
                 { company: companyId }
@@ -1225,11 +1245,11 @@ const getAllDrivers = asyncHandler(async (req, res) => {
             role: 'Driver'
         };
         if (req.query.isFreelancer !== undefined) {
-            query.isFreelancer = isFreelancerQuery;
+            driverQuery.isFreelancer = isFreelancerQuery;
         }
 
         // 1. Calculate Global Stats for the company
-        const allDrivers = await User.find(query).select('_id status isFreelancer');
+        const allDrivers = await User.find(driverQuery).select('_id status isFreelancer');
         const allDriverIds = allDrivers.map(d => d._id);
         const todayStr = new Date().toLocaleDateString('en-CA');
 
@@ -1272,12 +1292,12 @@ const getAllDrivers = asyncHandler(async (req, res) => {
         };
 
         if (!usePagination) {
-            const drivers = await fetchDriversList(query, false);
+            const drivers = await fetchDriversList(driverQuery, false);
             return res.json({ drivers, stats });
         }
 
-        const count = await User.countDocuments(query);
-        const driversList = await fetchDriversList(query, true);
+        const count = await User.countDocuments(driverQuery);
+        const driversList = await fetchDriversList(driverQuery, true);
 
         res.json({ drivers: driversList, page, pages: Math.ceil(count / pageSize), total: count, stats });
     } catch (error) {
@@ -1892,11 +1912,19 @@ const getDailyReports = asyncHandler(async (req, res) => {
     };
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
-    const rawAttendance = await Attendance.find(query)
+    const rawAttendanceRaw = await Attendance.find(query)
         .populate('driver', 'name mobile isFreelancer salary dailyWage')
         .populate('vehicle', 'carNumber model isOutsideCar carType dutyAmount fastagNumber fastagBalance')
-        .sort({ date: -1, createdAt: -1 })
         .lean();
+
+    // Sort ASC by date then punchIn time so the FIRST duty of the day is processed first for wage dedup
+    const rawAttendance = rawAttendanceRaw.slice().sort((a, b) => {
+        const dateCmp = (a.date || '').localeCompare(b.date || '');
+        if (dateCmp !== 0) return dateCmp;
+        const aTime = a.punchIn?.time ? new Date(a.punchIn.time).getTime() : 0;
+        const bTime = b.punchIn?.time ? new Date(b.punchIn.time).getTime() : 0;
+        return aTime - bTime;
+    });
 
     const enrichedAttendanceBasic = rawAttendance.map(a => ({
         ...a,
@@ -2131,18 +2159,21 @@ const getDailyReports = asyncHandler(async (req, res) => {
             if (dist > 0) dutyAverage = Number((dist / totalFuelQty).toFixed(2));
         }
 
-        // Ensure wage is only added ONCE per driver per day
+        // Ensure wage is only added ONCE per driver per day (first duty gets wage, subsequent duties get 0)
         const driverId = a.driver?._id?.toString() || a.driver?.toString() || 'unk';
         const wageKey = `${driverId}_${attDate}`;
         let finalDailyWage = 0;
 
         if (!seenWageEntries.has(wageKey)) {
+            // Mark this driver+date as seen UNCONDITIONALLY so second duty NEVER gets wage
+            seenWageEntries.add(wageKey);
             finalDailyWage = Number(a.dailyWage) || 0;
             if (!finalDailyWage && a.driver) {
-                finalDailyWage = (a.driver.dailyWage ? Number(a.driver.dailyWage) : 0) || (a.driver.salary ? Math.round(Number(a.driver.salary) / 26) : 0) || 0;
-            }
-            if (finalDailyWage > 0) {
-                seenWageEntries.add(wageKey);
+                const isFreelancer = a.isFreelancer || a.driver?.isFreelancer || false;
+                finalDailyWage = (a.driver.dailyWage ? Number(a.driver.dailyWage) : 0);
+                if (!finalDailyWage && !isFreelancer) {
+                    finalDailyWage = (a.driver.salary ? Math.round(Number(a.driver.salary) / 26) : 0) || 0;
+                }
             }
         }
 
@@ -2164,7 +2195,15 @@ const getDailyReports = asyncHandler(async (req, res) => {
         };
     });
 
-    const finalReports = [...enrichedAttendance, ...mappedOutside].sort((a, b) => b.date.localeCompare(a.date));
+    // Sort descending for display (latest date first) AFTER wage dedup is done
+    const finalReports = [...enrichedAttendance, ...mappedOutside].sort((a, b) => {
+        const dateCmp = b.date.localeCompare(a.date);
+        if (dateCmp !== 0) return dateCmp;
+        // Same date: sort by punchIn time descending (latest punch-in shown first)
+        const aTime = a.punchIn?.time ? new Date(a.punchIn.time).getTime() : 0;
+        const bTime = b.punchIn?.time ? new Date(b.punchIn.time).getTime() : 0;
+        return bTime - aTime;
+    });
 
     // 2. Fetch Fastag Recharges
     let fastagRecharges = [];
@@ -2530,7 +2569,7 @@ const logToFile = (msg) => {
 // @route   POST /api/admin/freelancers/punch-in
 // @access  Private/Admin
 const freelancerPunchIn = asyncHandler(async (req, res) => {
-    const { driverId, vehicleId, km, time, pickUpLocation } = req.body;
+    const { driverId, vehicleId, km, time, pickUpLocation, dailyWage } = req.body;
     logToFile(`[FREELANCER_PUNCH_IN] Triggered for Driver: ${driverId}, Vehicle: ${vehicleId}, Time: ${time}`);
 
     const driver = await User.findById(driverId);
@@ -2563,7 +2602,7 @@ const freelancerPunchIn = asyncHandler(async (req, res) => {
         company: driver.company,
         vehicle: vehicleId,
         date: dutyDate,
-        dailyWage: driver.dailyWage || 0,
+        dailyWage: Number(dailyWage) || driver.dailyWage || 0,
         punchIn: {
             km: km || 0,
             time: time ? new Date(time) : new Date(dutyDate + 'T12:00:00Z'),
@@ -2808,7 +2847,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/punch-in
 // @access  Private/Admin
 const adminPunchIn = asyncHandler(async (req, res) => {
-    const { driverId, vehicleId, km, time, pickUpLocation, date } = req.body;
+    const { driverId, vehicleId, km, time, pickUpLocation, date, dailyWage } = req.body;
 
     const driver = await User.findById(driverId);
     const vehicle = await Vehicle.findById(vehicleId);
@@ -2834,7 +2873,7 @@ const adminPunchIn = asyncHandler(async (req, res) => {
         company: driver.company,
         vehicle: vehicleId,
         date: dutyDate,
-        dailyWage: driver.dailyWage || 0,
+        dailyWage: Number(dailyWage) || driver.dailyWage || 0,
         punchIn: {
             km: Number(km) || 0,
             time: time ? DateTime.fromISO(time, { zone: 'Asia/Kolkata' }).toJSDate() : new Date(),
@@ -2997,8 +3036,10 @@ const addManualDuty = asyncHandler(async (req, res) => {
         eventId
     } = req.body;
 
-    if (!driverId || !vehicleId || !companyId || !date) {
-        return res.status(400).json({ message: 'Please provide required fields: driver, vehicle, company, and date' });
+    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+
+    if (!driverId || !vehicleId || !finalCompanyId || !date) {
+        return res.status(400).json({ message: 'Please provide required fields: driver, vehicle, and date' });
     }
 
     const driver = await User.findById(driverId);
@@ -4748,11 +4789,13 @@ const createStaff = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Staff with this mobile or username already exists' });
     }
 
+    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+
     const staff = await User.create({
         name,
         mobile,
         password,
-        company: companyId,
+        company: finalCompanyId,
         salary: Number(salary),
         username,
         role: 'Staff',
@@ -6065,7 +6108,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
 
     // EXCLUDE 'deleted' status explicitly (safety measure for soft-delete)
-    const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles] = await Promise.all([
+    const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find({ 
             company: companyObjectId, 
             date: targetDate, 
@@ -6074,7 +6117,12 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
         User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage').lean(),
-        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean()
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean(),
+        Vehicle.find({
+            company: companyObjectId,
+            isOutsideCar: true,
+            carNumber: { $regex: new RegExp(`#${targetDate}(#|$)`) }
+        }).lean()
     ]);
 
     // Ensure all drivers with attendance today are in the feed, even if not in the default Driver list
@@ -6103,39 +6151,60 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         return driver.status !== 'Absent';
     });
 
-    // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Dashboard)
-    const workedDriversMap = new Map();
-    const freelancerWorkedDriversMap = new Map();
+    // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Freelancers.Hub)
+    let regularSalaryTotal = 0;
+    let freelancerSalaryTotal = 0;
+    const regularDriversWithWageSeen = new Set();
+    const freelancerDriversSeen = new Set(); 
+    const regularDriversSeen = new Set();
 
     attendanceToday.forEach(att => {
-        if (att.driver) {
-            const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
-            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
-            const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
-            const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-            const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
-            const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
+        if (!att.driver) return;
+        const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
+        const isFreelancer = att.driver.isFreelancer === true || att.isFreelancer === true;
+        
+        // Per-duty components
+        const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
+        const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
+        const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
+        const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
+        
+        // Wage components
+        const attWage = Number(att.dailyWage) || 0;
+        const driverWage = Number(att.driver.dailyWage) || 0;
 
-            if (att.driver.isFreelancer === true || att.isFreelancer === true) {
-                if (!freelancerWorkedDriversMap.has(driverId)) {
-                    freelancerWorkedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
-                } else {
-                    const cur = freelancerWorkedDriversMap.get(driverId);
-                    freelancerWorkedDriversMap.set(driverId, { w: cur.w, b: cur.b + bonuses, p: cur.p + parking });
-                }
-            } else {
-                if (!workedDriversMap.has(driverId)) {
-                    workedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
-                } else {
-                    const cur = workedDriversMap.get(driverId);
-                    workedDriversMap.set(driverId, { w: cur.w, b: cur.b + bonuses, p: cur.p + parking });
-                }
+        if (isFreelancer) {
+            // Freelancers are paid per duty/trip
+            const wage = attWage || driverWage || 0;
+            freelancerSalaryTotal += (wage + bonuses + parking);
+            freelancerDriversSeen.add(driverId);
+        } else {
+            // Regular drivers: bonuses/parking per duty, but daily wage only ONCE
+            regularSalaryTotal += (bonuses + parking);
+            regularDriversSeen.add(driverId);
+            
+            if (!regularDriversWithWageSeen.has(driverId)) {
+                const wage = attWage || driverWage || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 0;
+                regularSalaryTotal += wage;
+                regularDriversWithWageSeen.add(driverId);
             }
         }
     });
 
-    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
-    const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
+    // Outside Car Vouchers are separate from Freelancer Attendance
+    // These are created via OutsideCars.jsx / EventManagement.jsx and should NOT
+    // be mixed with freelancerSalary (which tracks isFreelancer=true driver attendance)
+    const attendanceVehicleIds = new Set(attendanceToday.map(a => (a.vehicle?._id || a.vehicle || '').toString()));
+    const validOutsideVehicles = (outsideVehiclesToday || []).filter(v => !attendanceVehicleIds.has(v._id.toString()));
+
+    let outsideCarTotal = 0;
+    validOutsideVehicles.forEach(v => {
+        const wage = Number(v.dutyAmount) || 0;
+        outsideCarTotal += wage;
+    });
+
+    const dailySalaryTotal = regularSalaryTotal;
+    const dailyFreelancerSalaryTotal = freelancerSalaryTotal; // Only isFreelancer=true attendance
 
     const liveVehiclesFeed = allVehicles.map(v => {
         const vIdStr = v._id.toString();
@@ -6153,11 +6222,18 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         };
     }).filter(v => v.status !== 'Idle') // Only show used/in-use vehicles as requested
     .sort((a, b) => {
-        // Sort Priority: 'In Use' > 'Used'
-        if (a.status === 'In Use' && b.status !== 'In Use') return -1;
-        if (a.status !== 'In Use' && b.status === 'In Use') return 1;
+        // Priority: 'Used' before 'In Use' to show free/completed cars first as requested
+        if (a.status === 'Used' && b.status === 'In Use') return -1;
+        if (a.status === 'In Use' && b.status === 'Used') return 1;
         
-        // Secondary sort: Most recent attendance first
+        if (a.status === 'Used' && b.status === 'Used') {
+            // Sort by punch-out time: earliest first
+            const aLastOut = a.attendances[a.attendances.length - 1]?.punchOut?.time || 0;
+            const bLastOut = b.attendances[b.attendances.length - 1]?.punchOut?.time || 0;
+            return new Date(aLastOut) - new Date(bLastOut);
+        }
+
+        // Secondary sort for 'In Use': Latest punch-in first (active ones)
         const aLastTime = a.attendances[a.attendances.length - 1]?.punchIn?.time || 0;
         const bLastTime = b.attendances[b.attendances.length - 1]?.punchIn?.time || 0;
         return new Date(bLastTime) - new Date(aLastTime);
@@ -6169,16 +6245,18 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const finalResponse = {
         date: targetDate,
         totalVehicles,
-        activeVehiclesCount, // New field for backend/API consumers
-        totalUsedVehiclesCount, // Total unique vehicles used throughout the day
+        activeVehiclesCount, 
+        totalUsedVehiclesCount, 
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
         dailyStats: {
             regularSalary: dailySalaryTotal,
-            regularDriversCount: workedDriversMap.size,
+            regularDriversCount: regularDriversSeen.size,
             freelancerSalary: dailyFreelancerSalaryTotal,
-            freelancerDriversCount: freelancerWorkedDriversMap.size,
-            grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal
+            freelancerDriversCount: freelancerDriversSeen.size,
+            outsideCarSalary: outsideCarTotal,
+            outsideCarCount: validOutsideVehicles.length,
+            grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal + outsideCarTotal
         },
         liveDriversFeed: mappedDrivers,
         liveVehiclesFeed,
