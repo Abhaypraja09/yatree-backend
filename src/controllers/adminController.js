@@ -63,7 +63,7 @@ const createDriver = async (req, res, next) => {
             return res.status(400).json({ message: `A ${roleStr} already exists with this ${field} (${userExists.name})` });
         }
 
-        const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+        const finalCompanyId = req.tenantFilter?.company || companyId;
 
         const driver = new User({
             name,
@@ -111,6 +111,7 @@ const createVehicle = asyncHandler(async (req, res) => {
     const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
+    // 🛡️ SECURITY: Global system check for car number uniqueness but restricted by tenant filter for safety.
     const vehicleExists = await Vehicle.findOne({ carNumber: formattedCarNumber });
     if (vehicleExists) {
         return res.status(400).json({ message: 'Vehicle already exists with this car number' });
@@ -129,7 +130,8 @@ const createVehicle = asyncHandler(async (req, res) => {
         }
     });
 
-    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+    // 🛡️ SECURITY: Trust req.tenantFilter derived from the verified JWT 
+    const finalCompanyId = req.tenantFilter?.company || companyId;
 
     const vehicle = new Vehicle({
         carNumber: formattedCarNumber,
@@ -260,970 +262,192 @@ const syncVehicleOdometer = async (vehicleId) => {
 // @access  Private/Admin
 // @access  Private/Admin
 const getDashboardStats = asyncHandler(async (req, res) => {
-    const { companyId } = req.params;
-    const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query;
-
-    console.log(`[DASHBOARD] Fetching for Co: ${companyId}, Admin: ${req.user.name}`);
-
-    const cacheKey = `${companyId}_${qMonth}_${qYear}_${date}_${from}_${to}`;
-    if (!bypassCache && DASHBOARD_CACHE.has(cacheKey)) {
-        const cached = DASHBOARD_CACHE.get(cacheKey);
-        if (Date.now() - cached.time < CACHE_TTL) {
-            return res.json(cached.data);
-        }
-    }
-
-    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
-        return res.status(400).json({ message: 'Invalid Company ID' });
-    }
-
-    const companyObjectId = new mongoose.Types.ObjectId(companyId);
-
-    // Default to today IST if no date provided
-    const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-
-    // Monthly mode: use month/year params. Range mode: use from/to. Single mode: use date param.
-    const isMonthlyMode = !!(qMonth && qYear);
-    const isRangeMode = !!(from && to) && !isMonthlyMode;
-
-    const targetDate = isRangeMode ? to : (date || todayIST); // reference day = end of range or selected date
-    const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
-    const alertThreshold = baseDate.plus({ days: 30 });
-
-    let monthStart, monthEnd;
-    if (isMonthlyMode) {
-        const m = parseInt(qMonth);
-        const y = parseInt(qYear);
-        monthStart = DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month').toJSDate();
-        monthEnd = DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).endOf('month').toJSDate();
-    } else if (isRangeMode) {
-        monthStart = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
-        monthEnd = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
-    } else {
-        monthStart = baseDate.startOf('month').toJSDate();
-        monthEnd = baseDate.endOf('month').toJSDate();
-    }
-    const monthStartStr = isMonthlyMode
-        ? DateTime.fromJSDate(monthStart).toFormat('yyyy-MM-dd')
-        : (isRangeMode ? from : baseDate.startOf('month').toFormat('yyyy-MM-dd'));
-    const monthEndStr = isMonthlyMode
-        ? DateTime.fromJSDate(monthEnd).toFormat('yyyy-MM-dd')
-        : (isRangeMode ? to : baseDate.endOf('month').toFormat('yyyy-MM-dd'));
-
-    const isTodaySelected = targetDate === todayIST;
-    const yStart = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('year').toJSDate();
-    const yEnd = DateTime.fromObject({ year: parseInt(qYear || baseDate.year), month: 1, day: 1 }, { zone: 'Asia/Kolkata' }).endOf('year').toJSDate();
-
-    // Run independent heavy queries concurrently with optimization (.lean & selective projection)
-    const [
-        totalVehicles,
-        totalInternalVehicles,
-        totalDrivers,
-        totalInternalDriversCount,
-        totalFreelancerDriversCount,
-        attendanceToday,
-        pendingApprovalsCount,
-        vehiclesWithExpiringDocs,
-        driversWithExpiringDocs,
-        fastagData,
-        advanceData, // For non-freelancer advances (total pending)
-        monthlyFuelData,
-        monthlyMaintenanceData,
-        upcomingServices,
-        totalStaff,
-        staffAttendanceToday, // Staff attendance for today
-        freelancerAdvanceData, // For freelancer advances (total and count)
-        dailyAdvanceData, // For advances given today
-        monthlyParkingData,
-        allAttendanceThisMonth, // All attendance for the month
-        monthlyBorderTaxData,
-        regularAdvancesList, // Specific pending advances for regular drivers
-        reportedIssuesList, // Reported issues from attendance,
-        outsideCarsToday, // Outside cars logged as vehicles for today,
-        monthlyAccidentData, // Monthly accident cost
-        totalWarrantyData, // Total warranty cost
-        outsideCarsThisMonth, // Outside cars for the entire month
-        eventsThisMonth,
-        allDrivers,
-        allVehicles,
-        fuelEntriesToday,
-        dailyFastagData,
-        yearlyAccidentData
-    ] = await Promise.all([
-        Vehicle.countDocuments({
-            company: companyObjectId
-        }),
-        Vehicle.countDocuments({
-            company: companyObjectId,
-            isOutsideCar: { $ne: true }
-        }),
-        User.countDocuments({
-            company: companyObjectId,
-            role: 'Driver'
-        }),
-        User.countDocuments({
-            company: companyObjectId,
-            role: 'Driver',
-            isFreelancer: { $ne: true }
-        }),
-        User.countDocuments({
-            company: companyObjectId,
-            role: 'Driver',
-            isFreelancer: true
-        }),
-        Attendance.find({
-            company: companyObjectId,
-            date: targetDate
-        })
-            .populate({
-                path: 'driver',
-                select: 'name mobile isFreelancer salary dailyWage'
-            })
-            .populate('vehicle', 'carNumber')
-            .lean(),
-        User.countDocuments({
-            company: companyObjectId,
-            role: 'Driver',
-            tripStatus: 'pending_approval'
-        }),
-        Vehicle.find({
-            company: companyObjectId,
-            isOutsideCar: { $ne: true },
-            'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
-        }).select('carNumber documents').lean(),
-        User.find({
-            company: companyObjectId,
-            role: 'Driver',
-            'documents.expiryDate': { $lte: alertThreshold.toJSDate() }
-        }).select('name documents').lean(),
-        // Fastag Recharge this month instead of total balance (User request 01st March = 0)
-        Vehicle.aggregate([
-            { $match: { company: companyObjectId, fastagHistory: { $exists: true, $type: 'array' } } },
-            { $unwind: '$fastagHistory' },
-            {
-                $match: {
-                    'fastagHistory.date': { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$fastagHistory.amount' } } }
-        ]).allowDiskUse(true),
-        // Advances given this month instead of total pending (User request 01st March = 0)
-        Advance.aggregate([
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: 'driver',
-                    foreignField: '_id',
-                    as: 'driverInfo'
-                }
-            },
-            { $unwind: { path: '$driverInfo', preserveNullAndEmptyArrays: true } },
-            {
-                $match: {
-                    company: companyObjectId,
-                    'driverInfo.isFreelancer': { $ne: true },
-                    date: { $gte: monthStart, $lte: monthEnd },
-                    remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]),
-        Fuel.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' }, quantity: { $sum: '$quantity' } } }
-        ]),
-        Maintenance.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    billDate: { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            {
-                $project: {
-                    amount: 1,
-                    isDriverService: {
-                        $or: [
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$category", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$description", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$maintenanceType", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } }
-                        ]
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: "$isDriverService",
-                    total: { $sum: "$amount" }
-                }
-            }
-        ]),
-        Maintenance.find({
-            company: companyObjectId,
-            status: 'Completed'
-        }).populate('vehicle', 'carNumber lastOdometer').sort({ billDate: -1, createdAt: -1 }).lean(),
-        User.countDocuments({ company: companyObjectId, role: 'Staff' }),
-        StaffAttendance.find({
-            company: companyObjectId,
-            date: targetDate
-        }).populate('staff', 'name mobile').lean(),
-        Advance.aggregate([
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: 'driver',
-                    foreignField: '_id',
-                    as: 'driverInfo'
-                }
-            },
-            { $unwind: { path: '$driverInfo', preserveNullAndEmptyArrays: true } },
-            {
-                $match: {
-                    company: companyObjectId,
-                    'driverInfo.isFreelancer': true,
-                    status: 'Pending',
-                    remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
-        ]),
-        Advance.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: {
-                        $gte: baseDate.toJSDate(),
-                        $lte: baseDate.endOf('day').toJSDate()
-                    },
-                    remark: { $not: /Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]),
-        Parking.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            {
-                $project: {
-                    serviceType: 1,
-                    amount: 1,
-                    isDriverService: {
-                        $or: [
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$remark", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } },
-                            { $regexMatch: { input: { $toLower: { $ifNull: ["$notes", ""] } }, regex: /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/ } }
-                        ]
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: { type: "$serviceType", isService: "$isDriverService" },
-                    total: { $sum: "$amount" }
-                }
-            }
-        ]),
-        Attendance.find({
-            company: companyObjectId,
-            date: { $gte: monthStartStr, $lte: monthEndStr }
-        }).populate('driver', 'name mobile salary dailyWage isFreelancer').populate('vehicle', 'carNumber model').lean(),
-        BorderTax.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]),
-        Advance.find({
-            company: companyObjectId,
-            status: 'Pending',
-            remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
-        }).populate({
-            path: 'driver',
-            match: { isFreelancer: { $ne: true } },
-            select: 'name mobile'
-        }).sort({ date: -1 }).lean(),
-        Attendance.find({
-            company: companyObjectId,
-            'punchOut.otherRemarks': { $exists: true, $ne: '' }
-        }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(10).lean(),
-        Vehicle.find({
-            company: companyObjectId,
-            isOutsideCar: true,
-            createdAt: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() }
-        }).lean(),
-        AccidentLog.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: { $gte: monthStart, $lte: monthEnd }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]),
-        PartsWarranty.aggregate([
-            { $match: { company: companyObjectId } },
-            { $group: { _id: null, total: { $sum: '$cost' } } }
-        ]),
-        Vehicle.find({
-            company: companyObjectId,
-            isOutsideCar: true
-        }).sort({ createdAt: -1 }).limit(5000).lean(),
-        Event.find({
-            company: companyObjectId,
-            date: { $gte: monthStart, $lte: monthEnd }
-        }).lean(),
-        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
-        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean(),
-        Fuel.find({
-            company: companyObjectId,
-            date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() }
-        }).select('amount fuelType quantity odometer stationName paymentMode paymentSource driver vehicle attendance date source createdAt').populate('vehicle', 'carNumber model').lean(),
-        Vehicle.aggregate([
-            { $match: { company: companyObjectId, fastagHistory: { $exists: true, $type: 'array' } } },
-            { $unwind: '$fastagHistory' },
-            {
-                $match: {
-                    'fastagHistory.date': {
-                        $gte: baseDate.toJSDate(),
-                        $lte: baseDate.endOf('day').toJSDate()
-                    }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$fastagHistory.amount' } } }
-        ]),
-        AccidentLog.aggregate([
-            {
-                $match: {
-                    company: companyObjectId,
-                    date: { $gte: yStart, $lte: yEnd }
-                }
-            },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ])
-    ]);
-
-
-
-    // OPTIMIZATION: Create Maps for O(1) lookups instead of .filter in loops
-    const attendanceByDriverMap = new Map();
-    const attendanceByVehicleMap = new Map();
-
-    attendanceToday.forEach(att => {
-        const dId = att.driver?._id ? att.driver._id.toString() : (att.driver?.toString() || null);
-        const vId = att.vehicle?._id ? att.vehicle._id.toString() : (att.vehicle?.toString() || null);
-
-        if (dId) {
-            if (!attendanceByDriverMap.has(dId)) attendanceByDriverMap.set(dId, []);
-            attendanceByDriverMap.get(dId).push(att);
-        }
-        if (vId) {
-            if (!attendanceByVehicleMap.has(vId)) attendanceByVehicleMap.set(vId, []);
-            attendanceByVehicleMap.get(vId).push(att);
-        }
-    });
-
-    const fuelEntriesByDriverNameMap = new Map();
-    const fuelEntriesByVehicleIdMap = new Map();
-
-    fuelEntriesToday.forEach(f => {
-        if (f.driver) {
-            // Find by name for drivers
-            if (!fuelEntriesByDriverNameMap.has(f.driver)) fuelEntriesByDriverNameMap.set(f.driver, []);
-            fuelEntriesByDriverNameMap.get(f.driver).push(f);
-        }
-        if (f.vehicle) {
-            const vIdStr = f.vehicle._id ? f.vehicle._id.toString() : f.vehicle.toString();
-            if (!fuelEntriesByVehicleIdMap.has(vIdStr)) fuelEntriesByVehicleIdMap.set(vIdStr, []);
-            fuelEntriesByVehicleIdMap.get(vIdStr).push(f);
-        }
-    });
-
-    // Map all drivers using Optimized Maps
-    const liveDriversFeed = allDrivers.map(driver => {
-        const isF = driver.isFreelancer === true;
-        const driverAttendances = attendanceByDriverMap.get(driver._id.toString()) || [];
-
-        let fuelAmount = 0;
-        let fuelEntries = [];
-        // Daily Feed fuel comes primarily from the Fuel collection for that date
-        // Note: For freelancers, `driver` might be stored as string Name instead of ObjectId. We check both maps.
-        const standaloneFuelList = Array.from(fuelEntriesToday).filter(f =>
-            (f.driver && f.driver.toString() === driver._id.toString()) ||
-            (f.driver && f.driver === driver.name)
-        );
-
-        standaloneFuelList.forEach(f => {
-            fuelAmount += (Number(f.amount) || 0);
-            fuelEntries.push(f);
-        });
-
-        // Fallback for manual duties that didn't have a standalone record (only if attendance date matches)
-        driverAttendances.forEach((att) => {
-            if (att.date === targetDate && att.fuel?.amount > 0) {
-                // If there's no fuel entry in the map for this amount on this day, add it
-                const match = standaloneFuelList.find(f => f.amount === att.fuel.amount);
-                if (!match) {
-                    fuelAmount += (Number(att.fuel.amount) || 0);
-                    fuelEntries.push({ amount: att.fuel.amount, fuelType: 'Duty Fuel', _id: `duty-${att._id}` });
-                }
-            }
-        });
-
-        let currentStatus = 'Absent';
-        if (driverAttendances.length > 0) {
-            const hasOngoing = driverAttendances.some(a => a.status === 'incomplete');
-            if (hasOngoing) {
-                currentStatus = 'Present';
-            } else {
-                currentStatus = 'Completed';
-            }
-        }
-
-        return {
-            _id: driver._id.toString(),
-            name: driver.name,
-            mobile: driver.mobile,
-            isFreelancer: isF,
-            status: currentStatus,
-            tripStatus: driver.tripStatus,
-            attendances: driverAttendances,
-            currentAttendance: driverAttendances[driverAttendances.length - 1] || null,
-            assignedVehicle: driver.assignedVehicle,
-            fuelAmount,
-            fuelEntries
-        };
-    }).filter(driver => {
-        if (driver.isFreelancer) {
-            // Freelancers: show if Present/Completed OR if they have fuel today 
-            // OR if they are currently active/on-duty (to avoid disappearing from view)
-            return driver.status !== 'Absent' || driver.fuelAmount > 0 || driver.tripStatus === 'active' || driver.assignedVehicle;
-        } else {
-            // Company drivers: Always show in live feed, even if they haven't punched in yet (Absent)
-            return true;
-        }
-    });
-
-    // Fetch any outside vehicle that has duty or fuel today to include in FLEET Feed
-    const activeVehicleIdsFromLog = new Set([
-        ...attendanceToday.map(a => a.vehicle?._id ? a.vehicle._id.toString() : a.vehicle?.toString()).filter(Boolean),
-        ...fuelEntriesToday.map(f => f.vehicle?._id ? f.vehicle._id.toString() : f.vehicle?.toString()).filter(Boolean)
-    ]);
-
-    const activeOutsideVehicles = await Vehicle.find({
-        _id: {
-            $in: Array.from(activeVehicleIdsFromLog).map(id => {
-                try { return new mongoose.Types.ObjectId(id); } catch (e) { return null; }
-            }).filter(Boolean)
-        },
-        isOutsideCar: true
-    }).select('carNumber model currentDriver lastOdometer isOutsideCar').lean();
-
-    const feedVehiclesList = [...allVehicles, ...activeOutsideVehicles];
-
-    const liveVehiclesFeed = feedVehiclesList.map(vehicle => {
-        const vehicleIdStr = vehicle._id.toString();
-        const vehicleAttendances = attendanceByVehicleMap.get(vehicleIdStr) || [];
-
-        let status = 'Idle';
-        let currentAttendance = null;
-
-        const activeAtt = vehicleAttendances.find(a => a.status === 'incomplete');
-        if (activeAtt) {
-            status = 'In Use';
-            currentAttendance = activeAtt;
-        } else if (vehicleAttendances.length > 0) {
-            status = 'Used';
-            currentAttendance = vehicleAttendances[0];
-        }
-
-        let fuelAmount = 0;
-        let fuelEntries = [];
-        const standaloneFuelForVehicle = fuelEntriesByVehicleIdMap.get(vehicleIdStr) || [];
-        standaloneFuelForVehicle.forEach(f => {
-            fuelAmount += (Number(f.amount) || 0);
-            fuelEntries.push(f);
-        });
-
-        // Fallback for manual duties that didn't have a standalone record (only if attendance date matches)
-        vehicleAttendances.forEach(a => {
-            if (a.date === targetDate && a.fuel?.amount > 0) {
-                const match = standaloneFuelForVehicle.find(f => f.amount === a.fuel.amount);
-                if (!match) {
-                    fuelAmount += (Number(a.fuel.amount) || 0);
-                    fuelEntries.push({ amount: a.fuel.amount, fuelType: 'Duty Fuel', _id: `duty-${a._id}` });
-                }
-            }
-        });
-
-        if (fuelEntries.length > 0 && status === 'Idle') status = 'Used';
-
-        return {
-            ...vehicle,
-            status,
-            attendances: vehicleAttendances,
-            currentDriver: currentAttendance?.driver || null,
-            fuelAmount,
-            fuelEntries,
-            date: targetDate
-        };
-    }).filter(v => v.status !== 'Idle')
-    .sort((a, b) => {
-        if (a.status === 'In Use' && b.status !== 'In Use') return -1;
-        if (a.status !== 'In Use' && b.status === 'In Use') return 1;
-        return 0;
-    });
-
-    const expiringAlerts = [];
-    const buildExpiringAlerts = (list, type) => {
-        list.forEach(v => {
-            if (!v.documents) return;
-            v.documents.forEach(doc => {
-                if (doc.expiryDate) {
-                    const expiry = DateTime.fromJSDate(doc.expiryDate).setZone('Asia/Kolkata').startOf('day');
-                    if (expiry <= alertThreshold) {
-                        const diffDays = Math.ceil(expiry.diff(baseDate, 'days').days);
-                        const docName = (doc.documentType || 'Document').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-                        expiringAlerts.push({
-                            type, identifier: v.carNumber || v.name, documentType: docName,
-                            expiryDate: doc.expiryDate, daysLeft: diffDays, status: diffDays < 0 ? 'Expired' : 'Expiring Soon'
-                        });
-                    }
-                }
-            });
-        });
-    };
-    buildExpiringAlerts(vehiclesWithExpiringDocs, 'Vehicle');
-    buildExpiringAlerts(driversWithExpiringDocs, 'Driver');
-
-    const maintenanceAlertsSet = new Set();
-    upcomingServices.forEach(s => {
-        if (!s.vehicle) return;
-
-        const types = (s.maintenanceType || 'General').split(', ').map(t => t.trim()).filter(Boolean);
-        let isLatestForAnyType = false;
-
-        types.forEach(t => {
-            const trackerKey = `${s.vehicle._id.toString()}_${t}`;
-            if (!maintenanceAlertsSet.has(trackerKey)) {
-                maintenanceAlertsSet.add(trackerKey);
-                isLatestForAnyType = true;
-            }
-        });
-
-        // Skip if this record isn't the latest for any of its categories
-        if (!isLatestForAnyType) return;
-
-        const category = s.category || s.maintenanceType || 'General';
-
-        if (s.nextServiceDate) {
-            const serviceDate = DateTime.fromJSDate(s.nextServiceDate).setZone('Asia/Kolkata').startOf('day');
-            const diffDays = Math.ceil(serviceDate.diff(baseDate, 'days').days);
-            if (diffDays <= 30 && diffDays > -365) {
-                const isOverdue = diffDays < 0;
-                const alertLabel = types.length > 1 ? 'Multiple Services' : `${types[0]} Service`;
-                expiringAlerts.push({
-                    type: 'Service',
-                    identifier: s.vehicle.carNumber || 'N/A',
-                    documentType: alertLabel,
-                    expiryDate: s.nextServiceDate,
-                    daysLeft: diffDays,
-                    status: isOverdue ? 'Overdue' : 'Due Soon'
-                });
-            }
-        }
-
-        if (s.nextServiceKm && s.nextServiceKm > 0) {
-            const currentKm = s.vehicle.lastOdometer || 0;
-            const kmRemaining = s.nextServiceKm - currentKm;
-
-            if (kmRemaining <= 500 && kmRemaining > -50000) {
-                const isOverdue = kmRemaining <= 0;
-                const taskLabel = (category.split(',')[0] || 'Maintenance').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-
-                const alertLabel = types.length > 1 ? 'Multiple Services' : `${types[0]} Service`;
-                expiringAlerts.push({
-                    type: 'Service',
-                    identifier: s.vehicle.carNumber,
-                    documentType: alertLabel,
-                    expiryDate: null,
-                    daysLeft: kmRemaining,
-                    status: isOverdue ? 'Urgent: Overdue' : 'Service Due',
-                    currentKm,
-                    targetKm: s.nextServiceKm
-                });
-            }
-        }
-    });
-
-    const uniqueDriversToday = new Set(attendanceToday.filter(a => a.punchIn?.time).map(a => a.driver?._id?.toString()).filter(id => id));
-    const punchOutCount = attendanceToday.filter(a => a.punchOut?.time).length;
-
-    const workedDriversMap = new Map();
-    const freelancerWorkedDriversMap = new Map();
-
-    attendanceToday.forEach(att => {
-        if (att.driver) {
-            const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
-            // Use same logic as Reports.jsx: Base wage once, sum all bonuses and self-paid parking
-            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
-            const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
-            const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-            const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
-            const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
-
-            if (att.driver.isFreelancer === true || att.isFreelancer === true) {
-                if (!freelancerWorkedDriversMap.has(driverId)) {
-                    freelancerWorkedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
-                } else {
-                    const current = freelancerWorkedDriversMap.get(driverId);
-                    freelancerWorkedDriversMap.set(driverId, { w: current.w, b: current.b + bonuses, p: current.p + parking });
-                }
-            } else {
-                if (!workedDriversMap.has(driverId)) {
-                    workedDriversMap.set(driverId, { w: wage, b: bonuses, p: parking });
-                } else {
-                    const current = workedDriversMap.get(driverId);
-                    workedDriversMap.set(driverId, { w: current.w, b: current.b + bonuses, p: current.p + parking });
-                }
-            }
-        }
-    });
-
-
-    const dailyOutsideCarsTotal = outsideCarsThisMonth
-        .filter(v => {
-            const dutyDate = v.carNumber?.split('#')[1];
-            // Mirror OutsideCars.jsx: (v.transactionType || 'Buy') === 'Buy'
-            const isPayout = (v.transactionType || 'Buy') === 'Buy';
-            const isEvent = v.eventId;
-            return dutyDate === targetDate && !isEvent && isPayout;
-        })
-        .reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
-
-    const dailyEventTotal = outsideCarsThisMonth
-        .filter(v => {
-            const dutyDate = v.carNumber?.split('#')[1];
-            // Mirror EventManagement.jsx: Sum dutyAmount for anything with eventId
-            return dutyDate === targetDate && v.eventId;
-        })
-        .reduce((sum, v) => sum + Number(v.dutyAmount || 0), 0);
-
-    const dailySalaryTotal = Array.from(workedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
-    const dailyFreelancerSalaryTotal = Array.from(freelancerWorkedDriversMap.values()).reduce((sum, val) => sum + val.w + val.b + val.p, 0);
-
-    const monthlyWorkedDrivers = new Map();
-    const monthlyFreelancerWorkedDrivers = new Map();
-
-    allAttendanceThisMonth.forEach(att => {
-        if (!att.driver) return;
-        const driverId = att.driver._id.toString();
-        const key = `${driverId}_${att.date}`;
-        const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
-        const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-        const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
-
-        if (att.driver.isFreelancer !== true && att.isFreelancer !== true) {
-            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 500;
-            monthlyWorkedDrivers.set(key, (monthlyWorkedDrivers.get(key) || wage) + bonuses);
-        } else {
-            const wage = (Number(att.dailyWage) || 0) || (att.driver.dailyWage ? Number(att.driver.dailyWage) : 0) || 500;
-            if (!monthlyFreelancerWorkedDrivers.has(key)) monthlyFreelancerWorkedDrivers.set(key, wage + bonuses);
-        }
-    });
-
-    // Extract month and year from qMonth/qYear or baseDate
-    const targetMonthStr = isMonthlyMode ? qMonth.padStart(2, '0') : baseDate.toFormat('MM');
-    const targetYearStr = isMonthlyMode ? qYear : baseDate.toFormat('yyyy');
-    const monthPrefix = `${targetYearStr}-${targetMonthStr}`;
-
-
-    const outsideCarsMonthlyTotal = outsideCarsThisMonth
-        .filter(v => {
-            const dutyDate = v.carNumber?.split('#')[1];
-            const matchesMonth = dutyDate?.startsWith(monthPrefix);
-            // Mirror OutsideCars.jsx: (v.transactionType || 'Buy') === 'Buy'
-            const isPayout = (v.transactionType || 'Buy') === 'Buy';
-            const isEvent = v.eventId;
-            return matchesMonth && !isEvent && isPayout;
-        })
-        .reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
-
-    // Event Management (M) Box: Should match the "Total Revenue" on Event Management page
-    // Sums all external duties (isOutsideCar) assigned to events as seen in Revenue box
-    const monthlyEventTotal = outsideCarsThisMonth
-        .filter(v => {
-            const dutyDate = v.carNumber?.split('#')[1];
-            const matchesMonth = dutyDate?.startsWith(monthPrefix);
-            return matchesMonth && v.eventId;
-        })
-        .reduce((sum, v) => sum + (Number(v.dutyAmount) || 0), 0);
-
-    // NEW LOGIC: Calculate monthlyRegularSalaryTotal using the exact same logic as Driver Salaries page
-    const baseMonth = isMonthlyMode ? parseInt(qMonth) : baseDate.month;
-    const baseYear = isMonthlyMode ? parseInt(qYear) : baseDate.year;
-    let exactSalarySummaries = [];
-    let exactFreelancerSummaries = [];
+    console.log(`[DASHBOARD-REQUEST] Co: ${req.params.companyId}, User: ${req.user?.name}, Date: ${req.query.date}`);
     try {
-        [exactSalarySummaries, exactFreelancerSummaries] = await Promise.all([
-            getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
-            getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true)
-        ]);
-    } catch (err) {
-        console.error('Failed to get exact salary summaries for Dashboard', err);
-    }
+        const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query;
 
-    const monthlyRegularSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalEarned || 0), 0);
-    const monthlyRegularAdvanceTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.totalAdvances || 0), 0);
-    const monthlyNetSalaryTotal = exactSalarySummaries.reduce((sum, s) => sum + (s.netPayable || 0), 0);
-    const monthlyFreelancerSalaryTotal = exactFreelancerSummaries.reduce((sum, s) => sum + (s.totalEarned || 0), 0);
-    const monthlySalaryTotal = monthlyRegularSalaryTotal + outsideCarsMonthlyTotal;
-
-    const driverIdsOnDuty = [...new Set(attendanceToday.map(a => a.driver?._id?.toString()).filter(id => id))];
-    const pendingAdvances = await Advance.find({
-        driver: { $in: driverIdsOnDuty.map(id => new mongoose.Types.ObjectId(id)) },
-        status: 'Pending'
-    }).lean();
-
-    const pendingAdvancesMap = new Map();
-    pendingAdvances.forEach(adv => {
-        const dId = adv.driver.toString();
-        pendingAdvancesMap.set(dId, (pendingAdvancesMap.get(dId) || 0) + adv.amount);
-    });
-
-    const attendanceWithAdvanceInfo = attendanceToday.map(attendance => ({
-        ...attendance,
-        driverPendingAdvance: pendingAdvancesMap.get(attendance.driver?._id?.toString()) || 0
-    }));
-
-    const monthlyFastagTotal = fastagData[0]?.total || 0;
-    const dailyFastagTotal = dailyFastagData[0]?.total || 0;
-    const totalFastagBalance = monthlyFastagTotal; // Backwards compatibility if needed
-    const totalAdvancePending = advanceData[0]?.total || 0;
-    const totalFreelancerAdvancePending = freelancerAdvanceData[0]?.total || 0;
-    const monthlyFuelAmount = monthlyFuelData[0]?.total || 0;
-    const monthlyFuelQuantity = monthlyFuelData[0]?.quantity || 0;
-
-    // Calculate total distance for the month for fleet average
-    let monthlyTotalDistance = 0;
-    allAttendanceThisMonth.forEach(att => {
-        if (att.punchIn?.km && att.punchOut?.km) {
-            const d = att.punchOut.km - att.punchIn.km;
-            if (d > 0) monthlyTotalDistance += d;
+        // 🛡️ SECURITY: Prioritize tenantFilter from middleware over URL params for client Admins
+        const finalCompanyId = req.tenantFilter?.company || req.params.companyId;
+        if (!finalCompanyId || !mongoose.Types.ObjectId.isValid(finalCompanyId)) {
+            return res.status(400).json({ message: 'Invalid Co ID' });
         }
-    });
+        const companyObjectId = new mongoose.Types.ObjectId(finalCompanyId);
+        
+        const cacheKey = `dash_${finalCompanyId}_${qMonth}_${qYear}_${date}_${from}_${to}`;
+        const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
-    // Split Maintenance into General and Services
-    let monthlyMaintenanceGeneral = 0;
-    let monthlyDriverServicesAmount = 0;
-    monthlyMaintenanceData.forEach(d => {
-        if (d._id === true) monthlyDriverServicesAmount += d.total;
-        else monthlyMaintenanceGeneral += d.total;
-    });
+        const isMonthlyMode = !!(qMonth && qYear);
+        const isRangeMode = !!(from && to) && !isMonthlyMode;
+        const targetDate = isRangeMode ? to : (date || todayIST);
+        const baseDate = DateTime.fromFormat(targetDate, 'yyyy-MM-dd').setZone('Asia/Kolkata').startOf('day');
+        const alertThreshold = baseDate.plus({ days: 30 });
 
-    // Split Parking into Actual, Car Service Maintenance, and Car Service Driver Services
-    let monthlyParkingActual = 0;
-    let monthlyParkingCarServiceMaint = 0;
-    let monthlyParkingCarServiceDriver = 0;
-
-    monthlyParkingData.forEach(p => {
-        if (p._id.type === 'car_service') {
-            if (p._id.isService) monthlyParkingCarServiceDriver += p.total;
-            else monthlyParkingCarServiceMaint += p.total;
+        let monthStart, monthEnd;
+        if (isMonthlyMode) {
+            monthStart = DateTime.fromObject({ year: parseInt(qYear), month: parseInt(qMonth), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month').toJSDate();
+            monthEnd = DateTime.fromObject({ year: parseInt(qYear), month: parseInt(qMonth), day: 1 }, { zone: 'Asia/Kolkata' }).endOf('month').toJSDate();
+        } else if (isRangeMode) {
+            monthStart = DateTime.fromISO(from, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+            monthEnd = DateTime.fromISO(to, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
         } else {
-            monthlyParkingActual += (p.total || 0);
+            monthStart = baseDate.startOf('month').toJSDate();
+            monthEnd = baseDate.endOf('month').toJSDate();
         }
-    });
 
-    // Add pending expenses from attendance to match Maintenance page logic
-    let monthlyPendingMaint = 0;
-    let monthlyPendingServices = 0;
-    const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
+        const monthStartStr = DateTime.fromJSDate(monthStart).toFormat('yyyy-MM-dd');
+        const monthEndStr = DateTime.fromJSDate(monthEnd).toFormat('yyyy-MM-dd');
+        const yStart = baseDate.startOf('year').toJSDate();
+        const yEnd = baseDate.endOf('year').toJSDate();
+        const baseMonth = isMonthlyMode ? parseInt(qMonth) : baseDate.month;
+        const baseYear = isMonthlyMode ? parseInt(qYear) : baseDate.year;
+        const monthPrefix = isMonthlyMode ? `${qYear}-${qMonth.toString().padStart(2, '0')}` : baseDate.toFormat('yyyy-MM');
 
-    allAttendanceThisMonth.forEach(doc => {
-        if (!doc.pendingExpenses) return;
-        doc.pendingExpenses.forEach(exp => {
-            if (exp.status === 'approved' || exp.status === 'deleted') return;
-            if (exp.type === 'other' || exp.type === 'parking') {
-                const category = exp.fuelType || (exp.type === 'parking' ? 'Car Wash' : 'Maintenance');
-                const isService = serviceRegex.test(category) || serviceRegex.test(exp.remark || '');
-                if (isService) monthlyPendingServices += (Number(exp.amount) || 0);
-                else monthlyPendingMaint += (Number(exp.amount) || 0);
-            }
-        });
-    });
+        // CONCURRENT AGGREGATIONS
+        const [
+            basicCounts,
+            alertData,
+            financialData,
+            fleetStatus,
+            outsideData,
+            salaryData,
+            miscData
+        ] = await Promise.all([
+            Vehicle.aggregate([{ $match: { company: companyObjectId } }, { $facet: { total: [{ $count: "c" }], internal: [{ $match: { isOutsideCar: { $ne: true } } }, { $count: "c" }] } }]),
+            Promise.all([
+                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true }, 'documents.expiryDate': { $lte: alertThreshold.toJSDate() } }).select('carNumber documents model').lean(),
+                User.find({ company: companyObjectId, role: 'Driver', 'documents.expiryDate': { $lte: alertThreshold.toJSDate() } }).select('name documents').lean(),
+                Maintenance.find({ company: companyObjectId }).sort({ billDate: -1 }).limit(10).lean()
+            ]),
+            Promise.all([
+                Vehicle.aggregate([{ $match: { company: companyObjectId, fastagHistory: { $exists: true } } }, { $unwind: '$fastagHistory' }, { $match: { 'fastagHistory.date': { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$fastagHistory.amount' } } }]),
+                Advance.aggregate([{ $lookup: { from: 'users', localField: 'driver', foreignField: '_id', as: 'd' } }, { $unwind: '$d' }, { $match: { company: companyObjectId, 'd.isFreelancer': { $ne: true }, date: { $gte: monthStart, $lte: monthEnd }, remark: { $not: /Daily Salary|Freelancer Daily Salary/ } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                Fuel.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' }, q: { $sum: '$quantity' } } }]),
+                Parking.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$serviceType", t: { $sum: '$amount' } } }]),
+                BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
+            ]),
+            Promise.all([
+                Attendance.find({ company: companyObjectId, date: targetDate }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
+                User.countDocuments({ company: companyObjectId, role: 'Driver', tripStatus: 'pending_approval' }),
+                User.countDocuments({ company: companyObjectId, role: 'Staff' }),
+                StaffAttendance.find({ company: companyObjectId, date: targetDate }).populate('staff', 'name').lean(),
+                Attendance.find({ company: companyObjectId, 'punchOut.otherRemarks': { $exists: true, $ne: '' } }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(10).lean()
+            ]),
+            Promise.all([
+                Vehicle.aggregate([{ $match: { company: companyObjectId, isOutsideCar: true } }, { $project: { month: { $substr: [{ $ifNull: ["$carNumber", ""] }, { $add: [{ $indexOfBytes: ["$carNumber", "#"] }, 1] }, 7] }, isBuy: { $eq: [{ $ifNull: ["$transactionType", "Buy"] }, "Buy"] }, amount: "$dutyAmount", isE: { $ne: [{ $ifNull: ["$eventId", null] }, null] } } }, { $facet: { e: [{ $match: { month: monthPrefix, isE: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }], o: [{ $match: { month: monthPrefix, isE: false, isBuy: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }] } }]),
+                AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: yStart, $lte: yEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                PartsWarranty.aggregate([{ $match: { company: companyObjectId } }, { $group: { _id: null, t: { $sum: '$cost' } } }])
+            ]),
+            Promise.all([
+                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
+                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true),
+                Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver').lean(),
+                User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
+                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean()
+            ]),
+            Promise.all([
+                Fuel.find({ company: companyObjectId, date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() } }).populate('vehicle', 'carNumber').lean(),
+                Advance.aggregate([{ $match: { company: companyObjectId, date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                Advance.aggregate([{ $lookup: { from: 'users', localField: 'driver', foreignField: '_id', as: 'd' } }, { $unwind: '$d' }, { $match: { company: companyObjectId, 'd.isFreelancer': true, status: 'Pending' } }, { $group: { _id: null, t: { $sum: '$amount' }, c: { $sum: 1 } } }]),
+                Vehicle.aggregate([{ $match: { company: companyObjectId, fastagHistory: { $exists: true } } }, { $unwind: '$fastagHistory' }, { $match: { 'fastagHistory.date': { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() } } }, { $group: { _id: null, t: { $sum: '$fastagHistory.amount' } } }])
+            ])
+        ]);
 
-    const monthlyMaintenanceAmount = monthlyMaintenanceGeneral + monthlyParkingCarServiceMaint + monthlyPendingMaint;
-    monthlyDriverServicesAmount += (monthlyPendingServices + monthlyParkingCarServiceDriver);
-    const monthlyParkingAmount = monthlyParkingActual;
-    const monthlyBorderTaxAmount = monthlyBorderTaxData[0]?.total || 0;
-    const monthlyAccidentAmount = monthlyAccidentData[0]?.total || 0;
-    const yearlyAccidentAmount = yearlyAccidentData[0]?.total || 0;
-    const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
+        // MAP RESULTS
+        const totalVehicles = basicCounts[0]?.total[0]?.c || 0;
+        const totalInternalVehicles = basicCounts[0]?.internal[0]?.c || 0;
+        const [vExp, dExp, upcomingS] = alertData;
+        const [fT, aD, mFuel, mPark, bTax] = financialData;
+        const [attToday, pendingApps, totalStaff, staffAttToday, reportedIss] = fleetStatus;
+        const [outFacet, mAcc, yAcc, tWarr] = outsideData;
+        const [salReg, salFree, mAtt, allD, allV] = salaryData;
+        const [fToday, aToday, fAdvData, fTToday] = miscData;
 
-    console.log(`[DASHBOARD-DEBUG] Co: ${companyId}, InternalVehicles: ${totalInternalVehicles}, MaintGeneral: ${monthlyMaintenanceGeneral}, Services: ${monthlyDriverServicesAmount}`);
-    
-    const finalResponse = {
-        date: targetDate, totalVehicles, totalInternalVehicles, 
-        totalDrivers, internalDriversCount: totalInternalDriversCount, freelancerDriversCount: totalFreelancerDriversCount,
-        countPunchIns: uniqueDriversToday.size, countPunchOuts: punchOutCount,
-        activeDutiesCount: attendanceToday.filter(a => a.status === 'incomplete').length,
-        pendingApprovalsCount, totalFastagBalance, monthlyFastagTotal, dailyFastagTotal, totalAdvancePending: monthlyRegularAdvanceTotal,
-        monthlyFuelAmount, monthlyFuelQuantity, monthlyTotalDistance, monthlyMaintenanceAmount, monthlyParkingAmount, monthlyDriverServicesAmount,
-        monthlyBorderTaxAmount, monthlyAccidentAmount, yearlyAccidentAmount, totalWarrantyCost,
-        totalExpenseAmount: monthlyFuelAmount + monthlyMaintenanceAmount + monthlyParkingAmount + monthlyBorderTaxAmount + monthlyAccidentAmount + totalWarrantyCost + monthlyDriverServicesAmount,
-        totalStaff, countStaffPresent: staffAttendanceToday.length,
-    
-        staffAttendanceToday, attendanceDetails: attendanceWithAdvanceInfo,
-        expiringAlerts: (expiringAlerts || []), 
-        reportedIssues: reportedIssuesList,
-        regularAdvances: regularAdvancesList.filter(adv => adv.driver),
-        totalAdvancesSum: monthlyRegularAdvanceTotal + totalFreelancerAdvancePending,
-        dailyAdvancesSum: dailySalaryTotal + (dailyAdvanceData[0]?.total || 0),
-        dailySalaryTotal, dailyNightStayCount: attendanceToday.filter(att => Number(att.punchOut?.nightStayAmount) > 0).length,
-        dailyFreelancerSalaryTotal, monthlySalaryTotal, monthlyRegularSalaryTotal, monthlyRegularAdvanceTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
-        monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
-        dailyOutsideCarsTotal,
-        monthlyEventTotal,
-        ...(() => {
-            let total = 0;
-            let entities = new Set();
-            let allEntries = [...fuelEntriesToday];
+        const monthlyRegularSalaryTotal = salReg.reduce((s, x) => s + (x.totalEarned || 0), 0);
+        const monthlyNetSalaryTotal = salReg.reduce((s, x) => s + (x.netPayable || 0), 0);
+        const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
+        const monthlyEventTotal = outFacet[0]?.e[0]?.t || 0;
+        const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
+        const monthlyMaintAmount = alertData[2].reduce((s, x) => s + (x.amount || 0), 0); 
 
-            fuelEntriesToday.forEach(f => {
-                total += Number(f.amount) || 0;
-                if (f.vehicle) entities.add("v_" + f.vehicle.toString());
-                else if (f.driver) entities.add("d_" + f.driver.toString());
-            });
-
-            // Build lookup sets for deduplication
-            // 1. Attendance IDs already referenced by a real Fuel record (driver-entered, linked via att ref)
-            const fuelCoveredAttIds = new Set(
-                fuelEntriesToday.filter(f => f.attendance).map(f => f.attendance.toString())
-            );
-            // 2. vehicle+amount combos already covered by real Fuel entries (admin-entered, no att ref)
-            const fuelCoveredVehicleAmounts = new Set(
-                fuelEntriesToday.map(f => {
-                    const vId = f.vehicle?._id?.toString() || f.vehicle?.toString() || '';
-                    return `${vId}_${f.amount}`;
-                })
-            );
-
-            attendanceToday.forEach(att => {
-                if (att.fuel?.amount > 0) {
-                    const attIdStr = att._id?.toString() || '';
-                    const vehicleIdStr = att.vehicle?._id?.toString() || att.vehicle?.toString() || '';
-                    const combo = `${vehicleIdStr}_${att.fuel.amount}`;
-
-                    // Skip if this attendance is already covered by a real Fuel record
-                    if (fuelCoveredAttIds.has(attIdStr) || fuelCoveredVehicleAmounts.has(combo)) {
-                        return; // already shown as a proper Fuel entry — don't duplicate
-                    }
-
-                    total += Number(att.fuel.amount);
-                    if (att.vehicle?._id) entities.add("v_" + att.vehicle._id.toString());
-                    else if (att.driver?._id) entities.add("d_" + att.driver._id.toString());
-
-                    allEntries.push({
-                        _id: `duty-${att._id}`,
-                        amount: att.fuel.amount,
-                        fuelType: 'Duty Fuel',
-                        driver: att.driver?.name || 'Unknown',
-                        vehicle: att.vehicle ? { _id: att.vehicle._id, carNumber: att.vehicle.carNumber } : null,
-                        date: att.date,
-                        paymentMode: 'N/A',
-                        source: 'Duty App'
-                    });
+        // FLATTEN & CALCULATE ALERTS
+        const today = baseDate.toJSDate();
+        const alerts = [];
+        vExp.forEach(v => {
+            (v.documents || []).forEach(doc => {
+                if (doc.expiryDate && new Date(doc.expiryDate) <= alertThreshold.toJSDate()) {
+                    const d = Math.ceil((new Date(doc.expiryDate) - today) / (1000 * 60 * 60 * 24));
+                    alerts.push({ type: 'Vehicle', identifier: v.carNumber, documentType: doc.documentType, expiryDate: doc.expiryDate, daysLeft: d, status: d < 0 ? 'Expired' : 'Expiring Soon' });
                 }
             });
-            return {
-                dailyFuelAmount: { total, count: entities.size },
-                dailyFuelEntries: allEntries
-            };
-        })(),
-        freelancerAdvances: { total: totalFreelancerAdvancePending, count: freelancerAdvanceData[0]?.count || 0 },
-        liveDriversFeed, liveVehiclesFeed, dailyAdvanceTotal: dailyAdvanceData[0]?.total || 0,
-        dailyFastagTotal: dailyFastagData[0]?.total || 0,
-        dutyHistoryThisMonth: allAttendanceThisMonth.sort((a, b) => new Date(b.date) - new Date(a.date))
-    };
+        });
+        dExp.forEach(d => {
+            (d.documents || []).forEach(doc => {
+                if (doc.expiryDate && new Date(doc.expiryDate) <= alertThreshold.toJSDate()) {
+                    const d = Math.ceil((new Date(doc.expiryDate) - today) / (1000 * 60 * 60 * 24));
+                    alerts.push({ type: 'Driver', identifier: d.name, documentType: doc.documentType, expiryDate: doc.expiryDate, daysLeft: d, status: d < 0 ? 'Expired' : 'Expiring Soon' });
+                }
+            });
+        });
 
-    if (req.user && req.user.role === 'Executive') {
-        const p = req.user.permissions || {};
+        const finalResponse = {
+            date: targetDate, totalVehicles, totalInternalVehicles, 
+            totalDrivers: allD.length, internalDriversCount: allD.filter(d => !d.isFreelancer).length, freelancerDriversCount: allD.filter(d => d.isFreelancer).length,
+            countPunchIns: attToday.length,
+            activeDutiesCount: attToday.filter(a => a.status === 'incomplete').length,
+            pendingApprovalsCount: pendingApps,
+            monthlyFastagTotal: fT[0]?.t || 0,
+            monthlyFuelAmount: mFuel[0]?.t || 0,
+            monthlyFuelQuantity: mFuel[0]?.q || 0,
+            monthlyMaintenanceAmount: monthlyMaintAmount,
+            monthlyParkingAmount: mPark.find(p => p._id !== 'car_service')?.t || 0,
+            monthlyBorderTaxAmount: bTax[0]?.t || 0,
+            monthlyAccidentAmount: mAcc[0]?.t || 0,
+            yearlyAccidentAmount: yAcc[0]?.t || 0,
+            totalWarrantyCost: tWarr[0]?.t || 0,
+            totalExpenseAmount: (mFuel[0]?.t || 0) + monthlyMaintAmount + (mPark.reduce((s, p) => s + p.t, 0)) + (bTax[0]?.t || 0) + (mAcc[0]?.t || 0),
+            totalStaff, countStaffPresent: staffAttToday.length,
+            monthlyRegularAdvanceTotal: aD[0]?.t || 0,
+            monthlyDriverServicesAmount: mPark.find(p => p._id === 'car_service')?.t || 0,
+            staffAttendanceToday: staffAttToday,
+            attendanceDetails: attToday,
+            expiringAlerts: alerts,
+            reportedIssues: reportedIss,
+            monthlySalaryTotal: monthlyRegularSalaryTotal + outsideCarsMonthlyTotal,
+            monthlyRegularSalaryTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
+            monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
+            monthlyEventTotal,
+            dailyFuelAmount: { total: fToday.reduce((s, x) => s + (x.amount || 0), 0), count: fToday.length },
+            dailyFuelEntries: fToday,
+            dailyFastagTotal: fTToday[0]?.t || 0,
+            dailyAdvancesSum: aToday[0]?.t || 0,
+            freelancerAdvances: { total: fAdvData[0]?.t || 0, count: fAdvData[0]?.c || 0 },
+            dutyHistoryThisMonth: mAtt.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 100)
+        };
 
-        // Remove Drivers Service data
-        if (!p.driversService) {
-            finalResponse.totalDrivers = 0;
-            finalResponse.totalStaff = 0;
-            finalResponse.countStaffPresent = 0;
-            finalResponse.staffAttendanceToday = [];
-            finalResponse.dailySalaryTotal = 0;
-            finalResponse.dailyFreelancerSalaryTotal = 0;
-            finalResponse.monthlySalaryTotal = 0;
-            finalResponse.monthlyRegularSalaryTotal = 0;
-            finalResponse.monthlyRegularAdvanceTotal = 0;
-            finalResponse.monthlyNetSalaryTotal = 0;
-            finalResponse.monthlyFreelancerSalaryTotal = 0;
-            finalResponse.attendanceDetails = [];
-            finalResponse.regularAdvances = [];
-            finalResponse.totalAdvancesSum = finalResponse.totalAdvancesSum - (monthlyRegularAdvanceTotal + totalFreelancerAdvancePending);
-            finalResponse.freelancerAdvances = { total: 0, count: 0 };
-            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Driver');
-            finalResponse.dutyHistoryThisMonth = [];
-            finalResponse.liveDriversFeed = [];
+        if (req.user && req.user.role === 'Executive') {
+            const p = req.user.permissions || {};
+            if (!p.driversService) {
+                ['totalDrivers', 'internalDriversCount', 'freelancerDriversCount', 'totalStaff', 'countStaffPresent', 'monthlySalaryTotal', 'monthlyRegularSalaryTotal', 'monthlyNetSalaryTotal', 'monthlyFreelancerSalaryTotal'].forEach(k => finalResponse[k] = 0);
+                finalResponse.staffAttendanceToday = [];
+                finalResponse.dutyHistoryThisMonth = [];
+            }
+            if (!p.vehiclesManagement) {
+                ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount', 'totalWarrantyCost'].forEach(k => finalResponse[k] = 0);
+                finalResponse.reportedIssues = [];
+            }
+            if (!p.fleetOperations) {
+                ['monthlyFuelAmount', 'monthlyFuelQuantity', 'monthlyParkingAmount', 'monthlyBorderTaxAmount', 'dailyFuelAmount', 'dailyFastagTotal'].forEach(k => finalResponse[k] = 0);
+                finalResponse.dailyFuelEntries = [];
+            }
         }
 
-        // Remove Buy/Sell data
-        if (!p.buySell) {
-            finalResponse.monthlyOutsideCarsTotal = 0;
-            // Clean attendanceDetails of outside trip info if needed
-        }
-
-        // 3. Vehicles Maintenance
-        if (!p.vehiclesManagement) {
-            finalResponse.totalVehicles = 0;
-            finalResponse.monthlyMaintenanceAmount = 0;
-            finalResponse.monthlyAccidentAmount = 0;
-            finalResponse.yearlyAccidentAmount = 0;
-            finalResponse.totalWarrantyCost = 0;
-            finalResponse.reportedIssues = [];
-            finalResponse.liveVehiclesFeed = [];
-            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Service');
-        }
-
-        // 4. Fleet Operations
-        if (!p.fleetOperations) {
-            finalResponse.monthlyFuelAmount = 0;
-            finalResponse.monthlyParkingAmount = 0;
-            finalResponse.monthlyDriverServicesAmount = 0;
-            finalResponse.monthlyBorderTaxAmount = 0;
-            finalResponse.totalFastagBalance = 0;
-            finalResponse.monthlyFastagTotal = 0;
-            finalResponse.dailyFastagTotal = 0;
-            finalResponse.dailyFuelAmount = { total: 0, count: 0 };
-            finalResponse.dailyFuelEntries = [];
-            finalResponse.expiringAlerts = finalResponse.expiringAlerts.filter(a => a.type !== 'Vehicle');
-        }
-
-        // Recalculate totalExpenseAmount based on allowed visibility
-        const currentMaint = p.vehiclesManagement ? (finalResponse.monthlyMaintenanceAmount + finalResponse.monthlyAccidentAmount + finalResponse.totalWarrantyCost) : 0;
-        const currentFleet = p.fleetOperations ? (finalResponse.monthlyFuelAmount + finalResponse.monthlyParkingAmount + finalResponse.monthlyBorderTaxAmount + finalResponse.monthlyDriverServicesAmount) : 0;
-
-        finalResponse.totalExpenseAmount = currentMaint + currentFleet;
+        DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
+        res.json(finalResponse);
+    } catch (err) {
+        console.error('[DASHBOARD-ERROR]:', err);
+        res.status(500).json({ message: 'Internal Server Error', error: err.message });
     }
-
-    DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
-    res.set('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
-    res.json(finalResponse);
 });
 
 // @desc    Get all drivers with pagination
@@ -1240,10 +464,7 @@ const getAllDrivers = asyncHandler(async (req, res) => {
 
     try {
         const driverQuery = {
-            $or: [
-                { company: new mongoose.Types.ObjectId(companyId) },
-                { company: companyId }
-            ],
+            ...req.tenantFilter,
             role: 'Driver'
         };
         if (req.query.isFreelancer !== undefined) {
@@ -1319,16 +540,15 @@ const getAllVehicles = asyncHandler(async (req, res) => {
     const pageSize = 10;
     const page = Number(req.query.pageNumber) || 1;
     const fetchVehiclesAndSync = async (query) => {
-        const vehicles = await Vehicle.find(query)
+        // 🛡️ SECURITY: Merge incoming search query with the strict tenant filter
+        const mergedQuery = { ...query, ...req.tenantFilter };
+        const vehicles = await Vehicle.find(mergedQuery)
             .populate('currentDriver', 'name mobile isFreelancer')
             .sort({ carNumber: 1 });
 
         // Sync orphans: find freelance drivers who are 'active' but their vehicle is not linked
         const onDutyFreelancers = await User.find({
-            $or: [
-                { company: new mongoose.Types.ObjectId(companyId) },
-                { company: companyId }
-            ],
+            ...req.tenantFilter,
             isFreelancer: true,
             tripStatus: 'active'
         });
@@ -1605,8 +825,8 @@ const updateVehicle = asyncHandler(async (req, res) => {
         updateData.documents = documentUpdates;
     }
 
-    const updatedVehicle = await Vehicle.findByIdAndUpdate(
-        vehicleId,
+    const updatedVehicle = await Vehicle.findOneAndUpdate(
+        { _id: vehicleId, ...req.tenantFilter },
         { $set: updateData },
         { new: true, runValidators: false }
     ).populate('currentDriver', 'name mobile');
@@ -2377,12 +1597,12 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
         if (!p.vehiclesManagement) {
             finalResponse.fastagRecharges = [];
-            finalResponse.borderTax = [];
-            finalResponse.fuel = [];
-            finalResponse.maintenance = [];
-            finalResponse.parking = [];
-            finalResponse.accidentLogs = [];
-            finalResponse.partsWarranty = [];
+            ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount', 'totalWarrantyCost'].forEach(k => finalResponse[k] = 0);
+            finalResponse.reportedIssues = [];
+        }
+        if (!p.fleetOperations) {
+            ['monthlyFuelAmount', 'monthlyFuelQuantity', 'monthlyParkingAmount', 'monthlyBorderTaxAmount', 'dailyFuelAmount', 'dailyFastagTotal'].forEach(k => finalResponse[k] = 0);
+            finalResponse.dailyFuelEntries = [];
         }
     }
 
@@ -3038,7 +2258,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
         eventId
     } = req.body;
 
-    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+    const finalCompanyId = req.tenantFilter?.company || companyId;
 
     if (!driverId || !vehicleId || !finalCompanyId || !date) {
         return res.status(400).json({ message: 'Please provide required fields: driver, vehicle, and date' });
@@ -4476,7 +3696,7 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getAllExecutives = asyncHandler(async (req, res) => {
     // Determine which company to filter by
-    const companyId = req.user.role === 'SuperAdmin' ? req.query.companyId : (req.user.company?._id || req.user.company);
+    const companyId = req.tenantFilter?.company || (req.user.company?._id || req.user.company);
     
     let query = { role: { $in: ['Executive', 'Admin'] } };
     
@@ -4555,7 +3775,8 @@ const updateExecutive = asyncHandler(async (req, res) => {
     const { name, mobile, username, password, permissions, status } = req.body;
     const executive = await User.findById(req.params.id);
 
-    if (executive && (executive.role === 'Executive' || executive.role === 'Admin')) {
+    const validRoles = ['executive', 'admin', 'superadmin'];
+    if (executive && validRoles.includes((executive.role || '').toLowerCase())) {
         executive.name = name || executive.name;
         executive.mobile = mobile || executive.mobile;
         executive.username = username || executive.username;
@@ -4593,7 +3814,8 @@ const updateExecutive = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const deleteExecutive = asyncHandler(async (req, res) => {
     const executive = await User.findById(req.params.id);
-    if (executive && executive.role === 'Executive') {
+    const validRoles = ['executive', 'admin', 'superadmin'];
+    if (executive && validRoles.includes((executive.role || '').toLowerCase())) {
         await User.deleteOne({ _id: executive._id });
         res.json({ message: 'Executive user removed' });
     } else {
@@ -4814,7 +4036,7 @@ const createStaff = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Staff with this mobile or username already exists' });
     }
 
-    const finalCompanyId = req.user.role === 'SuperAdmin' ? (companyId || req.user.company) : (req.user.company?._id || req.user.company);
+    const finalCompanyId = req.tenantFilter?.company || companyId;
 
     const staff = await User.create({
         name,

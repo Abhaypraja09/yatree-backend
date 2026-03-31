@@ -1,15 +1,13 @@
 const mongoose = require('mongoose');
-const Maintenance = require('./src/models/Maintenance');
+const Attendance = require('./src/models/Attendance');
 require('dotenv').config();
 
 async function check() {
     await mongoose.connect(process.env.MONGODB_URI);
-    const coIdStr = '69caf340162fc71dc07307d1';
-    const coIdObj = new mongoose.Types.ObjectId(coIdStr);
-    
-    console.log('COUNT_BY_OBJ:', await Maintenance.countDocuments({ company: coIdObj }));
-    console.log('COUNT_BY_STR:', await Maintenance.countDocuments({ company: coIdStr }));
-    
+    const coId = new mongoose.Types.ObjectId('69caf340162fc71dc07307d1');
+    const c = await Attendance.countDocuments({ company: coId, date: { $gte: '2026-03-01', $lte: '2026-03-31' } });
+    console.log('--- MARCH ATTENDANCE ---');
+    console.log('ATT_COUNT:', c);
     await mongoose.disconnect();
 }
 check();

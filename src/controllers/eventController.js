@@ -34,10 +34,14 @@ const createEvent = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/events/:companyId
 // @access  Private/Admin
 const getEvents = asyncHandler(async (req, res) => {
-    const { companyId } = req.params;
     const { from, to, status } = req.query;
 
-    const companyObjectId = new mongoose.Types.ObjectId(companyId);
+    // 🛡️ SECURITY: Prioritize tenantFilter from middleware over URL params for client Admins
+    const finalCompanyId = req.tenantFilter?.company || req.params.companyId;
+    if (!finalCompanyId || !mongoose.Types.ObjectId.isValid(finalCompanyId)) {
+        return res.status(400).json({ message: 'Invalid Co ID' });
+    }
+    const companyObjectId = new mongoose.Types.ObjectId(finalCompanyId);
 
     let matchQuery = { company: companyObjectId };
     if (from && to) {

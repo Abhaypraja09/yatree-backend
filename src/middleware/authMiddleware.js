@@ -17,25 +17,26 @@ const protect = async (req, res, next) => {
             }
 
             if (req.user.status === 'blocked') {
-                console.log(`AUTH FAIL: User ${req.user.mobile} is blocked`);
                 return res.status(401).json({ message: 'User is blocked. Please contact admin.' });
+            }
+
+            // 🛡️ GLOBAL TENANT ISOLATION LAYER
+            // Automatically determine the company scope for this request.
+            // If the user has an assigned company, all queries should be filtered by it.
+            const userCompanyId = req.user.company?._id || req.user.company;
+            if (userCompanyId) {
+                // Attach as a ready-to-use filter for MongoDB find/update/delete operations
+                req.tenantFilter = { company: userCompanyId };
+            } else if (req.user.role !== 'SuperAdmin') {
+                // If not SuperAdmin and no company assigned, user is in limbo or unauthorized.
+                return res.status(403).json({ message: 'Tenant context missing. Unable to verify organization boundary.' });
             }
 
             return next();
         } catch (error) {
-            console.error('AUTH ERROR DETAILS:', {
-                message: error.message,
-                name: error.name,
-                token_prefix: token ? token.substring(0, 10) : 'none'
-            });
-
+            console.error('AUTH ERROR:', error.message);
             let errorMessage = 'Not authorized, token failed';
-            if (error.name === 'TokenExpiredError') {
-                errorMessage = 'Session expired. Please log in again.';
-            } else if (error.name === 'JsonWebTokenError') {
-                errorMessage = 'Invalid session. Please log out and log in again.';
-            }
-
+            if (error.name === 'TokenExpiredError') errorMessage = 'Session expired. Please log in again.';
             return res.status(401).json({ message: errorMessage });
         }
     }
@@ -46,25 +47,25 @@ const protect = async (req, res, next) => {
 };
 
 const checkCompany = (req, res, next) => {
-    // 🛡️ CRASH PROTECT: Handle undefined user or company safely
-    const userCompanyRaw = req.user?.company?._id || req.user?.company;
-    const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
-
-    // 🛡️ TARGET RESOLUTION: Try params, body, and query for companyId
     const targetRaw = req.params?.companyId || req.body?.companyId || req.query?.companyId || req.body?.company || req.query?.company;
     const targetCompanyId = targetRaw ? targetRaw.toString() : null;
 
-    if (!targetCompanyId || !userCompanyId) return next();
-
-    // 👑 ADMIN BYPASS: Platform administrators and superadmins are allowed to cross boundaries.
-    if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Admin')) {
+    // 👑 SUPERADMIN BYPASS + SCOPING
+    if (req.user && req.user.role === 'SuperAdmin') {
+        if (targetCompanyId) {
+            // Inject target company into tenant filter for SuperAdmin to match the requested context
+            req.tenantFilter = { company: targetCompanyId };
+        }
         return next();
     }
 
-    if (userCompanyId !== targetCompanyId) {
-        return res.status(403).json({ 
-            message: `Tenant Mismatch Error. (Organization boundary violation detected)` 
-        });
+    // 🛡️ ENFORCE TENANT BOUNDARY
+    const userCompanyRaw = req.user?.company?._id || req.user?.company;
+    const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
+
+    if (targetCompanyId && userCompanyId && userCompanyId !== targetCompanyId) {
+        // Return 404 instead of 403 to prevent ID scanning/enumeration
+        return res.status(404).json({ message: 'Resource not found in your organization.' });
     }
     next();
 };

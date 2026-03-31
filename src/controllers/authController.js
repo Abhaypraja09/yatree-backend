@@ -54,14 +54,6 @@ const loginUser = async (req, res) => {
             const currentState = states[mongoose.connection.readyState] || 'Unknown';
             logError(`Login aborted: Database not connected (Current State: ${currentState})`);
 
-            // Try to get public IP for debugging
-            let public_ip = 'unknown';
-            try {
-                const axios = require('axios');
-                const ipRes = await axios.get('https://api.ipify.org?format=json', { timeout: 3000 });
-                public_ip = ipRes.data.ip;
-            } catch (e) { }
-
             // Check for DB readiness with a small wait if necessary
             if (mongoose.connection.readyState !== 1) {
                 console.log('DB not ready, waiting 2 seconds...');
@@ -72,16 +64,6 @@ const loginUser = async (req, res) => {
                     });
                 }
             }
-
-            return res.status(503).json({
-                message: 'Database is still connecting or unavailable. Please wait 10 seconds and try again.',
-                error: `Database is ${currentState}. Ensure IP ${public_ip} is whitelisted. If already whitelisted, this is a Hostinger DNS issue - please use the Standard Connection String.`,
-                debug_info: {
-                    db_status: currentState,
-                    public_ip,
-                    check_url: '/api/db-check'
-                }
-            });
         }
 
         // Try to find user by mobile OR exact username (case-insensitive where possible)
@@ -117,7 +99,12 @@ const loginUser = async (req, res) => {
             return res.status(401).json({ message: 'No password set for this account. Please contact admin.' });
         }
 
-        if (await user.matchPassword(password)) {
+        // DEBUG: Log password matching details
+        const pwd = password ? password.trim() : '';
+        const isMatch = await user.matchPassword(pwd);
+        logError(`Match debug: receivedPwdLen=${pwd.length}, dbHashStart=${user.password.substring(0, 10)}, isMatch=${isMatch}`);
+
+        if (isMatch) {
             logError('Password matched');
             if (user.status === 'blocked') {
                 return res.status(401).json({ message: 'Your account is blocked. Please contact admin.' });
@@ -183,16 +170,15 @@ const getCompanies = async (req, res) => {
     try {
         let query = {};
         
-        // 🔒 MULTI-TENANCY LOCK: Only SuperAdmin sees all companies
-        // Everyone else only sees their own assigned company
-        if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Admin')) {
+        // 🔒 MULTI-TENANCY LOCK: Only ROOT SuperAdmin sees all companies
+        // All Client Admins/Executives only see their OWN company
+        if (req.user && req.user.role === 'SuperAdmin') {
             query = {}; 
         } else {
             const userCompanyId = req.user?.company?._id || req.user?.company;
             if (userCompanyId) {
                 query._id = userCompanyId;
             } else {
-                // If user has no company assigned, return empty list to be safe
                 return res.json([]);
             }
         }

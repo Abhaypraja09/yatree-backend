@@ -1,19 +1,51 @@
 const mongoose = require('mongoose');
-const Attendance = require('./src/models/Attendance');
 const User = require('./src/models/User');
-require('dotenv').config();
+const Company = require('./src/models/Company');
+const dotenv = require('dotenv');
 
-async function check() {
-    await mongoose.connect(process.env.MONGODB_URI);
-    const coId = new mongoose.Types.ObjectId('69caf340162fc71dc07307d1');
-    const dIds = await User.find({ company: coId, role: 'Driver' }).distinct('_id');
-    
-    console.log('DRIVERS_IN_CO:', dIds.length);
-    console.log('TOTAL_ATT:', await Attendance.countDocuments({ driver: { $in: dIds } }));
-    console.log('COMPLETED_ATT:', await Attendance.countDocuments({ driver: { $in: dIds }, status: 'completed' }));
-    console.log('MARCH_ATT_REGEX:', await Attendance.countDocuments({ driver: { $in: dIds }, status: 'completed', date: { $regex: /^2026-03/ } }));
-    console.log('FEB_ATT_REGEX:', await Attendance.countDocuments({ driver: { $in: dIds }, status: 'completed', date: { $regex: /^2026-02/ } }));
-    
-    await mongoose.disconnect();
-}
+dotenv.config();
+
+const check = async () => {
+    try {
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('Connected to DB');
+
+        const search = 'abhay.superx@texi.com'.trim();
+        console.log('Searching for:', search);
+
+        const user = await User.findOne({
+            $or: [
+                { mobile: search },
+                { username: { $regex: new RegExp(`^${search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') } },
+                { username: search }
+            ]
+        }).populate('company');
+
+        if (user) {
+            console.log('USER OBJECT FOUND:');
+            console.log('ID:', user._id);
+            console.log('Name:', user.name);
+            console.log('Username:', user.username);
+            console.log('Mobile:', user.mobile);
+            console.log('Role:', user.role);
+            console.log('Company:', user.company?.name);
+            console.log('Is Freelancer:', user.isFreelancer);
+            console.log('Status:', user.status);
+            console.log('Has Password:', !!user.password);
+            console.log('Password (Partial):', user.password ? user.password.substring(0, 10) + '...' : 'NONE');
+        } else {
+            console.log('User NOT found.');
+            
+            // Search by Name
+            const byName = await User.find({ name: /Abhay/i }).limit(5);
+            console.log('Found by name "Abhay":', byName.map(u => ({name: u.name, username: u.username, mobile: u.mobile})));
+        }
+
+        process.exit(0);
+    } catch (err) {
+        console.error(err);
+        process.exit(1);
+    }
+};
+
 check();
