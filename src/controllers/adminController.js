@@ -976,8 +976,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     let exactFreelancerSummaries = [];
     try {
         [exactSalarySummaries, exactFreelancerSummaries] = await Promise.all([
-            getDriverSalarySummaryInternal(companyId, baseMonth, baseYear, false),
-            getDriverSalarySummaryInternal(companyId, baseMonth, baseYear, true)
+            getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
+            getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true)
         ]);
     } catch (err) {
         console.error('Failed to get exact salary summaries for Dashboard', err);
@@ -1071,6 +1071,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const yearlyAccidentAmount = yearlyAccidentData[0]?.total || 0;
     const totalWarrantyCost = totalWarrantyData[0]?.total || 0;
 
+    console.log(`[DASHBOARD-DEBUG] Co: ${companyId}, InternalVehicles: ${totalInternalVehicles}, MaintGeneral: ${monthlyMaintenanceGeneral}, Services: ${monthlyDriverServicesAmount}`);
+    
     const finalResponse = {
         date: targetDate, totalVehicles, totalInternalVehicles, 
         totalDrivers, internalDriversCount: totalInternalDriversCount, freelancerDriversCount: totalFreelancerDriversCount,
@@ -4473,7 +4475,17 @@ const getDriverSalarySummary = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/executives
 // @access  Private/Admin
 const getAllExecutives = asyncHandler(async (req, res) => {
-    const executives = await User.find({ role: 'Executive' }).select('-password');
+    // Determine which company to filter by
+    const companyId = req.user.role === 'SuperAdmin' ? req.query.companyId : (req.user.company?._id || req.user.company);
+    
+    let query = { role: { $in: ['Executive', 'Admin'] } };
+    
+    // If not super admin, only show admins from the same company
+    if (req.user.role !== 'SuperAdmin' && companyId) {
+        query.company = companyId;
+    }
+
+    const executives = await User.find(query).select('-password');
     res.json(executives);
 });
 
@@ -4514,11 +4526,14 @@ const createExecutive = asyncHandler(async (req, res) => {
             role: 'Executive',
             status: 'active',
             isFreelancer: false,
-            permissions: permissions || {
-                driversService: false,
-                buySell: false,
-                vehiclesManagement: false,
-                reports: true
+            company: req.user.role === 'SuperAdmin' ? req.body.companyId : (req.user.company?._id || req.user.company),
+            permissions: {
+                driversService: Boolean(permissions?.driversService),
+                buySell: Boolean(permissions?.buySell),
+                vehiclesManagement: Boolean(permissions?.vehiclesManagement),
+                fleetOperations: Boolean(permissions?.fleetOperations),
+                manageAdmins: Boolean(permissions?.manageAdmins),
+                reports: permissions?.reports !== undefined ? Boolean(permissions.reports) : true
             }
         });
 
@@ -4540,14 +4555,24 @@ const updateExecutive = asyncHandler(async (req, res) => {
     const { name, mobile, username, password, permissions, status } = req.body;
     const executive = await User.findById(req.params.id);
 
-    if (executive && executive.role === 'Executive') {
+    if (executive && (executive.role === 'Executive' || executive.role === 'Admin')) {
         executive.name = name || executive.name;
         executive.mobile = mobile || executive.mobile;
         executive.username = username || executive.username;
         executive.status = status || executive.status;
 
         if (permissions) {
-            executive.permissions = { ...executive.permissions, ...permissions };
+            // Use Mongoose .set() or manual map for permissions to ensure they save correctly
+            const updatedPerms = {
+                driversService: Boolean(permissions.driversService),
+                buySell: Boolean(permissions.buySell),
+                vehiclesManagement: Boolean(permissions.vehiclesManagement),
+                fleetOperations: Boolean(permissions.fleetOperations),
+                manageAdmins: Boolean(permissions.manageAdmins),
+                reports: permissions.reports !== undefined ? Boolean(permissions.reports) : (executive.permissions?.reports || true)
+            };
+            executive.permissions = updatedPerms;
+            executive.markModified('permissions');
         }
 
         if (password) {

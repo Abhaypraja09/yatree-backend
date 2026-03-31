@@ -189,11 +189,11 @@ router.put('/loans/:id', adminOrExecutive, updateLoan);
 router.delete('/loans/:id', adminOrExecutive, deleteLoan);
 router.post('/loans/repayment', adminOrExecutive, recordLoanRepayment);
 
-// Executive Management (Super Admin only)
-router.get('/executives', admin, getAllExecutives);
-router.post('/executives', admin, createExecutive);
-router.put('/executives/:id', admin, updateExecutive);
-router.delete('/executives/:id', admin, deleteExecutive);
+// Executive Management (Super Admin only OR Manager with rights)
+router.get('/executives', adminOrExecutive, getAllExecutives);
+router.post('/executives', adminOrExecutive, createExecutive);
+router.put('/executives/:id', adminOrExecutive, updateExecutive);
+router.delete('/executives/:id', adminOrExecutive, deleteExecutive);
 
 // Staff Management
 router.get('/staff/:companyId', adminOrExecutive, checkCompany, getAllStaff);
