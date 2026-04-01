@@ -1685,6 +1685,13 @@ const getBorderTaxEntries = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const rechargeFastag = asyncHandler(async (req, res) => {
     const { amount, method, remarks, date } = req.body;
+    logToFile(`[RECHARGE_FASTAG] User: ${req.user?._id}, Role: ${req.user?.role}, Vehicle: ${req.params.id}, Amount: ${amount}`);
+    
+    if (req.user?.role === 'Executive' && !req.user?.permissions?.fleetOperations) {
+        logToFile(`[RECHARGE_FASTAG] FORBIDDEN: User ${req.user?._id} missing fleetOperations permission`);
+        return res.status(403).json({ message: 'Permission Denied: Fleet Operations access required' });
+    }
+
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {

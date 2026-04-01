@@ -144,9 +144,9 @@ router.patch('/drivers/:id/documents/:docId/verify', adminOrExecutive, verifyDri
 router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, checkCompany, approveNewTrip);
 router.post('/assign', adminOrExecutive, checkCompany, assignVehicle);
 router.post('/vehicles/:id/documents', adminOrExecutive, upload.single('document'), uploadVehicleDocument);
-router.post('/vehicles/:id/fastag-recharge', admin, rechargeFastag);
-router.put('/vehicles/:id/fastag-recharge/:historyId', admin, updateFastagRecharge);
-router.delete('/vehicles/:id/fastag-recharge/:historyId', admin, deleteFastagRecharge);
+router.post('/vehicles/:id/fastag-recharge', adminOrExecutive, rechargeFastag);
+router.put('/vehicles/:id/fastag-recharge/:historyId', adminOrExecutive, updateFastagRecharge);
+router.delete('/vehicles/:id/fastag-recharge/:historyId', adminOrExecutive, deleteFastagRecharge);
 
 // Operational Routes (Shared Admin & Executive)
 router.delete('/drivers/:id', adminOrExecutive, deleteDriver);

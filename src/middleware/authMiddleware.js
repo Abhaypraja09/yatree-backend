@@ -27,7 +27,7 @@ const protect = async (req, res, next) => {
             if (userCompanyId) {
                 // Attach as a ready-to-use filter for MongoDB find/update/delete operations
                 req.tenantFilter = { company: userCompanyId };
-            } else if (req.user.role !== 'SuperAdmin') {
+            } else if (req.user.role?.toLowerCase() !== 'superadmin') {
                 // If not SuperAdmin and no company assigned, user is in limbo or unauthorized.
                 return res.status(403).json({ message: 'Tenant context missing. Unable to verify organization boundary.' });
             }
@@ -51,7 +51,7 @@ const checkCompany = (req, res, next) => {
     const targetCompanyId = targetRaw ? targetRaw.toString() : null;
 
     // 👑 SUPERADMIN BYPASS + SCOPING
-    if (req.user && req.user.role === 'SuperAdmin') {
+    if (req.user && req.user.role?.toLowerCase() === 'superadmin') {
         if (targetCompanyId) {
             // Inject target company into tenant filter for SuperAdmin to match the requested context
             req.tenantFilter = { company: targetCompanyId };
@@ -70,8 +70,20 @@ const checkCompany = (req, res, next) => {
     next();
 };
 
+const logToFile = (msg) => {
+    const fs = require('fs');
+    const path = require('path');
+    const timestamp = new Date().toISOString();
+    const logMsg = `[${timestamp}] AUTH_LOG: ${msg}\n`;
+    try {
+        fs.appendFileSync(path.join(process.cwd(), 'server_debug.log'), logMsg);
+    } catch (e) {}
+};
+
 const admin = (req, res, next) => {
-    if (req.user && req.user.role === 'Admin') {
+    const role = req.user?.role?.toLowerCase();
+    logToFile(`[CHECK_ADMIN] User: ${req.user?._id}, Role: ${req.user?.role}, Result: ${role === 'admin' || role === 'superadmin'}`);
+    if (role === 'admin' || role === 'superadmin') {
         next();
     } else {
         res.status(401).json({ message: 'Not authorized as an admin' });
@@ -79,7 +91,8 @@ const admin = (req, res, next) => {
 };
 
 const driver = (req, res, next) => {
-    if (req.user && req.user.role === 'Driver') {
+    const role = req.user?.role?.toLowerCase();
+    if (role === 'driver') {
         next();
     } else {
         res.status(401).json({ message: 'Not authorized as a driver' });
@@ -87,7 +100,9 @@ const driver = (req, res, next) => {
 };
 
 const adminOrExecutive = (req, res, next) => {
-    if (req.user && (req.user.role === 'Admin' || req.user.role === 'Executive')) {
+    const role = req.user?.role?.toLowerCase();
+    logToFile(`[CHECK_ADMIN_OR_EXEC] User: ${req.user?._id}, Role: ${req.user?.role}, Result: ${role === 'admin' || role === 'executive' || role === 'superadmin'}`);
+    if (role === 'admin' || role === 'executive' || role === 'superadmin') {
         next();
     } else {
         res.status(401).json({ message: 'Not authorized' });
