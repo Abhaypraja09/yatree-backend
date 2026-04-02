@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema({
     documents: [{
         documentType: {
             type: String,
-            enum: ['Aadhaar Front', 'Aadhaar Back', 'Driving License', 'Address Proof', 'Offer Letter'],
+            enum: ['Aadhaar Card', 'Aadhaar Front', 'Aadhaar Back', 'Driving License', 'Address Proof', 'Offer Letter'],
             required: true
         },
         imageUrl: {
@@ -135,6 +135,11 @@ const userSchema = new mongoose.Schema({
         fleetOperations: { type: Boolean, default: false },
         manageAdmins: { type: Boolean, default: false },
         reports: { type: Boolean, default: true }
+    },
+    overtime: {
+        enabled: { type: Boolean, default: false },
+        thresholdHours: { type: Number, default: 9 }, // Standard 9 hrs before OT starts
+        ratePerHour: { type: Number, default: 0 }
     }
 }, {
     timestamps: true,

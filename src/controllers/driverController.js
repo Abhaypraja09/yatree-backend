@@ -28,23 +28,26 @@ const getDriverDashboard = async (req, res) => {
     const driver = await User.findById(req.user._id).populate('assignedVehicle').populate('company');
     const today = getTodayIST();
     const companyId = driver.company?._id || driver.company;
+    
+    if (!companyId) {
+        logToFile(`SECURITY ALERT: Driver ${req.user._id} (${req.user.name}) has no company! Blocking dashboard.`);
+        return res.status(401).json({ message: "No company associated with this account. Please contact admin." });
+    }
+
     logToFile(`getDriverDashboard - User: ${req.user._id}, Company: ${companyId}`);
 
     // 1. Fetch available vehicles of this company
-    // First, identify vehicles currently in use by OTHER drivers
+    // First, identify vehicles currently in use by OTHER drivers in the SAME company
     const activeShifts = await Attendance.find({
         status: 'incomplete',
         company: companyId,
-        driver: { $ne: req.user._id },
-        date: today // Only exclude vehicles with active shifts FROM TODAY
+        driver: { $ne: req.user._id }
+        // Removed 'date: today' because a vehicle shouldn't be reused if ANY incomplete shift exists
     }).select('vehicle');
     const occupiedVehicleIds = activeShifts.map(a => a.vehicle.toString());
 
     const availableVehicles = await Vehicle.find({
-        $or: [
-            { company: companyId },
-            { company: companyId.toString() }
-        ],
+        company: companyId,
         status: 'active',
         isOutsideCar: { $ne: true },
         _id: { $nin: occupiedVehicleIds },
@@ -54,10 +57,7 @@ const getDriverDashboard = async (req, res) => {
         ]
     }).select('carNumber model carType currentDriver');
 
-    logToFile(`getDriverDashboard - User: ${req.user._id}, Comp: ${companyId}, Found: ${availableVehicles.length}`);
-    if (availableVehicles.length === 0) {
-        logToFile(`WARNING: No vehicles found for company ${companyId}. Check if isOutsideCar filter is too strict.`);
-    }
+    logToFile(`getDriverDashboard - User: ${req.user._id}, Comp: ${companyId}, Found: ${availableVehicles.length} vehicles`);
 
     // 2. Fetch latest attendance records
     // We want the absolutely most relevant one first.
@@ -142,7 +142,12 @@ const punchIn = async (req, res) => {
         }
 
         const today = getTodayIST();
-        const driver = await User.findById(req.user._id);
+        const driver = await User.findById(req.user._id).populate('company');
+        const companyId = driver.company?._id || driver.company;
+
+        if (!companyId) {
+            return res.status(401).json({ message: "No company associated with this account." });
+        }
 
         // Use vehicleId from body OR fallback to assignedVehicle
         const targetVehicleId = vehicleId || driver.assignedVehicle;
@@ -151,17 +156,18 @@ const punchIn = async (req, res) => {
             return res.status(400).json({ message: 'Please select a vehicle to start your duty' });
         }
 
-        // Check if vehicle is available
-        const vehicle = await Vehicle.findById(targetVehicleId);
+        // Check if vehicle is available AND belongs to the same company
+        const vehicle = await Vehicle.findOne({ _id: targetVehicleId, company: companyId });
         if (!vehicle) {
-            return res.status(404).json({ message: 'Vehicle not found' });
+            return res.status(404).json({ message: 'Vehicle not found or unauthorized' });
         }
 
         if (vehicle.currentDriver && vehicle.currentDriver.toString() !== driver._id.toString()) {
             // Check if that owner is actually on a trip
             const otherDriverActive = await Attendance.findOne({
                 driver: vehicle.currentDriver,
-                status: 'incomplete'
+                status: 'incomplete',
+                company: companyId // SAFETY: Filter by company
             });
 
             if (otherDriverActive) {
@@ -180,7 +186,7 @@ const punchIn = async (req, res) => {
         }
 
         // Check if already an active punch in
-        const existingPunch = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
+        const existingPunch = await Attendance.findOne({ driver: req.user._id, status: 'incomplete', company: companyId });
         if (existingPunch) {
             return res.status(400).json({ message: 'You have an active shift. Please punch out first.' });
         }
@@ -255,6 +261,11 @@ const punchOut = async (req, res) => {
         if (!attendance) {
             console.error(`[PunchOut Error] No active shift found for driver ${req.user._id} (${req.user.name})`);
             return res.status(400).json({ message: 'No active shift found to punch out. Please refresh your dashboard.' });
+        }
+
+        const companyId = attendance.company;
+        if (!companyId) {
+            return res.status(400).json({ message: 'Shift has no company associated.' });
         }
 
         console.log(`[PunchOut] Found active shift ${attendance._id} (Started: ${attendance.date}) for driver ${req.user.name}`);
@@ -451,6 +462,11 @@ const addExpense = async (req, res) => {
             return res.status(400).json({ message: 'No active shift found to add expense' });
         }
 
+        const companyId = attendance.company;
+        if (!companyId) {
+            return res.status(400).json({ message: "Unauthorized addition of expense: No company context found on shift." });
+        }
+
         let typesArr = types;
         let amountsArr = amounts;
         let kmsArr = kms;
@@ -554,6 +570,7 @@ const getDriverLedger = async (req, res) => {
         // 1. Fetch completed attendance (filtered by month if provided)
         const attendance = await Attendance.find({
             driver: driverId,
+            company: driver.company?._id || driver.company, // SAFETY: Filter by company
             status: 'completed',
             ...dateFilter
         }).populate('vehicle', 'carNumber').sort({ date: -1 });

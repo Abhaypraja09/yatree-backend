@@ -16,6 +16,7 @@ const PartsWarranty = require('../models/PartsWarranty');
 const LeaveRequest = require('../models/LeaveRequest');
 const Event = require('../models/Event');
 const Loan = require('../models/Loan');
+const Allowance = require('../models/Allowance');
 const { DateTime } = require('luxon');
 const asyncHandler = require('express-async-handler');
 
@@ -76,16 +77,32 @@ const createDriver = async (req, res, next) => {
             licenseNumber,
             dailyWage: Number(dailyWage) || 0,
             salary: Number(salary) || 0,
-            nightStayBonus: (nightStayBonus !== undefined && nightStayBonus !== '') ? Number(nightStayBonus) : 500,
-            sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 100
+            nightStayBonus: (nightStayBonus !== undefined && nightStayBonus !== '') ? Number(nightStayBonus) : 0,
+            sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 0,
+            overtime: {
+                enabled: req.body.overtimeEnabled === 'true' || req.body.overtimeEnabled === true,
+                thresholdHours: Number(req.body.overtimeThreshold) || 9,
+                ratePerHour: Number(req.body.overtimeRate) || 0
+            }
         });
 
-        if (req.files && req.files.drivingLicense) {
-            driver.documents.push({
-                documentType: 'Driving License',
-                imageUrl: req.files.drivingLicense[0].path,
-                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // Default 1 year from now if not specified
-                verificationStatus: 'Verified'
+        if (req.files) {
+            const docMappings = [
+                { field: 'aadharCard', type: 'Aadhaar Card' },
+                { field: 'drivingLicense', type: 'Driving License' },
+                { field: 'addressProof', type: 'Address Proof' },
+                { field: 'offerLetter', type: 'Offer Letter' }
+            ];
+
+            docMappings.forEach(mapping => {
+                if (req.files[mapping.field]) {
+                    driver.documents.push({
+                        documentType: mapping.type,
+                        imageUrl: req.files[mapping.field][0].path,
+                        expiryDate: mapping.type === 'Driving License' ? new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000) : undefined,
+                        verificationStatus: 'Pending'
+                    });
+                }
             });
         }
 
@@ -267,10 +284,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query;
 
         // 🔒 MULTI-TENANCY LOCK: Prioritize session-based tenant filter over URL params
-        const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || req.params.companyId;
+        const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company;
 
         if (!finalCompanyId || !mongoose.Types.ObjectId.isValid(finalCompanyId)) {
-            return res.status(400).json({ message: 'Invalid Co ID' });
+            logToFile(`🚨 SECURITY ALERT: Dashboard stats requested without valid company context for user ${req.user._id}`);
+            return res.status(403).json({ message: 'Multi-tenant context missing' });
         }
         const companyObjectId = new mongoose.Types.ObjectId(finalCompanyId);
         
@@ -465,6 +483,11 @@ const getAllDrivers = asyncHandler(async (req, res) => {
     const page = Number(req.query.pageNumber) || 1;
 
     try {
+        // 🔒 STRICT TENANT ISOLATION
+        if (!req.tenantFilter || !req.tenantFilter.company) {
+            return res.status(403).json({ message: 'Access Denied: Missing organization context.' });
+        }
+
         const driverQuery = {
             ...req.tenantFilter,
             role: 'Driver'
@@ -542,8 +565,15 @@ const getAllVehicles = asyncHandler(async (req, res) => {
     const pageSize = 10;
     const page = Number(req.query.pageNumber) || 1;
     const fetchVehiclesAndSync = async (query) => {
-        // 🛡️ SECURITY: Merge incoming search query with the strict tenant filter
+        // 🔒 STRICT TENANT ISOLATION: Never bypass the company filter
+        if (!req.tenantFilter || !req.tenantFilter.company) {
+            logToFile(`🚨 SECURITY VIOLATION: User ${req.user._id} attempted getAllVehicles without tenant filter!`);
+            throw new Error('Multi-tenant boundary violation: Company context missing.');
+        }
+
         const mergedQuery = { ...query, ...req.tenantFilter };
+        logToFile(`getAllVehicles - Query: ${JSON.stringify(mergedQuery)}`);
+        
         const vehicles = await Vehicle.find(mergedQuery)
             .populate('currentDriver', 'name mobile isFreelancer')
             .sort({ carNumber: 1 });
@@ -706,14 +736,43 @@ const updateDriver = asyncHandler(async (req, res) => {
             driver.licenseNumber = req.body.licenseNumber;
         }
 
-        if (req.files && req.files.drivingLicense) {
-            // Remove old Driving License if exists
-            driver.documents = driver.documents.filter(doc => doc.documentType !== 'Driving License');
-            driver.documents.push({
-                documentType: 'Driving License',
-                imageUrl: req.files.drivingLicense[0].path,
-                expiryDate: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000), // Default 10 years for DL
-                verificationStatus: 'Verified'
+        if (req.body.overtimeEnabled !== undefined) {
+            if (!driver.overtime) driver.overtime = { enabled: false, thresholdHours: 9, ratePerHour: 0 };
+            driver.overtime.enabled = req.body.overtimeEnabled === 'true' || req.body.overtimeEnabled === true;
+        }
+        if (req.body.overtimeThreshold !== undefined) {
+            if (!driver.overtime) driver.overtime = { enabled: false, thresholdHours: 9, ratePerHour: 0 };
+            driver.overtime.thresholdHours = Number(req.body.overtimeThreshold);
+        }
+        if (req.body.overtimeRate !== undefined) {
+            if (!driver.overtime) driver.overtime = { enabled: false, thresholdHours: 9, ratePerHour: 0 };
+            driver.overtime.ratePerHour = Number(req.body.overtimeRate);
+        }
+
+        if (req.files) {
+            const docMappings = [
+                { field: 'aadharCard', type: 'Aadhaar Card' },
+                { field: 'drivingLicense', type: 'Driving License' },
+                { field: 'addressProof', type: 'Address Proof' },
+                { field: 'offerLetter', type: 'Offer Letter' }
+            ];
+
+            docMappings.forEach(mapping => {
+                if (req.files[mapping.field]) {
+                    // Remove old of same type or obsolete Aadhar types if it's Aadhar Card
+                    if (mapping.type === 'Aadhaar Card') {
+                        driver.documents = driver.documents.filter(doc => !['Aadhaar Card', 'Aadhaar Front', 'Aadhaar Back'].includes(doc.documentType));
+                    } else {
+                        driver.documents = driver.documents.filter(doc => doc.documentType !== mapping.type);
+                    }
+                    
+                    driver.documents.push({
+                        documentType: mapping.type,
+                        imageUrl: req.files[mapping.field][0].path,
+                        expiryDate: mapping.type === 'Driving License' ? new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000) : undefined,
+                        verificationStatus: 'Pending'
+                    });
+                }
             });
         }
 
@@ -1112,13 +1171,15 @@ const getDailyReports = asyncHandler(async (req, res) => {
     }
 
     // 🔒 MULTI-TENANCY LOCK: Prioritize session-based tenant filter
-    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || companyId;
+    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company;
+
+    if (!finalCompanyId) {
+        logToFile(`🚨 SECURITY VIOLATION: User ${req.user._id} attempted getDailyReports without company context!`);
+        return res.status(403).json({ message: 'Resource not found in your organization boundary.' });
+    }
 
     const baseQuery = {
-        $or: [
-            { company: new mongoose.Types.ObjectId(finalCompanyId) },
-            { company: finalCompanyId }
-        ]
+        company: finalCompanyId
     };
 
     let startDate, endDate;
@@ -3440,6 +3501,89 @@ const updateAdvance = asyncHandler(async (req, res) => {
     }
 });
 
+// @desc    Add allowance
+// @route   POST /api/admin/allowances
+// @access  Private/Admin
+const addAllowance = asyncHandler(async (req, res) => {
+    const { driverId, amount, date, remark, type } = req.body;
+    const companyId = req.headers['x-company-id'] || req.user.company;
+
+    if (!driverId || !amount) {
+        res.status(400);
+        throw new Error('Driver and amount are required');
+    }
+
+    const allowance = await Allowance.create({
+        driver: driverId,
+        company: companyId,
+        amount,
+        date: date || new Date(),
+        remark: remark || 'Special Allowance',
+        type: type || 'Other',
+        createdBy: req.user._id
+    });
+
+    res.status(201).json(allowance);
+});
+
+// @desc    Get allowances
+// @route   GET /api/admin/allowances/:companyId
+// @access  Private/Admin
+const getAllowances = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const { month, year, driverId, from, to } = req.query;
+
+    let query = { company: companyId };
+
+    if (driverId) query.driver = driverId;
+
+    if (from && to) {
+        query.date = { $gte: new Date(from), $lte: new Date(to) };
+    } else if (month && year) {
+        const start = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }).startOf('month').toJSDate();
+        const end = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }).endOf('month').toJSDate();
+        query.date = { $gte: start, $lte: end };
+    }
+
+    const allowances = await Allowance.find(query).populate('driver', 'name mobile').sort({ date: -1 });
+    res.json(allowances);
+});
+
+// @desc    Update allowance
+// @route   PUT /api/admin/allowances/:id
+// @access  Private/Admin
+const updateAllowance = asyncHandler(async (req, res) => {
+    const { amount, date, remark, type, driverId } = req.body;
+    const allowance = await Allowance.findById(req.params.id);
+
+    if (!allowance) {
+        res.status(404);
+        throw new Error('Allowance not found');
+    }
+
+    if (driverId) allowance.driver = driverId;
+    if (amount !== undefined) allowance.amount = amount;
+    if (date) allowance.date = date;
+    if (remark) allowance.remark = remark;
+    if (type) allowance.type = type;
+
+    await allowance.save();
+    res.json(allowance);
+});
+
+// @desc    Delete allowance
+// @route   DELETE /api/admin/allowances/:id
+// @access  Private/Admin
+const deleteAllowance = asyncHandler(async (req, res) => {
+    const allowance = await Allowance.findById(req.params.id);
+    if (!allowance) {
+        res.status(404);
+        throw new Error('Allowance not found');
+    }
+    await allowance.deleteOne();
+    res.json({ message: 'Allowance deleted' });
+});
+
 const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelancerOnly = false) => {
     // 1. Get all drivers in company
     const driverQuery = {
@@ -3453,7 +3597,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driverQuery.isFreelancer = { $ne: true };
     }
 
-    const drivers = await User.find(driverQuery).select('name mobile dailyWage salary').lean();
+    const drivers = await User.find(driverQuery).select('name mobile dailyWage salary overtime').lean();
     if (!drivers.length) return [];
 
     const driverIds = drivers.map(d => d._id);
@@ -3513,17 +3657,22 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
     };
 
-    const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances, allLoans] = await Promise.all([
+    const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances, allLoans, allAllowances] = await Promise.all([
         Attendance.find(attendanceQuery).lean(),
         Advance.find(advanceQuery).lean(),
         Parking.find(parkingQuery).lean(),
         Advance.find(allTimeAdvanceQuery).lean(),
-        Loan.find({ company: companyId }).lean()
+        Loan.find({ company: companyId }).lean(),
+        Allowance.find({
+            company: companyId,
+            date: { $gte: startJS, $lte: endJS }
+        }).lean()
     ]);
 
     // Grouping records by driver for efficient lookup
     const attByDriver = new Map();
     const advByDriver = new Map();
+    const allowanceByDriver = new Map();
     const parkingByDriver = new Map();
     const allTimeAdvByDriver = new Map();
 
@@ -3538,6 +3687,12 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         const dId = a.driver.toString();
         if (!advByDriver.has(dId)) advByDriver.set(dId, []);
         advByDriver.get(dId).push(a);
+    });
+    allAllowances.forEach(a => {
+        if (!a.driver) return;
+        const dId = a.driver.toString();
+        if (!allowanceByDriver.has(dId)) allowanceByDriver.set(dId, []);
+        allowanceByDriver.get(dId).push(a);
     });
     allTimeAdvances.forEach(a => {
         if (!a.driver) return;
@@ -3566,133 +3721,118 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
     });
 
     // 4. Summarize each driver
-    const summaries = drivers.map(driver => {
+    const summaries = drivers.map(d => {
         try {
-            const dId = driver._id.toString();
+            const dId = d._id.toString();
             const driverAtt = attByDriver.get(dId) || [];
             const driverAdv = advByDriver.get(dId) || [];
+            const driverAllowance = allowanceByDriver.get(dId) || [];
             const driverParking = parkingByDriver.get(dId) || [];
             const driverAllTimeAdv = allTimeAdvByDriver.get(dId) || [];
+            const driverLoans = loansByDriver.get(dId) || [];
 
-            // Earnings Calculation
+            // 💰 RECORD ATTENDANCE EARNINGS
             const dailyAggs = new Map();
             const datesProcessed = new Set();
+            let totalRoutineEarnings = 0;
+            let nightStayCount = 0;
+
             driverAtt.forEach(att => {
-                const dateStr = att.date;
+                const dateStr = att.date || (att.punchIn?.time ? DateTime.fromJSDate(att.punchIn.time).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd') : 'unknown');
+                
+                // Base Wage (One per day)
                 let wage = 0;
                 if (!datesProcessed.has(dateStr)) {
-                    wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 0;
+                    wage = (Number(att.dailyWage) || 0) || (d.dailyWage ? Number(d.dailyWage) : 0) || (d.salary ? Math.round(Number(d.salary) / 26) : 0) || 0;
                     datesProcessed.add(dateStr);
                 }
+
+                // Bonuses & OT
                 const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
                 const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-                // bonusAmount often includes the above, so we take the max to avoid doubling
                 const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
-                if (!dailyAggs.has(dateStr)) {
-                    dailyAggs.set(dateStr, { earnings: 0, nights: 0, sameDays: 0, pureWage: 0, bonusTotal: 0 });
+                let otBonus = 0;
+                if (d.overtime?.enabled && att.punchIn?.time && att.punchOut?.time) {
+                    const durationMs = new Date(att.punchOut.time).getTime() - new Date(att.punchIn.time).getTime();
+                    const totalHours = durationMs / (1000 * 60 * 60);
+                    const otHours = Math.max(0, totalHours - (Number(d.overtime.thresholdHours) || 9));
+                    otBonus = Math.round(otHours * (Number(d.overtime.ratePerHour) || 0));
                 }
-                const current = dailyAggs.get(dateStr);
-                current.earnings += (wage + bonuses);
-                current.pureWage += wage;
-                current.bonusTotal += bonuses;
-                if (Number(att.punchOut?.nightStayAmount) > 0) current.nights += 1;
-                if (Number(att.punchOut?.allowanceTA) > 0) current.sameDays += 1;
+
+                totalRoutineEarnings += (wage + bonuses + otBonus);
+                if (nightStay > 0) nightStayCount += 1;
             });
 
-            const externalParkingByDay = new Map();
+            // 🅿️ PARKING
+            let parkingTotal = 0;
+            const parkingDates = new Set();
             driverParking.forEach(p => {
-                if (!p.date) return;
-                const dateStr = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-                externalParkingByDay.set(dateStr, (externalParkingByDay.get(dateStr) || 0) + (Number(p.amount) || 0));
+                parkingTotal += (Number(p.amount) || 0);
             });
 
-            const allUniqueDates = new Set([...dailyAggs.keys(), ...externalParkingByDay.keys()]);
-            let totalCalculatedEarnings = 0;
-            allUniqueDates.forEach(dateStr => {
-                const attData = dailyAggs.get(dateStr) || { earnings: 0 };
-                const extP = externalParkingByDay.get(dateStr) || 0;
-                totalCalculatedEarnings += (attData.earnings + extP);
-            });
+            // 🎁 ADDITIONAL ALLOWANCES (SPECIAL PAY)
+            const totalAllowances = driverAllowance.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
 
-            // Advance Calculation
+            // 📉 ADVANCES
             const totalAdvancesThisMonth = driverAdv.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
             const totalRecoveredThisMonth = driverAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
             const allTimeGiven = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
             const allTimeRecovered = driverAllTimeAdv.reduce((sum, adv) => sum + (Number(adv.recoveredAmount) || 0), 0);
-            const pendingAdvance = allTimeGiven - allTimeRecovered;
 
-            // Loan/EMI calculation
-            const driverLoans = loansByDriver.get(dId) || [];
+            // 🏦 LOANS & EMI
             let totalEMIDeducted = 0;
-            let activeLoansInfo = [];
-
+            const activeLoansInfo = [];
             driverLoans.forEach(loan => {
-                if (loan.status === 'Active') {
-                    // Safety: Skip loans with invalid/missing start dates for calculations
-                    if (!loan.startDate) return;
-
+                const repayment = (loan.repayments || []).find(r => r.month === parseInt(month) && r.year === parseInt(year));
+                if (repayment) {
+                    totalEMIDeducted += Number(repayment.amount) || 0;
+                    activeLoansInfo.push({ loanId: loan._id, amount: repayment.amount, isPaid: true });
+                } else if (loan.status === 'Active' && loan.startDate && loan.remainingAmount > 0) {
+                    const selM = parseInt(month);
+                    const selY = parseInt(year);
+                    const currentPeriod = DateTime.fromObject({ year: selY, month: selM, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
                     const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
-                    const currentReportMonth = DateTime.fromObject({ year: parseInt(year), month: parseInt(month), day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+                    const monthsDiff = Math.floor(currentPeriod.diff(loanStart, 'months').months + 0.05);
+                    const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 12);
                     
-                    // Loan must have started and must not have exceeded tenure
-                    const diff = currentReportMonth.diff(loanStart, 'months').months;
-                    const monthsSinceStart = Math.floor(diff + 0.05); // Standardizing the month diff
-                    
-                    const actualTenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 1);
-                    const isWithinTenure = monthsSinceStart >= 0 && monthsSinceStart < actualTenure;
-
-                    if (isWithinTenure && loan.remainingAmount > 0) {
-                        // Check if EMI is already paid for THIS month/year
-                        const repayment = (loan.repayments || []).find(r => r.month === parseInt(month) && r.year === parseInt(year));
-                        if (repayment) {
-                            totalEMIDeducted += repayment.amount;
-                            activeLoansInfo.push({ loanId: loan._id, emi: repayment.amount, isPaid: true });
-                        } else {
-                            // Project the EMI if not paid but it's an active loan
-                            totalEMIDeducted += loan.monthlyEMI;
-                            activeLoansInfo.push({ loanId: loan._id, emi: loan.monthlyEMI, isPaid: false });
-                        }
+                    if (monthsDiff >= 0 && monthsDiff < tenure) {
+                        totalEMIDeducted += Number(loan.monthlyEMI) || 0;
+                        activeLoansInfo.push({ loanId: loan._id, amount: loan.monthlyEMI, isPaid: false });
                     }
                 }
             });
 
-            // Aggregator recalculation for cleaner summary
-            let totalWages = 0;
-            let totalBonuses = 0;
-            let totalParking = 0;
-            dailyAggs.forEach(v => {
-                totalWages += (v.pureWage || 0);
-                totalBonuses += (v.bonusTotal || 0);
-            });
-            totalParking = Array.from(externalParkingByDay.values()).reduce((s, v) => s + v, 0);
+            const totalEarned = totalRoutineEarnings + parkingTotal + totalAllowances;
+            const netPayable = totalEarned - totalAdvancesThisMonth - totalEMIDeducted;
 
             return {
-                driverId: driver._id,
-                name: driver.name,
-                mobile: driver.mobile,
-                totalEarned: totalCalculatedEarnings,
-                totalWages,
-                totalBonus: totalBonuses,
-                totalParking,
-                totalAdvances: totalAdvancesThisMonth,
-                totalRecovered: totalRecoveredThisMonth,
-                pendingAdvance,
-                totalEMI: totalEMIDeducted,
-                activeLoans: activeLoansInfo,
-                netPayable: totalCalculatedEarnings - totalAdvancesThisMonth - totalEMIDeducted,
+                driverId: dId,
+                name: d.name,
+                mobile: d.mobile,
+                dailyWage: d.dailyWage || 0,
                 workingDays: datesProcessed.size,
-                nightStayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.nights, 0),
-                sameDayCount: Array.from(dailyAggs.values()).reduce((sum, v) => sum + v.sameDays, 0),
-                dailyWage: driver.dailyWage || 0
+                nightStayCount,
+                totalEarned,
+                totalAllowances,
+                totalAdvances: totalAdvancesThisMonth,
+                recoveredAdvances: totalRecoveredThisMonth,
+                totalEMI: totalEMIDeducted,
+                netPayable,
+                advanceInfo: {
+                    totalGiven: allTimeGiven,
+                    totalRecovered: allTimeRecovered,
+                    pending: allTimeGiven - allTimeRecovered
+                },
+                activeLoans: activeLoansInfo
             };
         } catch (err) {
-            console.error(`[getDriverSalarySummaryInternal] Error summarizing driver ${driver._id}:`, err);
+            console.error(`[getDriverSalarySummaryInternal] Error for driver ${d._id}:`, err);
             return null;
         }
-    }).filter(s => s !== null);
+    }).filter(s => s !== null && (s.workingDays > 0 || s.totalAllowances > 0 || s.totalEMI > 0 || s.totalAdvances > 0));
 
-    return summaries.filter(s => s.workingDays > 0 || s.totalAdvances > 0);
+    return summaries;
 };
 
 // @desc    Get Salary Summary for all drivers in a company
@@ -4886,7 +5026,14 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             driver: mongoose.Types.ObjectId.isValid(driverId) ? new mongoose.Types.ObjectId(driverId) : driverId,
             status: { $ne: 'Cancelled' }
         };
-        const loans = await Loan.find(loanQuery).sort({ startDate: 1 });
+        
+        const [loans, allowances] = await Promise.all([
+            Loan.find(loanQuery).sort({ startDate: 1 }),
+            Allowance.find({
+                driver: driverId,
+                date: { $gte: startOfMonth, $lte: endOfMonth }
+            }).sort({ date: 1 })
+        ]);
 
         // Group external parking for logic
         const externalByDay = new Map();
@@ -4916,6 +5063,16 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             // bonusAmount in driverController is (allowanceTA + nightStay), so we subtract them to get "extra"
             const otherBonuses = Math.max(0, (Number(att.outsideTrip?.bonusAmount) || 0) - sameDayReturn - nightStay);
 
+            // 🕒 OVERTIME CALCULATION
+            let otAmount = 0;
+            let otHours = 0;
+            if (driver.overtime?.enabled && att.punchIn?.time && att.punchOut?.time) {
+                const durationMs = att.punchOut.time.getTime() - att.punchIn.time.getTime();
+                const totalHours = durationMs / (1000 * 60 * 60);
+                otHours = Math.max(0, totalHours - (Number(driver.overtime.thresholdHours) || 9));
+                otAmount = Math.round(otHours * (Number(driver.overtime.ratePerHour) || 0));
+            }
+
             // Use parking from official Parking collection only
             const totalExternalForDay = externalByDay.get(att.date) || 0;
 
@@ -4933,8 +5090,10 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 sameDayReturn,
                 nightStay,
                 otherBonuses,
+                otAmount,
+                otHours: Number(otHours.toFixed(2)),
                 parking: finalParkingCell,
-                total: wage + finalParkingCell + sameDayReturn + nightStay + otherBonuses, // Include all bonuses in total
+                total: wage + finalParkingCell + sameDayReturn + nightStay + otherBonuses + otAmount, // Include all bonuses and OT in total
                 vehicleId: att.vehicle?._id || att.vehicle,
                 vehicleNumber: att.vehicle?.carNumber || 'N/A',
                 totalKM: att.totalKM || 0,
@@ -4951,10 +5110,12 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
 
         // Aggregated totals - Including bonuses
         const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage, 0);
+        const totalOT = dailyBreakdown.reduce((sum, d) => sum + (d.otAmount || 0), 0);
         const totalBonuses = dailyBreakdown.reduce((sum, d) => sum + d.sameDayReturn + d.nightStay + d.otherBonuses, 0);
         const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
             standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+        const totalAllowances = allowances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
         
         let totalEMI = 0;
         if (month && year) {
@@ -4978,7 +5139,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             });
         }
 
-        const grandTotal = totalWages + parkingTotal + totalBonuses;
+        const grandTotal = totalWages + parkingTotal + totalBonuses + totalOT + totalAllowances;
         const netPayable = grandTotal - totalAdvances - totalEMI;
 
         res.json({
@@ -4987,9 +5148,12 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             breakdown: dailyBreakdown,
             advances,
             loans: loans || [],
+            allowances,
             parkingEntries: parking,
             summary: {
                 totalWages,
+                totalOT,
+                totalAllowances,
                 parkingTotal,
                 totalAdvances,
                 totalEMI,
@@ -5349,7 +5513,12 @@ const getLiveFeed = asyncHandler(async (req, res) => {
 
     const todayISTString = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
     const targetDate = date || todayISTString;
-    const companyObjectId = new mongoose.Types.ObjectId(companyId);
+    
+    // 🔒 SECURE CONTEXT: Use session-based company ID
+    const scId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company;
+    if (!scId) return res.status(403).json({ message: 'Unauthorized: Company context missing.' });
+    
+    const companyObjectId = new mongoose.Types.ObjectId(scId);
     const cacheKey = `livefeed_${companyId}_${targetDate}`;
     
     // Explicitly allow manual refresh from the client
@@ -5656,6 +5825,11 @@ module.exports = {
     getAdvances,
     deleteAdvance,
     updateAdvance,
+    addAllowance,
+
+    getAllowances,
+    updateAllowance,
+    deleteAllowance,
     getDriverSalarySummary,
     getDriverSalaryDetails, // Export new function
     getAllExecutives,

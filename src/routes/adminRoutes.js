@@ -41,6 +41,10 @@ const {
     updateAdvance,
     getDriverSalarySummary,
     getDriverSalaryDetails,
+    addAllowance,
+    getAllowances,
+    updateAllowance,
+    deleteAllowance,
     getAllExecutives,
     createExecutive,
     updateExecutive,
@@ -94,8 +98,7 @@ const upload = multer({ storage });
 router.use(protect);
 
 const driverUpload = upload.fields([
-    { name: 'aadharFront', maxCount: 1 },
-    { name: 'aadharBack', maxCount: 1 },
+    { name: 'aadharCard', maxCount: 1 },
     { name: 'drivingLicense', maxCount: 1 },
     { name: 'addressProof', maxCount: 1 },
     { name: 'offerLetter', maxCount: 1 }
@@ -179,6 +182,11 @@ router.post('/advances', adminOrExecutive, checkCompany, addAdvance);
 router.get('/advances/:companyId', adminOrExecutive, checkCompany, getAdvances);
 router.put('/advances/:id', adminOrExecutive, checkCompany, updateAdvance);
 router.delete('/advances/:id', adminOrExecutive, checkCompany, deleteAdvance);
+
+router.post('/allowances', adminOrExecutive, checkCompany, addAllowance);
+router.get('/allowances/:companyId', adminOrExecutive, checkCompany, getAllowances);
+router.put('/allowances/:id', adminOrExecutive, checkCompany, updateAllowance);
+router.delete('/allowances/:id', adminOrExecutive, checkCompany, deleteAllowance);
 router.get('/salary-summary/:companyId', adminOrExecutive, checkCompany, getDriverSalarySummary);
 router.get('/salary-details/:driverId', adminOrExecutive, getDriverSalaryDetails);
 
