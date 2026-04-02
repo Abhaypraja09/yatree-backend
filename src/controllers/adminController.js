@@ -266,8 +266,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     try {
         const { date, from, to, month: qMonth, year: qYear, bypassCache } = req.query;
 
-        // 🛡️ SECURITY: Prioritize tenantFilter from middleware over URL params for client Admins
-        const finalCompanyId = req.tenantFilter?.company || req.params.companyId;
+        // 🔒 MULTI-TENANCY LOCK: Prioritize session-based tenant filter over URL params
+        const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || req.params.companyId;
+
         if (!finalCompanyId || !mongoose.Types.ObjectId.isValid(finalCompanyId)) {
             return res.status(400).json({ message: 'Invalid Co ID' });
         }
@@ -323,7 +324,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Advance.aggregate([{ $lookup: { from: 'users', localField: 'driver', foreignField: '_id', as: 'd' } }, { $unwind: '$d' }, { $match: { company: companyObjectId, 'd.isFreelancer': { $ne: true }, date: { $gte: monthStart, $lte: monthEnd }, remark: { $not: /Daily Salary|Freelancer Daily Salary/ } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
                 Fuel.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' }, q: { $sum: '$quantity' } } }]),
                 Parking.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$serviceType", t: { $sum: '$amount' } } }]),
-                BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
+                BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
                 Attendance.find({ company: companyObjectId, date: targetDate }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
@@ -357,7 +359,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const totalVehicles = basicCounts[0]?.total[0]?.c || 0;
         const totalInternalVehicles = basicCounts[0]?.internal[0]?.c || 0;
         const [vExp, dExp, upcomingS] = alertData;
-        const [fT, aD, mFuel, mPark, bTax] = financialData;
+        const [fT, aD, mFuel, mPark, bTax, mMaintAgg] = financialData;
         const [attToday, pendingApps, totalStaff, staffAttToday, reportedIss] = fleetStatus;
         const [outFacet, mAcc, yAcc, tWarr] = outsideData;
         const [salReg, salFree, mAtt, allD, allV] = salaryData;
@@ -368,7 +370,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
         const monthlyEventTotal = outFacet[0]?.e[0]?.t || 0;
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
-        const monthlyMaintAmount = alertData[2].reduce((s, x) => s + (x.amount || 0), 0); 
+        const monthlyMaintAmount = mMaintAgg[0]?.t || 0; 
 
         // FLATTEN & CALCULATE ALERTS
         const today = baseDate.toJSDate();
@@ -1109,10 +1111,13 @@ const getDailyReports = asyncHandler(async (req, res) => {
         }
     }
 
+    // 🔒 MULTI-TENANCY LOCK: Prioritize session-based tenant filter
+    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || companyId;
+
     const baseQuery = {
         $or: [
-            { company: new mongoose.Types.ObjectId(companyId) },
-            { company: companyId }
+            { company: new mongoose.Types.ObjectId(finalCompanyId) },
+            { company: finalCompanyId }
         ]
     };
 
@@ -2909,10 +2914,13 @@ const getFuelEntries = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { from, to, vehicleId } = req.query;
 
+    // 🔒 MULTI-TENANCY LOCK
+    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || companyId;
+
     let query = {
         $or: [
-            { company: new mongoose.Types.ObjectId(companyId) },
-            { company: companyId }
+            { company: new mongoose.Types.ObjectId(finalCompanyId) },
+            { company: finalCompanyId }
         ]
     };
 
@@ -3753,7 +3761,7 @@ const createExecutive = asyncHandler(async (req, res) => {
             role: 'Executive',
             status: 'active',
             isFreelancer: false,
-            company: req.user.role === 'SuperAdmin' ? req.body.companyId : (req.user.company?._id || req.user.company),
+            company: req.user.role.toLowerCase() === 'superadmin' ? (req.body.companyId || req.tenantFilter?.company) : (req.user.company?._id || req.user.company),
             permissions: {
                 driversService: Boolean(permissions?.driversService),
                 buySell: Boolean(permissions?.buySell),

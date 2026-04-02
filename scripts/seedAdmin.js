@@ -16,19 +16,29 @@ const seed = async () => {
 
         // Create Admin
         const adminMobile = 'kavishuser1';
+        const targetCompany = await Company.findOne({ name: 'YatreeDestination' });
+        
         const adminData = {
             name: 'System Admin',
             mobile: adminMobile,
             password: '@2526Bigday',
-            role: 'Admin'
+            role: 'Admin',
+            company: targetCompany ? targetCompany._id : null
         };
 
         const adminUser = await User.findOne({ mobile: adminMobile });
         if (!adminUser) {
             await User.create(adminData);
-            console.log('Admin user created');
+            console.log('Admin user created and assigned to YatreeDestination');
         } else {
-            console.log('Admin user already exists');
+            // Update existing user to ensure company is set
+            if (targetCompany && (!adminUser.company || adminUser.company.toString() !== targetCompany._id.toString())) {
+                adminUser.company = targetCompany._id;
+                await adminUser.save();
+                console.log('Admin user company assignment updated to YatreeDestination');
+            } else {
+                console.log('Admin user already exists with correct company assignment');
+            }
         }
 
         console.log('Seed check completed');

@@ -47,11 +47,20 @@ const protect = async (req, res, next) => {
 };
 
 const checkCompany = (req, res, next) => {
+    // 🛡️ RECOVERY: If req.user is missing (protect didn't run?), block it
+    if (!req.user) {
+        return res.status(401).json({ message: 'Authentication required for company check.' });
+    }
+
     const targetRaw = req.params?.companyId || req.body?.companyId || req.query?.companyId || req.body?.company || req.query?.company;
     const targetCompanyId = targetRaw ? targetRaw.toString() : null;
 
+    const userRole = req.user.role?.toLowerCase();
+    const userCompanyRaw = req.user.company?._id || req.user.company;
+    const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
+
     // 👑 SUPERADMIN BYPASS + SCOPING
-    if (req.user && req.user.role?.toLowerCase() === 'superadmin') {
+    if (userRole === 'superadmin') {
         if (targetCompanyId) {
             // Inject target company into tenant filter for SuperAdmin to match the requested context
             req.tenantFilter = { company: targetCompanyId };
@@ -59,14 +68,27 @@ const checkCompany = (req, res, next) => {
         return next();
     }
 
-    // 🛡️ ENFORCE TENANT BOUNDARY
-    const userCompanyRaw = req.user?.company?._id || req.user?.company;
-    const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
+    // 🛡️ ENFORCE TENANT BOUNDARY FOR ALL OTHERS
+    // 1. Must have a company assigned to their profile
+    if (!userCompanyId) {
+        console.error(`🚨 ACCESS DENIED: User ${req.user._id} (${req.user.role}) attempted access without assigned company.`);
+        return res.status(403).json({ message: 'Access Denied: Your account is not associated with any organization.' });
+    }
 
-    if (targetCompanyId && userCompanyId && userCompanyId !== targetCompanyId) {
-        // Return 404 instead of 403 to prevent ID scanning/enumeration
+    // 2. If a specific company is requested (via URL, body, etc), it MUST match their assigned company
+    if (targetCompanyId && userCompanyId !== targetCompanyId) {
+        console.warn(`🚨 SECURITY ALERT: User ${req.user._id} attempted to access company ${targetCompanyId} (Authorized: ${userCompanyId})`);
         return res.status(404).json({ message: 'Resource not found in your organization.' });
     }
+
+    // 3. Fallback: Always ensure req.tenantFilter is set to the user's company
+    req.tenantFilter = { company: userCompanyId };
+    
+    // Inject the ID into params if it's missing but needed by downstream controllers
+    if (!req.params.companyId) {
+        req.params.companyId = userCompanyId;
+    }
+
     next();
 };
 
