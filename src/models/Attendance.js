@@ -51,6 +51,8 @@ const attendanceSchema = new mongoose.Schema({
         tollParkingAmount: { type: Number, default: 0 },
         allowanceTA: { type: Number, default: 0 }, // 100 bonus
         nightStayAmount: { type: Number, default: 0 }, // 500 bonus
+        specialPay: { type: Number, default: 0 },
+        specialPayRemark: { type: String, default: '' },
         otherRemarks: { type: String }, // Puncture etc.
         parkingPaidBy: { type: String, enum: ['Self', 'Office'], default: 'Self' },
         parkingReceipt: { type: String }
@@ -100,7 +102,7 @@ const attendanceSchema = new mongoose.Schema({
         default: 1
     },
     pendingExpenses: [{
-        type: { type: String, enum: ['fuel', 'parking', 'other', 'wash', 'puncture', 'tissue', 'water'] },
+        type: { type: String, enum: ['fuel', 'parking', 'other', 'wash', 'puncture', 'tissue', 'water', 'special_pay'] },
         fuelType: { type: String }, // NEW: Petrol, Diesel, CNG
         amount: { type: Number },
         quantity: { type: Number, default: 0 }, // Liters

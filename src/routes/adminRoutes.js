@@ -8,6 +8,7 @@ const {
     getDashboardStats,
     getAllDrivers,
     getAllVehicles,
+    toggleVehicleStatus,
     updateDriver,
     updateVehicle,
     deleteDriver,
@@ -142,6 +143,7 @@ router.delete('/maintenance/:id', adminOrExecutive, deleteMaintenanceRecord);
 // Admin Only Operations (Sensitive)
 // Operational Routes (Shared Admin & Executive)
 router.patch('/drivers/:id/status', adminOrExecutive, checkCompany, toggleDriverStatus);
+router.patch('/vehicles/:id/status', adminOrExecutive, checkCompany, toggleVehicleStatus);
 router.post('/drivers/:id/documents', adminOrExecutive, checkCompany, upload.single('document'), uploadDriverDocument);
 router.patch('/drivers/:id/documents/:docId/verify', adminOrExecutive, checkCompany, verifyDriverDocument);
 router.patch('/drivers/:driverId/approve-trip', adminOrExecutive, checkCompany, approveNewTrip);

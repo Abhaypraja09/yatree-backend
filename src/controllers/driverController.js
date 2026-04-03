@@ -4,6 +4,7 @@ const Vehicle = require('../models/Vehicle');
 const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
 const Loan = require('../models/Loan');
+const Allowance = require('../models/Allowance');
 const { DateTime } = require('luxon');
 const DASHBOARD_CACHE = require('../utils/cache');
 
@@ -240,7 +241,9 @@ const punchOut = async (req, res) => {
         outsideTripOccurred,
         outsideTripType,
         otherRemarks,
-        dutyCount
+        dutyCount,
+        specialPay,
+        specialPayRemark
     } = req.body;
 
     const selfie = req.files?.['selfie']?.[0]?.path;
@@ -309,6 +312,8 @@ const punchOut = async (req, res) => {
             tollParkingAmount: calculatedParkingTotal,
             allowanceTA: calcTA,
             nightStayAmount: calcNight,
+            specialPay: Number(specialPay) || 0,
+            specialPayRemark: specialPayRemark || '',
             otherRemarks: otherRemarks || ''
         };
 
@@ -570,7 +575,7 @@ const getDriverLedger = async (req, res) => {
         // 1. Fetch completed attendance (filtered by month if provided)
         const attendance = await Attendance.find({
             driver: driverId,
-            company: driver.company?._id || driver.company, // SAFETY: Filter by company
+            company: req.user.company?._id || req.user.company, // SAFETY: Filter by company
             status: 'completed',
             ...dateFilter
         }).populate('vehicle', 'carNumber').sort({ date: -1 });
@@ -608,6 +613,16 @@ const getDriverLedger = async (req, res) => {
             status: { $ne: 'Cancelled' }
         }).sort({ startDate: 1 });
 
+        // 5. Fetch Special Pay (Allowances from Admin side)
+        const allowanceFilter = {
+            driver: driverId,
+            company: req.user.company
+        };
+        if (month && year) {
+            allowanceFilter.date = { $gte: startOfMonth, $lte: endOfMonth };
+        }
+        const allowances = await Allowance.find(allowanceFilter).sort({ date: -1 });
+
         // Calculate Summary
         let totalEarned = 0;
         let workingDays = 0;
@@ -622,13 +637,20 @@ const getDriverLedger = async (req, res) => {
             
             let sameDayReturn = (Number(att.punchOut?.allowanceTA) || 0);
             let nightStay = (Number(att.punchOut?.nightStayAmount) || 0);
+            let specialPay = (Number(att.punchOut?.specialPay) || 0);
+            
+            // Add approved Special Pay from mid-trip logs (pendingExpenses)
+            const midTripSpecialPay = (att.pendingExpenses || [])
+                .filter(e => e.type === 'special_pay' && e.status === 'approved')
+                .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+            specialPay += midTripSpecialPay;
             let otherBonuses = 0;
             
             if (att.outsideTrip && att.outsideTrip.bonusAmount !== undefined && att.outsideTrip.bonusAmount > 0) {
                 // Total bonus is bonusAmount, extra is (bonusAmount - TA - Night)
                 otherBonuses = Math.max(0, Number(att.outsideTrip.bonusAmount) - sameDayReturn - nightStay);
             }
-            const bonuses = sameDayReturn + nightStay + otherBonuses;
+            const bonuses = sameDayReturn + nightStay + specialPay + otherBonuses;
 
             // External Parking logic (only once per day)
             let finalParkingForDay = 0;
@@ -651,6 +673,7 @@ const getDriverLedger = async (req, res) => {
                 if (wage > existing.dailyWage) existing.dailyWage = wage;
                 if (sameDayReturn > (existing.sameDayReturn || 0)) existing.sameDayReturn = sameDayReturn;
                 if (nightStay > (existing.nightStay || 0)) existing.nightStay = nightStay;
+                if (specialPay > (existing.specialPay || 0)) existing.specialPay = specialPay;
                 if (otherBonuses > (existing.otherBonuses || 0)) existing.otherBonuses = otherBonuses;
                 if (bonuses > existing.bonuses) existing.bonuses = bonuses;
                 // Note: parking is already the daily total from external collection
@@ -663,6 +686,8 @@ const getDriverLedger = async (req, res) => {
                     dailyWage: wage,
                     sameDayReturn: sameDayReturn,
                     nightStay: nightStay,
+                    specialPay: specialPay,
+                    specialPayRemark: att.punchOut?.specialPayRemark || '',
                     otherBonuses: otherBonuses,
                     bonuses: bonuses,
                     parking: finalParkingForDay,
@@ -703,6 +728,10 @@ const getDriverLedger = async (req, res) => {
             totalEarned += (entry.dailyWage + entry.bonuses + entry.parking);
         });
 
+        // Add special payouts/allowances from Admin
+        const totalAllowances = allowances.reduce((sum, a) => sum + (a.amount || 0), 0);
+        totalEarned += totalAllowances;
+
         // Convert Map back to Array and Sort
         const combinedHistory = Array.from(ledgerMap.values()).sort((a, b) => {
             return new Date(b.date) - new Date(a.date);
@@ -741,6 +770,7 @@ const getDriverLedger = async (req, res) => {
                 totalRecovered,
                 pendingAdvance,
                 totalEMI,
+                totalAllowances,
                 netPayable: totalEarned - pendingAdvance - totalEMI
             },
             history: combinedHistory,
@@ -752,7 +782,8 @@ const getDriverLedger = async (req, res) => {
                 status: adv.status,
                 remark: adv.remark
             })),
-            loans: loans || []
+            loans: loans || [],
+            allowances: allowances
         });
     } catch (error) {
         console.error("Ledger Error:", error);
