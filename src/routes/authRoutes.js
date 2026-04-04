@@ -4,10 +4,12 @@ const {
     loginUser,
     getUserProfile,
     seedCompanies,
-    getCompanies
+    getCompanies,
+    bridgeLogin
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
+router.post('/bridge-login', bridgeLogin);
 router.post('/login', loginUser);
 router.get('/profile', protect, getUserProfile);
 router.get('/companies', protect, getCompanies);

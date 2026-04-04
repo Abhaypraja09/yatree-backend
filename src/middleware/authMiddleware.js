@@ -12,6 +12,11 @@ const protect = async (req, res, next) => {
 
             req.user = await User.findById(decoded.id).select('-password').populate('company');
             
+            // 🛡️ TRANSFER PROXY STATUS FROM JWT TO USER OBJECT
+            if (decoded.isSuperAdminProxy && req.user) {
+                req.user.isSuperAdminProxy = true;
+            }
+            
             if (!req.user) {
                 return res.status(401).json({ message: 'User no longer exists. Please log in again.' });
             }
@@ -59,13 +64,26 @@ const checkCompany = (req, res, next) => {
     const userCompanyRaw = req.user.company?._id || req.user.company;
     const userCompanyId = userCompanyRaw ? userCompanyRaw.toString() : null;
 
-    // 👑 SUPERADMIN BYPASS + SCOPING
+    // 👑 SUPERADMIN PROTECTION
     if (userRole === 'superadmin') {
-        if (targetCompanyId) {
-            // Inject target company into tenant filter for SuperAdmin to match the requested context
+        // 1. ALLOW if it's an authorized PROXY session (via Bridge)
+        if (req.user.isSuperAdminProxy && targetCompanyId) {
             req.tenantFilter = { company: targetCompanyId };
+            return next();
         }
-        return next();
+
+        // 2. 🏠 HOME COMPANY BYPASS: If SuperAdmin is explicitly tied to a company (Master User)
+        if (userCompanyId) {
+            // Allow if viewing their own company, otherwise restrict to bridge
+            if (targetCompanyId && userCompanyId !== targetCompanyId) {
+                return res.status(403).json({ message: 'Home Company Restricted: Use Bridge for other organizations.' });
+            }
+            req.tenantFilter = { company: userCompanyId };
+            return next();
+        }
+
+        console.warn(`🛡️ PROTECTION: SuperAdmin ${req.user._id} attempted direct access to company ${targetCompanyId || 'unknown'}. Access Denied.`);
+        return res.status(403).json({ message: 'Security Policy: SuperAdmins must use the Bridge feature to view tenant data.' });
     }
 
     // 🛡️ ENFORCE TENANT BOUNDARY FOR ALL OTHERS

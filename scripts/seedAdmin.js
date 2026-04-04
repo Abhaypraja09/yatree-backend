@@ -22,23 +22,22 @@ const seed = async () => {
             name: 'System Admin',
             mobile: adminMobile,
             password: '@2526Bigday',
-            role: 'Admin',
+            role: 'SuperAdmin',
             company: targetCompany ? targetCompany._id : null
         };
-
+ 
         const adminUser = await User.findOne({ mobile: adminMobile });
         if (!adminUser) {
             await User.create(adminData);
-            console.log('Admin user created and assigned to YatreeDestination');
+            console.log('Master SuperAdmin user created and assigned to YatreeDestination');
         } else {
-            // Update existing user to ensure company is set
-            if (targetCompany && (!adminUser.company || adminUser.company.toString() !== targetCompany._id.toString())) {
+            // Update existing user to ensure role and company are set correctly
+            adminUser.role = 'SuperAdmin';
+            if (targetCompany) {
                 adminUser.company = targetCompany._id;
-                await adminUser.save();
-                console.log('Admin user company assignment updated to YatreeDestination');
-            } else {
-                console.log('Admin user already exists with correct company assignment');
             }
+            await adminUser.save();
+            console.log('Master SuperAdmin user updated with correct role and company');
         }
 
         console.log('Seed check completed');

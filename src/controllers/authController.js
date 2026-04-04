@@ -132,6 +132,44 @@ const loginUser = async (req, res) => {
     }
 };
 
+// @desc    Bridge login from Super Admin
+// @route   POST /api/auth/bridge-login
+// @access  Public (Token verified internally)
+const bridgeLogin = async (req, res) => {
+    try {
+        const { token } = req.body;
+        if (!token) return res.status(400).json({ message: 'No bridge token provided' });
+
+        const secret = process.env.SUPER_ADMIN_BRIDGE_SECRET || 'fallback_bridge_secret';
+        const decoded = jwt.verify(token, secret);
+
+        if (!decoded || !decoded.id) {
+            return res.status(401).json({ message: 'Invalid bridge token payload' });
+        }
+
+        const user = await User.findById(decoded.id).populate('company');
+        if (!user) {
+            return res.status(404).json({ message: 'User for this bridge not found' });
+        }
+
+        res.json({
+            _id: user._id,
+            name: user.name,
+            mobile: user.mobile,
+            role: user.role,
+            company: user.company,
+            salary: user.salary,
+            monthlyLeaveAllowance: user.monthlyLeaveAllowance,
+            permissions: user.permissions,
+            token: generateToken(user._id),
+            isProxy: true
+        });
+    } catch (error) {
+        console.error('BridgeLogin Error:', error);
+        res.status(401).json({ message: 'Bridge authentication failed', error: error.message });
+    }
+};
+
 // @desc    Get user profile
 // @route   GET /api/auth/profile
 // @access  Private
@@ -198,5 +236,6 @@ module.exports = {
     loginUser,
     getUserProfile,
     seedCompanies,
-    getCompanies
+    getCompanies,
+    bridgeLogin
 };

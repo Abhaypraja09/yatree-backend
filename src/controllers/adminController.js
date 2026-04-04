@@ -152,13 +152,13 @@ const createVehicle = asyncHandler(async (req, res) => {
 
     // 🛡️ PLAN LIMIT CHECK
     const company = await Company.findById(finalCompanyId);
-    if (company && company.name !== 'YatreeDestination' && company.name !== 'Yatree Destination') {
+    if (company) {
         const currentCount = await Vehicle.countDocuments({ company: finalCompanyId, isOutsideCar: { $ne: true } });
         const limit = company.vehicleLimit || 10;
 
         if (currentCount >= limit && (isOutsideCar !== 'true' && isOutsideCar !== true)) {
             return res.status(403).json({
-                message: `LOCKED: Your current plan only allows up to ${limit} internal vehicles. Please contact Super Admin to upgrade your plan for more capacity.`,
+                message: `PLAN LIMIT EXCEEDED: Your account is authorized for up to ${limit} internal vehicles. Please contact support or your account manager for an upgrade.`,
                 limitReached: true,
                 currentLimit: limit
             });
@@ -3017,12 +3017,18 @@ const getFuelEntries = asyncHandler(async (req, res) => {
     };
 
     // Date Range filtering
+    let startDate, endDate;
     if (from && to) {
-        const startDate = new Date(from);
-        const endDate = new Date(to);
+        startDate = new Date(from);
+        endDate = new Date(to);
         endDate.setHours(23, 59, 59, 999);
-        query.date = { $gte: startDate, $lte: endDate };
+    } else {
+        // Fallback to current month if no dates provided (prevents loading 1000s of records)
+        const now = new Date();
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
+    query.date = { $gte: startDate, $lte: endDate };
 
     if (vehicleId) {
         query.vehicle = vehicleId;
