@@ -29,6 +29,10 @@ const companySchema = new mongoose.Schema({
     ownerSignatureUrl: {
         type: String,
         default: '/logos/kavish_sign.png'
+    },
+    whatsappNumber: {
+        type: String,
+        default: '916367466426'
     }
 }, { timestamps: true });
 

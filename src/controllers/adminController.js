@@ -3940,10 +3940,14 @@ const createExecutive = asyncHandler(async (req, res) => {
             isFreelancer: false,
             company: req.user.role.toLowerCase() === 'superadmin' ? (req.body.companyId || req.tenantFilter?.company) : (req.user.company?._id || req.user.company),
             permissions: {
+                dashboard: true,
+                liveFeed: true,
+                logBook: true,
                 driversService: Boolean(permissions?.driversService),
                 buySell: Boolean(permissions?.buySell),
                 vehiclesManagement: Boolean(permissions?.vehiclesManagement),
                 fleetOperations: Boolean(permissions?.fleetOperations),
+                staffManagement: Boolean(permissions?.staffManagement),
                 manageAdmins: Boolean(permissions?.manageAdmins),
                 reports: permissions?.reports !== undefined ? Boolean(permissions.reports) : true
             }
@@ -3975,14 +3979,17 @@ const updateExecutive = asyncHandler(async (req, res) => {
         executive.status = status || executive.status;
 
         if (permissions) {
-            // Use Mongoose .set() or manual map for permissions to ensure they save correctly
+            // Robust permission update: Keep existing values for fields not in the request
+            const currentPerms = executive.permissions?.toObject() || {};
             const updatedPerms = {
-                driversService: Boolean(permissions.driversService),
-                buySell: Boolean(permissions.buySell),
-                vehiclesManagement: Boolean(permissions.vehiclesManagement),
-                fleetOperations: Boolean(permissions.fleetOperations),
-                manageAdmins: Boolean(permissions.manageAdmins),
-                reports: permissions.reports !== undefined ? Boolean(permissions.reports) : (executive.permissions?.reports || true)
+                ...currentPerms,
+                driversService: permissions.driversService !== undefined ? Boolean(permissions.driversService) : currentPerms.driversService,
+                buySell: permissions.buySell !== undefined ? Boolean(permissions.buySell) : currentPerms.buySell,
+                vehiclesManagement: permissions.vehiclesManagement !== undefined ? Boolean(permissions.vehiclesManagement) : currentPerms.vehiclesManagement,
+                fleetOperations: permissions.fleetOperations !== undefined ? Boolean(permissions.fleetOperations) : currentPerms.fleetOperations,
+                staffManagement: permissions.staffManagement !== undefined ? Boolean(permissions.staffManagement) : currentPerms.staffManagement,
+                manageAdmins: permissions.manageAdmins !== undefined ? Boolean(permissions.manageAdmins) : currentPerms.manageAdmins,
+                reports: permissions.reports !== undefined ? Boolean(permissions.reports) : (currentPerms.reports ?? true)
             };
             executive.permissions = updatedPerms;
             executive.markModified('permissions');
