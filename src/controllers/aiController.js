@@ -16,6 +16,7 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Extensive model fallback for production stability
 const modelsToTry = [
+    "gemini-2.0-flash", 
     "gemini-1.5-flash", 
     "gemini-1.5-flash-latest", 
     "gemini-1.5-pro", 
