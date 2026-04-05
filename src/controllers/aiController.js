@@ -14,8 +14,14 @@ require('dotenv').config();
 const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim(); 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-// Resilient model selection with automatic fallback
-const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro", "gemini-1.0-pro"];
+// Extensive model fallback for production stability
+const modelsToTry = [
+    "gemini-1.5-flash", 
+    "gemini-1.5-flash-latest", 
+    "gemini-1.5-pro", 
+    "gemini-pro", 
+    "gemini-1.0-pro"
+];
 
 
 // --- SYSTEM INSTRUCTIONS (STRICT DATA INTERFACE MODE) ---
