@@ -10,19 +10,13 @@ const AIChat = require('../models/AIChat');
 const Attendance = require('../models/Attendance');
 require('dotenv').config();
 
-const API_KEY = process.env.GOOGLE_AI_API_KEY || ''; 
+// Clean API Key from ENV (Remove spaces)
+const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim(); 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Resilient model selection with automatic fallback
-const getModel = (name = "gemini-1.5-flash") => {
-    try {
-        return genAI.getGenerativeModel({ model: name });
-    } catch (e) {
-        return genAI.getGenerativeModel({ model: "gemini-pro" });
-    }
-};
+const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro", "gemini-1.0-pro"];
 
-const model = getModel();
 
 // --- SYSTEM INSTRUCTIONS (STRICT DATA INTERFACE MODE) ---
 const SYSTEM_PROMPT = `
