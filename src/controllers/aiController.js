@@ -10,10 +10,19 @@ const AIChat = require('../models/AIChat');
 const Attendance = require('../models/Attendance');
 require('dotenv').config();
 
-// Load API KEY from ENV
 const API_KEY = process.env.GOOGLE_AI_API_KEY || ''; 
 const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// Resilient model selection with automatic fallback
+const getModel = (name = "gemini-1.5-flash") => {
+    try {
+        return genAI.getGenerativeModel({ model: name });
+    } catch (e) {
+        return genAI.getGenerativeModel({ model: "gemini-pro" });
+    }
+};
+
+const model = getModel();
 
 // --- SYSTEM INSTRUCTIONS (STRICT DATA INTERFACE MODE) ---
 const SYSTEM_PROMPT = `
