@@ -133,6 +133,8 @@ const processAIQuery = asyncHandler(async (req, res) => {
 
         // --- ROBUST MODEL FALLBACK (SDK + REST API) ---
         const modelsToTry = [
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-live-preview",
             "gemini-2.0-flash",
             "gemini-1.5-flash", 
             "gemini-pro"

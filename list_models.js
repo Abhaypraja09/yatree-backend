@@ -1,26 +1,28 @@
-require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+require('dotenv').config();
+
+const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim();
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 async function listModels() {
-    console.log("Listing Available Models...");
-    const key = process.env.GOOGLE_AI_API_KEY;
-    if (!key) {
-        console.error("Missing Key!");
-        return;
-    }
+    console.log('--- CHECKING AVAILABLE MODELS ---');
+    console.log('Using API Key (last 4 chars):', API_KEY.slice(-4));
+    
     try {
-        const genAI = new GoogleGenerativeAI(key);
-        // SDK VERSION dependent
-        // Trying direct fetch to be sure
-        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-        const data = await resp.json();
+        // We use the raw fetch method to list models to bypass SDK limitations
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`);
+        const data = await response.json();
+        
         if (data.models) {
-             data.models.forEach(m => console.log(`- ${m.name}`));
+            console.log('\n✅ AVAILABLE MODELS FOR YOUR KEY:');
+            data.models.forEach(m => {
+                console.log(`- ${m.name} (Supports: ${m.supportedGenerationMethods.join(', ')})`);
+            });
         } else {
-             console.log("No models returned:", data);
+            console.log('\n❌ NO MODELS FOUND. Response:', JSON.stringify(data, null, 2));
         }
-    } catch (e) {
-        console.error("List Models Failed!", e.message);
+    } catch (error) {
+        console.error('\n❌ ERROR CONTACTING GOOGLE API:', error.message);
     }
 }
 
