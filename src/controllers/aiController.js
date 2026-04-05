@@ -131,37 +131,59 @@ const processAIQuery = asyncHandler(async (req, res) => {
 
         const fullPrompt = `${SYSTEM_PROMPT}\n\nUSER CONTEXT:\n${JSON.stringify(dataContext, null, 2)}\n\nUSER QUESTION: "${question}"\n\nRESPONSE:`;
 
-        // --- ROBUST MODEL FALLBACK ---
+        // --- ROBUST MODEL FALLBACK (SDK + REST API) ---
         const modelsToTry = [
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro",
-            "gemini-1.5-pro-latest",
-            "gemini-pro",
-            "gemini-1.0-pro",
-            "gemini-1.5-flash-001",
-            "gemini-1.5-flash-002"
+            "gemini-2.0-flash",
+            "gemini-1.5-flash", 
+            "gemini-pro"
         ];
         let lastError = null;
         let responseText = "";
 
+        // Attempt 1: Using Official SDK
         for (const modelName of modelsToTry) {
             try {
-                console.log(`[AI-TRY] Attempting with model: ${modelName}`);
-                const dynamicModel = genAI.getGenerativeModel({ model: modelName });
-                const result = await dynamicModel.generateContent(fullPrompt);
+                console.log(`[AI-SDK] Attempting: ${modelName}`);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent(fullPrompt);
                 responseText = result.response.text();
                 if (responseText) {
-                    console.log(`[AI-SUCCESS] Responded using: ${modelName}`);
-                    break; // Success!
+                    console.log(`[AI-SUCCESS] via SDK: ${modelName}`);
+                    break;
                 }
             } catch (err) {
-                console.error(`[AI-TRY-FAILED] Model ${modelName}:`, err.message);
+                console.error(`[AI-SDK-FAILED] ${modelName}:`, err.message);
                 lastError = err;
             }
         }
 
-        if (!responseText) throw lastError || new Error("Failed to generate response with any model");
+        // Attempt 2: REST API Fallback (Bypass SDK version issues)
+        if (!responseText) {
+            console.log('[AI-REST] Trying Direct REST API Fallback...');
+            for (const modelName of modelsToTry) {
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: fullPrompt }] }]
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        responseText = data.candidates[0].content.parts[0].text;
+                        console.log(`[AI-SUCCESS] via REST API: ${modelName}`);
+                        break;
+                    }
+                } catch (restErr) {
+                    console.error(`[AI-REST-FAILED] ${modelName}:`, restErr.message);
+                    lastError = restErr;
+                }
+            }
+        }
+
+        if (!responseText) throw lastError || new Error("All AI connection methods failed");
 
         // Save and Respond
         await AIChat.create({
