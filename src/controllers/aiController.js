@@ -131,7 +131,16 @@ const processAIQuery = asyncHandler(async (req, res) => {
         const fullPrompt = `${SYSTEM_PROMPT}\n\nUSER CONTEXT:\n${JSON.stringify(dataContext, null, 2)}\n\nUSER QUESTION: "${question}"\n\nRESPONSE:`;
 
         // --- ROBUST MODEL FALLBACK ---
-        const modelsToTry = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"];
+        const modelsToTry = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-pro",
+            "gemini-1.5-pro-latest",
+            "gemini-pro",
+            "gemini-1.0-pro",
+            "gemini-1.5-flash-001",
+            "gemini-1.5-flash-002"
+        ];
         let lastError = null;
         let responseText = "";
 
@@ -141,7 +150,10 @@ const processAIQuery = asyncHandler(async (req, res) => {
                 const dynamicModel = genAI.getGenerativeModel({ model: modelName });
                 const result = await dynamicModel.generateContent(fullPrompt);
                 responseText = result.response.text();
-                if (responseText) break; // Success!
+                if (responseText) {
+                    console.log(`[AI-SUCCESS] Responded using: ${modelName}`);
+                    break; // Success!
+                }
             } catch (err) {
                 console.error(`[AI-TRY-FAILED] Model ${modelName}:`, err.message);
                 lastError = err;
