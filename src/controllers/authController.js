@@ -106,6 +106,22 @@ const loginUser = async (req, res) => {
 
         if (isMatch) {
             logError('Password matched');
+            
+            // 🛡️ SECURITY: Check if user's company is suspended
+            if (user.company) {
+                const compStatus = user.company.status?.toLowerCase();
+                logError(`DEBUG: Company status in DB is: "${user.company.status}" (Normalized: "${compStatus}")`);
+                
+                if (compStatus === 'suspended') {
+                    logError(`Login blocked: Company ${user.company.name} is SUSPENDED.`);
+                    return res.status(403).json({ 
+                        message: 'This account has been suspended by the administrator. Please contact support.' 
+                    });
+                }
+            } else {
+                logError('DEBUG: User has no company associated.');
+            }
+
             if (user.status === 'blocked') {
                 return res.status(401).json({ message: 'Your account is blocked. Please contact admin.' });
             }

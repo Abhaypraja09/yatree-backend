@@ -25,6 +25,13 @@ const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'User is blocked. Please contact admin.' });
             }
 
+            // 🛡️ SECURITY: Real-time company suspension check
+            if (req.user.company && req.user.company.status?.toLowerCase() === 'suspended') {
+                return res.status(403).json({ 
+                    message: 'Access Denied: Your organization has been suspended. Please contact the administrator.' 
+                });
+            }
+
             // 🛡️ GLOBAL TENANT ISOLATION LAYER
             // Automatically determine the company scope for this request.
             // If the user has an assigned company, all queries should be filtered by it.

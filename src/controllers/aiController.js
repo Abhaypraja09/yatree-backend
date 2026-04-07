@@ -1,5 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const asyncHandler = require('express-async-handler');
+const { DateTime } = require('luxon');
 const Vehicle = require('../models/Vehicle');
 const Maintenance = require('../models/Maintenance');
 const User = require('../models/User');
@@ -79,54 +80,74 @@ const processAIQuery = asyncHandler(async (req, res) => {
     }
 
     try {
-        // --- DATA FETCHING (Keep as is) ---
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        // --- ROBUST DATE LOGIC (IST via LUXON) ---
+        const istNow = DateTime.now().setZone('Asia/Kolkata');
+        const todayStr = istNow.toFormat('yyyy-MM-dd');
+        const yesterdayStr = istNow.minus({ days: 1 }).toFormat('yyyy-MM-dd');
+
+        const todayStart = istNow.startOf('day').toJSDate();
+        const todayEnd = istNow.endOf('day').toJSDate();
+        const yesterdayStart = istNow.minus({ days: 1 }).startOf('day').toJSDate();
+        const yesterdayEnd = istNow.minus({ days: 1 }).endOf('day').toJSDate();
+
+        console.log(`[AI-DEBUG] Today (IST): ${todayStr}, TodayRange: ${todayStart.toISOString()} to ${todayEnd.toISOString()}`);
 
         dataContext.stats = {
             totalVehicles: await Vehicle.countDocuments({ company: userCompanyId }),
             totalDrivers: await User.countDocuments({ company: userCompanyId, role: 'Driver' }),
+            presentDriversToday: await Attendance.countDocuments({ company: userCompanyId, date: todayStr })
         };
 
         const q = qLower;
-        const isFinancial = q.includes('price') || q.includes('amount') || q.includes('kharcha') || q.includes('total') || q.includes('pisa') || q.includes('pise') || q.includes('cost');
-        const todayStart = new Date(today); todayStart.setHours(0,0,0,0);
-        const todayEnd = new Date(today); todayEnd.setHours(23,59,59,999);
-        const yesterdayStart = new Date(yesterday); yesterdayStart.setHours(0,0,0,0);
-        const yesterdayEnd = new Date(yesterday); yesterdayEnd.setHours(23,59,59,999);
+        // Optimization: "total" shouldn't always trigger financial. Added specific keywords.
+        const isFinancial = q.includes('price') || q.includes('kharcha') || q.includes('salary') || q.includes('budget') || q.includes('payment') || q.includes('कमाई') || q.includes('how much') || q.includes('kitna') || q.includes('amount') || q.includes('total') || q.includes('cost');
 
         if (q.includes('kal') || q.includes('yesterday')) {
-            dataContext.yesterdayAttendance = await Attendance.find({ company: userCompanyId, date: yesterdayStr }).populate('driver').populate('vehicle');
-            dataContext.yesterdayFuel = await Fuel.find({ company: userCompanyId, date: { $gte: yesterdayStart, $lte: yesterdayEnd } }).populate('vehicle');
-            dataContext.yesterdayMaintenance = await Maintenance.find({ company: userCompanyId, date: { $gte: yesterdayStart, $lte: yesterdayEnd } }).populate('vehicle');
+            dataContext.yesterdayAttendance = await Attendance.find({ company: userCompanyId, date: yesterdayStr }).populate('driver', 'name mobile').populate('vehicle', 'plateNumber');
+            dataContext.yesterdayFuel = await Fuel.find({ company: userCompanyId, date: { $gte: yesterdayStart, $lte: yesterdayEnd } }).populate('vehicle', 'plateNumber');
         }
 
-        if (q.includes('duty') || q.includes('attendance') || q.includes('aaye hai') || q.includes('present') || q.includes('ajj') || q.includes('today')) {
-             dataContext.todayAttendance = await Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').populate('vehicle');
-             dataContext.todayFuel = await Fuel.find({ company: userCompanyId, date: { $gte: todayStart, $lte: todayEnd } }).populate('vehicle');
+        if (q.includes('duty') || q.includes('attendance') || q.includes('aaye hai') || q.includes('present') || q.includes('ajj') || q.includes('today') || q.includes('driver')) {
+             const att = await Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver', 'name mobile').populate('vehicle', 'plateNumber');
+             dataContext.todayAttendance = att;
+             dataContext.presentDriverNames = att.map(a => a.driver?.name).filter(Boolean);
         }
 
-        if (isFinancial || q.includes('salary') || q.includes('paisa') || q.includes('pay') || q.includes('कमाई')) {
+        if (isFinancial || q.includes('fuel') || q.includes('diesel') || q.includes('petrol') || q.includes('cng')) {
             dataContext.financialContext = {
-                attendance: await Attendance.find({ company: userCompanyId, date: { $in: [todayStr, yesterdayStr] } }),
-                todayFuel: await Fuel.find({ company: userCompanyId, date: { $gte: todayStart, $lte: todayEnd } }),
-                yesterdayFuel: await Fuel.find({ company: userCompanyId, date: { $gte: yesterdayStart, $lte: yesterdayEnd } })
+                todayAttendance: await Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver', 'name mobile').populate('vehicle', 'plateNumber'),
+                yesterdayAttendance: await Attendance.find({ company: userCompanyId, date: yesterdayStr }).populate('driver', 'name mobile').populate('vehicle', 'plateNumber'),
+                todayFuel: await Fuel.find({ company: userCompanyId, date: { $gte: todayStart, $lte: todayEnd } }).populate('vehicle', 'plateNumber'),
+                yesterdayFuel: await Fuel.find({ company: userCompanyId, date: { $gte: yesterdayStart, $lte: yesterdayEnd } }).populate('vehicle', 'plateNumber')
             };
         }
 
         if (q.includes('maintenance') || q.includes('repair') || q.includes('service')) {
-            dataContext.recentMaintenance = await Maintenance.find({ company: userCompanyId }).sort({ date: -1 }).limit(100).populate('vehicle');
+            dataContext.recentMaintenance = await Maintenance.find({ company: userCompanyId }).sort({ date: -1 }).limit(30).populate('vehicle', 'plateNumber');
         }
 
-        if (q.includes('fuel') || q.includes(' diesel')) {
-            dataContext.recentFuel = await Fuel.find({ company: userCompanyId }).sort({ date: -1 }).limit(100).populate('vehicle');
+        if (q.includes('fuel') || q.includes('diesel') || q.includes('petrol') || q.includes('cng')) {
+            dataContext.recentFuel = await Fuel.find({ company: userCompanyId }).sort({ date: -1 }).limit(30).populate('vehicle', 'plateNumber');
+            // Also ensure today's reported fuel (potentially pending) is included
+            const attToday = await Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver', 'name').populate('vehicle', 'plateNumber');
+            dataContext.todayReportedFuel = attToday.map(a => ({
+                driver: a.driver?.name,
+                vehicle: a.vehicle?.plateNumber,
+                amountFilled: a.fuel?.amount || 0,
+                details: a.fuel?.entries?.map(e => `${e.fuelType || 'Diesel'}: ₹${e.amount}`).join(', '),
+                pendingExpenses: (a.pendingExpenses || [])
+                    .filter(e => e.type === 'fuel')
+                    .map(e => `${e.fuelType || 'Diesel'}: ₹${e.amount} (${e.status})`)
+                    .join(', ')
+            })).filter(r => r.amountFilled > 0 || r.pendingExpenses.length > 0);
         }
 
-        if (q.includes('gadi') || q.includes('car') || q.includes('tony') || q.includes('owner')) {
+        if (q.includes('gadi') || q.includes('car') || q.includes('vehic') || q.includes('plate') || q.includes('owner')) {
             dataContext.fleet = await Vehicle.find({ company: userCompanyId }).select('plateNumber model ownerName dutyAmount isOutsideCar');
+        }
+
+        if (q.includes('driver') || q.includes('naam') || q.includes('name') || q.includes('list') || q.includes('kaun') || q.includes('who')) {
+            dataContext.drivers = await User.find({ company: userCompanyId, role: 'Driver' }).select('name mobile status -_id');
         }
 
         const fullPrompt = `${SYSTEM_PROMPT}\n\nUSER CONTEXT:\n${JSON.stringify(dataContext, null, 2)}\n\nUSER QUESTION: "${question}"\n\nRESPONSE:`;
