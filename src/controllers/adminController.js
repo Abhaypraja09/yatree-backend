@@ -324,8 +324,18 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const companyObjectId = new mongoose.Types.ObjectId(finalCompanyId);
 
         const cacheKey = `dash_${finalCompanyId}_${qMonth}_${qYear}_${date}_${from}_${to}`;
-        const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+        const shouldBypass = bypassCache === 'true' || bypassCache === true;
 
+        if (!shouldBypass) {
+            const cached = DASHBOARD_CACHE.get(cacheKey);
+            if (cached && (Date.now() - cached.time < CACHE_TTL)) {
+                return res.json(cached.data);
+            }
+        } else {
+            console.log(`[DASHBOARD-BYPASS] Bypassing cache for ${finalCompanyId}`);
+        }
+
+        const todayIST = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
         const isMonthlyMode = !!(qMonth && qYear);
         const isRangeMode = !!(from && to) && !isMonthlyMode;
         const targetDate = isRangeMode ? to : (date || todayIST);

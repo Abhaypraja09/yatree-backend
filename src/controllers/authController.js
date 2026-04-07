@@ -248,10 +248,91 @@ const getCompanies = async (req, res) => {
     }
 };
 
+const SubscriptionPayment = require('../models/SubscriptionPayment');
+
+// @desc    Change user password
+// @route   POST /api/auth/change-password
+// @access  Private
+const changePassword = async (req, res) => {
+    try {
+        const { oldPassword, newPassword } = req.body;
+        
+        if (!oldPassword || !newPassword) {
+            return res.status(400).json({ message: 'Both old and new passwords are required' });
+        }
+
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const isMatch = await user.matchPassword(oldPassword);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Invalid current password' });
+        }
+
+        // The pre-save hook in the User model will handle the hashing
+        user.password = newPassword;
+        await user.save();
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        console.error('ChangePassword Error:', error);
+        res.status(500).json({ message: 'Server error during password update', error: error.message });
+    }
+};
+
+// @desc    Get subscription payment history
+// @route   GET /api/auth/subscription-history
+// @access  Private
+const getSubscriptionHistory = async (req, res) => {
+    try {
+        const history = await SubscriptionPayment.find({ company: req.user.company })
+            .sort({ month: -1 })
+            .limit(12);
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching payment history', error: error.message });
+    }
+};
+
+// @desc    Process subscription payment (Simplified production logic)
+// @route   POST /api/auth/process-payment
+// @access  Private
+const processSubscriptionPayment = async (req, res) => {
+    try {
+        const { amount, month, paymentMethod } = req.body;
+        
+        // Mocking a successful gateway transations ID for production logic
+        const transactionRef = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+        const payment = await SubscriptionPayment.create({
+            company: req.user.company,
+            user: req.user._id,
+            month: month || new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
+            amount: amount || 2500,
+            transactionRef,
+            paymentMethod: paymentMethod || 'Online',
+            status: 'Paid'
+        });
+
+        res.status(201).json({ 
+            message: 'Payment processed successfully', 
+            payment 
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Payment processing failed', error: error.message });
+    }
+};
+
 module.exports = {
     loginUser,
     getUserProfile,
     seedCompanies,
     getCompanies,
-    bridgeLogin
+    bridgeLogin,
+    changePassword,
+    getSubscriptionHistory,
+    processSubscriptionPayment
 };

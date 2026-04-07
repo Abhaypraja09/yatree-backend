@@ -31,8 +31,7 @@ const companySchema = new mongoose.Schema({
         default: '/logos/kavish_sign.png'
     },
     whatsappNumber: {
-        type: String,
-        default: '916367466426'
+        type: String
     }
 }, { timestamps: true });
 
