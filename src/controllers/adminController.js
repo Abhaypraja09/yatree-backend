@@ -3673,7 +3673,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
     // 3. Concurrent Bulk Fetches
     const attendanceQuery = {
         driver: { $in: driverIds },
-        status: 'completed'
+        status: { $in: ['completed', 'incomplete'] }
     };
     if (startStr && endStr) {
         // Match by string date field (most records) OR by punchIn.time (fallback for older records)
@@ -3790,7 +3790,8 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 // Base Wage (One per day)
                 let wage = 0;
                 if (!datesProcessed.has(dateStr)) {
-                    wage = (Number(att.dailyWage) || 0) || (d.dailyWage ? Number(d.dailyWage) : 0) || (d.salary ? Math.round(Number(d.salary) / 26) : 0) || 0;
+                    // Strictly use Log Book recorded salary (no fallbacks)
+                    wage = Number(att.dailyWage) || 0;
                     datesProcessed.add(dateStr);
                 }
 
@@ -5042,7 +5043,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         // 1. Fetch Attendance
         const attendance = await Attendance.find({
             driver: driverId,
-            status: 'completed',
+            status: { $in: ['completed', 'incomplete'] },
             date: { $gte: startStr, $lte: endStr }
         }).populate('vehicle', 'carNumber').sort({ date: 1 });
 
@@ -5107,7 +5108,8 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             // Apply wage only ONCE per day (first duty of the day)
             let wage = 0;
             if (!wageUsed.has(att.date)) {
-                wage = (Number(att.dailyWage) || 0) || (driver.dailyWage ? Number(driver.dailyWage) : 0) || (driver.salary ? Math.round(Number(driver.salary) / 26) : 0) || 0;
+                // Strictly use Log Book recorded salary (no fallbacks)
+                wage = Number(att.dailyWage) || 0;
                 wageUsed.add(att.date);
             }
 
@@ -5247,7 +5249,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     }).select('carNumber model fastagHistory');
 
     // 2. Fetch all related data for the month concurrently
-    const [fuelData, maintenanceData, parkingData, attendanceData, borderTaxData] = await Promise.all([
+    const [fuelData, maintenanceData, parkingData, attendanceData, borderTaxData, allAllowances] = await Promise.all([
         Fuel.find({
             company: companyId,
             date: { $gte: monthStart, $lte: monthEnd }
@@ -5262,13 +5264,148 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         }),
         Attendance.find({
             company: companyId,
-            date: { $gte: monthStartStr, $lte: monthEndStr }
-        }).populate('driver', 'name'),
+            date: { $gte: monthStartStr, $lte: monthEndStr },
+            status: { $in: ['completed', 'incomplete'] }
+        }).populate('driver', 'name isFreelancer dailyWage salary overtime'),
         BorderTax.find({
+            company: companyId,
+            date: { $gte: monthStart, $lte: monthEnd }
+        }),
+        Allowance.find({
             company: companyId,
             date: { $gte: monthStart, $lte: monthEnd }
         })
     ]);
+
+    // PRE-CALCULATE DRIVER SALARIES to correctly attribute daily wage once per day across the whole fleet
+    // This ensures Fleet Totals match individual reports when one driver uses multiple vehicles.
+    const driverSalaryMap = {}; // vehicleId -> totalSalary
+    const driverBreakdownMap = {}; // vehicleId -> { driverName -> salary }
+    const globalDriverDayWageSeen = new Set(); // To apply wage only once per day per driver fleet-wide
+
+    // Group allowances by driver and date to attribute to their first vehicle of the day
+    const allowanceMap = new Map();
+    allAllowances.forEach(al => {
+        const dId = al.driver.toString();
+        const dateStr = DateTime.fromJSDate(al.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+        const key = `${dId}_${dateStr}`;
+        if (!allowanceMap.has(key)) allowanceMap.set(key, 0);
+        allowanceMap.set(key, allowanceMap.get(key) + (Number(al.amount) || 0));
+    });
+
+    const sortedAtt = [...attendanceData].sort((a, b) => {
+        const timeA = a.punchIn?.time ? new Date(a.punchIn.time) : (a.date ? new Date(a.date) : new Date());
+        const timeB = b.punchIn?.time ? new Date(b.punchIn.time) : (b.date ? new Date(b.date) : new Date());
+        return timeA - timeB;
+    });
+
+    sortedAtt.forEach(a => {
+        const vId = a.vehicle?.toString();
+        if (!vId || !a.driver) return;
+        
+        const dId = a.driver._id ? a.driver._id.toString() : a.driver.toString();
+        const dName = a.driver.name || 'Unknown';
+        const dDate = a.date;
+        const wageKey = `${dId}_${dDate}`;
+
+        let wage = 0;
+        if (!globalDriverDayWageSeen.has(wageKey)) {
+            wage = Number(a.dailyWage) || 0;
+            globalDriverDayWageSeen.add(wageKey);
+        }
+
+        const sameDayReturn = Number(a.punchOut?.allowanceTA) || 0;
+        const nightStay = Number(a.punchOut?.nightStayAmount) || 0;
+        const bonuses = Math.max(sameDayReturn + nightStay, Number(a.outsideTrip?.bonusAmount) || 0);
+
+        // OT Earnings (Staff only)
+        let otEarnings = 0;
+        const driver = a.driver;
+        if (driver?.overtime?.enabled && a.punchIn?.time && a.punchOut?.time) {
+            const punchInTime = a.punchIn.time instanceof Date ? a.punchIn.time : new Date(a.punchIn.time);
+            const punchOutTime = a.punchOut.time instanceof Date ? a.punchOut.time : new Date(a.punchOut.time);
+            const durationMs = punchOutTime.getTime() - punchInTime.getTime();
+            const totalHours = durationMs / (1000 * 60 * 60);
+            const otHours = Math.max(0, totalHours - (Number(driver.overtime.thresholdHours) || 9));
+            otEarnings = Math.round(otHours * (Number(driver.overtime.ratePerHour) || 0));
+        }
+
+        // Global Allowances (Special Pay) - attribute to first vehicle of the day
+        const globalAllowances = Number(allowanceMap.get(wageKey) || 0);
+        if (globalAllowances > 0) allowanceMap.delete(wageKey);
+
+        const dutyTotal = wage + bonuses + otEarnings + globalAllowances;
+
+        if (!driverSalaryMap[vId]) driverSalaryMap[vId] = 0;
+        driverSalaryMap[vId] += dutyTotal;
+
+        if (!driverBreakdownMap[vId]) driverBreakdownMap[vId] = {};
+        if (!driverBreakdownMap[vId][dName]) driverBreakdownMap[vId][dName] = 0;
+        driverBreakdownMap[vId][dName] += dutyTotal;
+    });
+
+    // GLOBAL PAYROLL SUMMARY (100% Independent calculation to match Hub Reports)
+    let totalStaffEarningsOnly = 0;
+    let totalFreelancerEarningsOnly = 0;
+
+    // 1. Group earnings from Attendance (Wage + Bonus + OT)
+    attendanceData.forEach(a => {
+        if (!a.driver) return;
+        const isFreelancer = a.driver.isFreelancer === true;
+        
+        // Use the same deduplication for staff wages
+        const dId = a.driver._id ? a.driver._id.toString() : a.driver.toString();
+        const wageKey = `${dId}_${a.date}`;
+        
+        let wage = 0;
+        if (!globalDriverDayWageSeen.has(wageKey)) {
+            // Wait, we need a separate SEEN set for summary to avoid modifying the one used for vehicle rows
+        }
+        // Let's use a local map for the summary calculation
+    });
+
+    // RE-WRITING SIMPLY FOR MAXIMUM ACCURACY:
+    const summaryStaff = { wage: 0, bonus: 0, ot: 0, allowance: 0, parking: 0 };
+    const summaryFree = { wage: 0, bonus: 0, ot: 0, allowance: 0, parking: 0 };
+
+    const summaryWageSeen = new Set();
+    attendanceData.forEach(a => {
+        if (!a.driver) return;
+        const dId = a.driver._id ? a.driver._id.toString() : a.driver.toString();
+        const key = `${dId}_${a.date}`;
+        const isFree = a.driver.isFreelancer === true;
+        const target = isFree ? summaryFree : summaryStaff;
+
+        if (!summaryWageSeen.has(key)) {
+            target.wage += (Number(a.dailyWage) || 0);
+            summaryWageSeen.add(key);
+        }
+        const bonus = Math.max((Number(a.punchOut?.allowanceTA) || 0) + (Number(a.punchOut?.nightStayAmount) || 0), Number(a.outsideTrip?.bonusAmount) || 0);
+        target.bonus += bonus;
+
+        if (a.driver?.overtime?.enabled && a.punchIn?.time && a.punchOut?.time) {
+            const pIn = new Date(a.punchIn.time);
+            const pOut = new Date(a.punchOut.time);
+            const hours = (pOut - pIn) / 3600000;
+            const otH = Math.max(0, hours - (Number(a.driver.overtime.thresholdHours) || 9));
+            target.ot += Math.round(otH * (Number(a.driver.overtime.ratePerHour) || 0));
+        }
+    });
+
+    allAllowances.forEach(al => {
+        if (!al.driver) return;
+        const isFree = al.driver.isFreelancer === true; 
+        (isFree ? summaryFree : summaryStaff).allowance += (Number(al.amount) || 0);
+    });
+
+    parkingData.forEach(p => {
+        if (!p.driver) return;
+        const isFree = p.driver.isFreelancer === true;
+        (isFree ? summaryFree : summaryStaff).parking += (Number(p.amount) || 0);
+    });
+
+    const totalStaffEarnings = summaryStaff.wage + summaryStaff.bonus + summaryStaff.ot + summaryStaff.allowance + summaryStaff.parking;
+    const totalFreelancerEarnings = summaryFree.wage + summaryFree.bonus + summaryFree.ot + summaryFree.allowance + summaryFree.parking;
 
     // 3. Process data per vehicle
     const vehicleDetails = vehicles.map(v => {
@@ -5319,6 +5456,11 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
 
         // Separate Maintenance records: General Maintenance vs Service Hub (Wash/Punc)
         const vMaintAll = maintenanceData.filter(m => m.vehicle?.toString() === vId);
+
+        // Reimbursable Parking calculation for this vehicle
+        const vReimbursableParking = parkingData.filter(p => p.isReimbursable !== false && p.vehicle?.toString() === vId);
+        const totalReimbursableParking = vReimbursableParking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
         const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
 
         // General Maintenance
@@ -5379,10 +5521,14 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             }
         });
 
-        // Unique Drivers and Salary
+        // 💰 DRIVER SALARY (Globally aggregated to prevent double-counting daily wages)
+        const currentVehicleSalary = driverSalaryMap[vId] || 0;
+        // MAin poit wla sectuon ko logics total ko count karo aap fim aomdf  jppfdf jsdj disnsPsdnsd Sdj nm  jkj d 
+        const currentVehicleBreakdown = driverBreakdownMap[vId] || {};
+
         const vAtt = attendanceData.filter(a => a.vehicle?.toString() === vId);
-        const driversMap = new Map();
-        let totalDriverSalary = 0;
+
+
         let totalDistance = 0;
 
         // Pending expenses from attendance (to match dashboard logic)
@@ -5392,19 +5538,6 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         let vPendingParkingAmount = 0;
 
         vAtt.forEach(a => {
-            const driverName = a.driver?.name || 'Unknown';
-            const wage = (a.dailyWage || 0) +
-                (a.outsideTrip?.bonusAmount || 0) +
-                (a.punchOut?.allowanceTA || 0) +
-                (a.punchOut?.nightStayAmount || 0);
-
-            if (driversMap.has(driverName)) {
-                driversMap.set(driverName, driversMap.get(driverName) + wage);
-            } else {
-                driversMap.set(driverName, wage);
-            }
-            totalDriverSalary += wage;
-
             // Distance calculation
             if (a.punchIn?.km && a.punchOut?.km) {
                 const dist = a.punchOut.km - a.punchIn.km;
@@ -5453,9 +5586,10 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             vehicleId: vId,
             carNumber: v.carNumber,
             model: v.model,
-            driverSalary: totalDriverSalary,
-            drivers: Array.from(driversMap.keys()),
-            driverBreakdown: Array.from(driversMap).map(([name, salary]) => ({ name, salary })),
+            driverSalary: currentVehicleSalary,
+            reimbursableParking: totalReimbursableParking,
+            drivers: Object.keys(currentVehicleBreakdown),
+            driverBreakdown: Object.entries(currentVehicleBreakdown).map(([name, salary]) => ({ name, salary })),
             // Prefer fuel-based distance (more reliable), fall back to attendance KM diff
             totalDistance: totalFuelDistance > 0 ? totalFuelDistance : totalDistance,
             fuel: {
@@ -5506,7 +5640,14 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         };
     });
 
-    res.json(vehicleDetails);
+    res.json({
+        vehicles: vehicleDetails,
+        summary: {
+            totalSalary: totalStaffEarnings + totalFreelancerEarnings,
+            staffSalary: totalStaffEarnings,
+            freelancerSalary: totalFreelancerEarnings
+        }
+    });
 });
 
 // @desc    Add a pending fuel/parking expense (Admin side, requires approval)
@@ -5658,18 +5799,19 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         const attWage = Number(att.dailyWage) || 0;
         const driverWage = Number(att.driver.dailyWage) || 0;
 
+        // Rule: Follow Log Book only (stop guessing profile salaries)
+        const wage = attWage; // already Number(att.dailyWage) || 0
+
         if (isFreelancer) {
             // Freelancers are paid per duty/trip
-            const wage = attWage || driverWage || 0;
             freelancerSalaryTotal += (wage + bonuses + parking);
             freelancerDriversSeen.add(driverId);
         } else {
-            // Regular drivers: bonuses/parking per duty, but daily wage only ONCE
+            // Regular drivers: bonuses/parking per duty, but daily wage only ONCE for dashboard stats consistency
             regularSalaryTotal += (bonuses + parking);
             regularDriversSeen.add(driverId);
 
             if (!regularDriversWithWageSeen.has(driverId)) {
-                const wage = attWage || driverWage || (att.driver.salary ? Math.round(Number(att.driver.salary) / 26) : 0) || 0;
                 regularSalaryTotal += wage;
                 regularDriversWithWageSeen.add(driverId);
             }
