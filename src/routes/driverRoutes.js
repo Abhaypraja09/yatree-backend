@@ -6,7 +6,8 @@ const {
     punchOut,
     requestNewTrip,
     addExpense,
-    getDriverLedger
+    getDriverLedger,
+    updatePassword
 } = require('../controllers/driverController');
 const { protect, driver } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -34,5 +35,6 @@ router.post('/punch-out', upload.fields([
 router.post('/request-trip', requestNewTrip);
 router.post('/add-expense', upload.any(), addExpense);
 router.get('/ledger', getDriverLedger);
+router.put('/update-password', updatePassword);
 
 module.exports = router;

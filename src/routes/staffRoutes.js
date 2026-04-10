@@ -8,7 +8,8 @@ const {
     requestLeave,
     getStaffLeaves,
     getStaffReport,
-    getStaffSalaryCycles
+    getStaffSalaryCycles,
+    updatePassword
 } = require('../controllers/staffController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -22,5 +23,6 @@ router.post('/leave', requestLeave);
 router.get('/leaves', getStaffLeaves);
 router.get('/report', getStaffReport);
 router.get('/salary-cycles', getStaffSalaryCycles);
+router.put('/update-password', updatePassword);
 
 module.exports = router;

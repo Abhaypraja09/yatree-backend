@@ -753,6 +753,18 @@ const updateDriver = asyncHandler(async (req, res) => {
         }
 
         if (req.body.password) {
+            // Logic: Admins can reset anyone's password. Drivers/Staff need oldPassword to change their own.
+            const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
+            
+            if (!isAdmin) {
+                if (!req.body.oldPassword) {
+                    return res.status(400).json({ message: 'Old password is required for security' });
+                }
+                const isMatch = await driver.matchPassword(req.body.oldPassword);
+                if (!isMatch) {
+                    return res.status(400).json({ message: 'Current password verification failed' });
+                }
+            }
             driver.password = req.body.password;
         }
 
@@ -1242,7 +1254,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendanceRaw = await Attendance.find(query)
-        .populate('driver', 'name mobile isFreelancer salary dailyWage')
+        .populate('driver', 'name mobile isFreelancer salary dailyWage overtime')
         .populate('vehicle', 'carNumber model isOutsideCar carType dutyAmount fastagNumber fastagBalance')
         .lean();
 
@@ -1506,9 +1518,25 @@ const getDailyReports = asyncHandler(async (req, res) => {
             }
         }
 
+        // OVERTIME CALCULATION
+        let otAmount = 0;
+        let otHours = 0;
+        if (a.driver?.overtime?.enabled && a.punchIn?.time && a.punchOut?.time) {
+            const pIn = new Date(a.punchIn.time);
+            const pOut = new Date(a.punchOut.time);
+            // Duration in milliseconds
+            const durationMs = pOut.getTime() - pIn.getTime();
+            const hours = durationMs / (1000 * 60 * 60);
+            
+            otHours = Math.max(0, hours - (Number(a.driver.overtime.thresholdHours) || 9));
+            otAmount = Math.round(otHours * (Number(a.driver.overtime.ratePerHour) || 0));
+        }
+
         return {
             ...a,
             dailyWage: finalDailyWage,
+            otAmount,
+            otHours: Number(otHours.toFixed(2)),
             fuel: {
                 ...(a.fuel || {}),
                 amount: totalFuel,
@@ -4302,7 +4330,20 @@ const updateStaff = asyncHandler(async (req, res) => {
         staff.salary = salary ? Number(salary) : staff.salary;
         staff.status = status || staff.status;
         staff.monthlyLeaveAllowance = monthlyLeaveAllowance || staff.monthlyLeaveAllowance;
-        if (password) staff.password = password;
+        
+        if (password) {
+            const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
+            if (!isAdmin) {
+                if (!req.body.oldPassword) {
+                    return res.status(400).json({ message: 'Old password is required for security' });
+                }
+                const isMatch = await staff.matchPassword(req.body.oldPassword);
+                if (!isMatch) {
+                    return res.status(400).json({ message: 'Current password verification failed' });
+                }
+            }
+            staff.password = password;
+        }
 
         // New fields
         if (req.body.email) staff.email = req.body.email;
@@ -5047,7 +5088,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             date: { $gte: startStr, $lte: endStr }
         }).populate('vehicle', 'carNumber').sort({ date: 1 });
 
-        const driver = await User.findById(driverId).select('name mobile dailyWage');
+        const driver = await User.findById(driverId).select('name mobile dailyWage salary overtime');
         if (!driver) {
             res.status(404);
             throw new Error('Driver not found');
@@ -5739,10 +5780,10 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             company: companyObjectId,
             date: targetDate,
             status: { $in: ['incomplete', 'completed'] }
-        }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber model').lean(),
+        }).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
-        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage').lean(),
+        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
         Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean(),
         Vehicle.find({
             company: companyObjectId,

@@ -791,11 +791,38 @@ const getDriverLedger = async (req, res) => {
     }
 };
 
+// @desc    Update Driver Password
+// @route   PUT /api/driver/update-password
+// @access  Private/Driver
+const updatePassword = async (req, res) => {
+    try {
+        const { oldPassword, newPassword } = req.body;
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const isMatch = await user.matchPassword(oldPassword);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Invalid current password' });
+        }
+
+        user.password = newPassword;
+        await user.save();
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
 module.exports = {
     getDriverDashboard,
     punchIn,
     punchOut,
     requestNewTrip,
     addExpense,
-    getDriverLedger
+    getDriverLedger,
+    updatePassword
 };

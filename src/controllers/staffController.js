@@ -429,6 +429,28 @@ const getStaffSalaryCycles = asyncHandler(async (req, res) => {
     res.json(cycles);
 });
 
+// @desc    Update Staff Password
+// @route   PUT /api/staff/update-password
+// @access  Private/Staff
+const updatePassword = asyncHandler(async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+    }
+
+    const isMatch = await user.matchPassword(oldPassword);
+    if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid current password' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Password updated successfully' });
+});
+
 module.exports = {
     staffPunchIn,
     staffPunchOut,
@@ -437,5 +459,6 @@ module.exports = {
     requestLeave,
     getStaffLeaves,
     getStaffReport,
-    getStaffSalaryCycles
+    getStaffSalaryCycles,
+    updatePassword
 };
