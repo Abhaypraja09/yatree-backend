@@ -5764,15 +5764,20 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const startDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
     const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
 
+    const isToday = targetDate === todayISTString;
+    const attQuery = { company: companyObjectId };
+    if (isToday) {
+        attQuery.$or = [
+            { date: targetDate },
+            { status: 'incomplete' }
+        ];
+    } else {
+        attQuery.date = targetDate;
+    }
+
     // EXCLUDE 'deleted' status explicitly (safety measure for soft-delete)
     const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles, outsideVehiclesToday] = await Promise.all([
-        Attendance.find({
-            company: companyObjectId,
-            $or: [
-                { date: targetDate },
-                { status: 'incomplete' }
-            ]
-        }).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
+        Attendance.find(attQuery).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
         User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
