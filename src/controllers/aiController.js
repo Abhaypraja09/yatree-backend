@@ -156,18 +156,25 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
 
     const briefingPrompt = `
-        You are the "Fleet Commander Assistant". 
+        You are the "Texi Fleet AI Assistant". 
         Give a PROACTIVE briefing to Abhay Sahab in Hinglish.
-        Analyze the numbers:
-        - Active Cars: ${activeCount} of ${vehicles.length}
-        - Drivers on Duty: ${attToday.length}
+        
+        CRITICAL CURRENT DATA:
+        - Active Cars/Running Today: ${activeCount} (These are drivers currently on duty)
+        - Total Drivers in System: ${vehicles.length} cars available.
+        - Drivers on Duty (Punch-ins): ${attToday.length}
         - PENDING APPROVALS: ${pendingFuelCount} fuel and ${pendingParkingCount} parking slips (${totalPending} total).
         
-        🔴 LOGIC RULE: 
-        - If PENDING APPROVALS are 0, do NOT mention them. Just say "All records are updated".
-        - If PENDING APPROVALS are > 0, REMIND Abhay strongly that he needs to check them.
+        FRONTEND ROUTES (Use these for markdown links if needed):
+        - Dashboard: /admin
+        - Live Status: /admin/live-feed
+        - Fuel Approvals: /admin/fuel
+        - Parking Approvals: /admin/parking
         
-        Keep it concise (Max 4 sentences) in Hinglish.
+        🔴 LOGIC RULES: 
+        - If PENDING APPROVALS > 0, tell Abhay Sahab specifically: "Abhay Sahab, aapke paas ${totalPending} parchi approval ke liye pending hain."
+        - Total active drivers are ${activeCount}. If this is 12, say 12. Do not hallucinate other numbers.
+        - Keep it very concise (Max 3-4 sentences).
     `;
 
     try {
