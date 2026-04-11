@@ -5765,16 +5765,11 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
 
     const isToday = targetDate === todayISTString;
-    const attQuery = { company: companyObjectId };
-    if (isToday) {
-        attQuery.$or = [
-            { date: targetDate },
-            { status: 'incomplete' }
-        ];
-    } else {
-        attQuery.date = targetDate;
-    }
-
+    const attQuery = { 
+        company: companyObjectId,
+        date: targetDate // Strictly show attendance for the target date only
+    };
+    
     // EXCLUDE 'deleted' status explicitly (safety measure for soft-delete)
     const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find(attQuery).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
