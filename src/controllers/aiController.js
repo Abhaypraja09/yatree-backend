@@ -95,7 +95,7 @@ const processAIQuery = asyncHandler(async (req, res) => {
                 const result = await model.generateContent(fullPrompt);
                 responseText = result.response.text();
                 if (responseText) break;
-            } catch (err) { console.error(`Retry fail: ${modelName}`); }
+            } catch (err) { console.error(`AI Query Error (${modelName}):`, err.message); }
         }
 
         if (!responseText) throw new Error("AI busy.");
@@ -177,15 +177,14 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     `;
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(briefingPrompt);
         res.json({ briefing: result.response.text() });
     } catch (error) {
-        const totalPending = pendingFuel.length + pendingParking.length;
-        const msg = totalPending > 0
-            ? `${greeting}! Status: ${activeCount} active cars, ${attToday.length} drivers on duty. Kripya ${totalPending} pending slips check karein.`
-            : `${greeting}! Sab theek hai. ${activeCount} active cars aur ${attToday.length} drivers on duty. All records updated!`;
-        res.json({ briefing: msg });
+        console.error("AI Briefing Error:", error.message);
+        res.json({ 
+            briefing: `${greeting}! Sab theek lag raha hai, lekin ${totalPending} slips approval ke liye pending hain. Kripya check karein.` 
+        });
     }
 });
 
