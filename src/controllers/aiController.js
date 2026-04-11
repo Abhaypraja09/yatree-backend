@@ -18,8 +18,10 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Extensive model fallback for production stability
 const modelsToTry = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-pro-latest"
 ];
 
 // --- SYSTEM INSTRUCTIONS (SMART AGENT MODE) ---
@@ -326,7 +328,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     `;
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         const result = await model.generateContent(briefingPrompt);
         const briefing = result.response.text();
         res.json({ briefing: briefing || "Good morning! Ready to manage your fleet today?" });
