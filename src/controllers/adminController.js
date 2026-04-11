@@ -3327,7 +3327,7 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
     if (status === 'approved') {
         if (expense.type === 'fuel') {
             // Optional overrides from Admin
-            const { amount, quantity, rate, slipPhoto } = req.body;
+            const { amount, quantity, rate, slipPhoto, paymentSource } = req.body;
             let finalOdometer = Number(req.body.odometer || expense.km || 0);
             let finalAmount = Number(amount || expense.amount || 0);
             // Use admin override OR driver's submitted quantity. Default to 1 to avoid validation error.
@@ -3338,9 +3338,9 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
             // Use Admin provided slipPhoto if available, otherwise fallback to driver's
             const finalSlipPhoto = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
 
-            // Sanitize paymentSource — driver app may send 'Guest' but model requires 'Guest / Client'
+            // Sanitize paymentSource — use Admin override if provided, else fallback to driver's
             const validPaymentSources = ['Office', 'Guest / Client'];
-            const rawPaymentSource = expense.paymentSource || 'Office';
+            const rawPaymentSource = paymentSource || expense.paymentSource || 'Office';
             const finalPaymentSource = validPaymentSources.includes(rawPaymentSource)
                 ? rawPaymentSource
                 : rawPaymentSource.toLowerCase().includes('guest')
