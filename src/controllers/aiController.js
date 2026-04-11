@@ -115,20 +115,29 @@ const processAIQuery = asyncHandler(async (req, res) => {
 
 // @desc    Enhanced Proactive Briefing (Daily Status + Approval Warnings)
 const getAIBriefing = asyncHandler(async (req, res) => {
-    const userCompanyId = req.user.company?._id || req.user.company;
+    let userCompanyId = req.user.company?._id || req.user.company;
+    if (typeof userCompanyId === 'string') {
+        userCompanyId = new mongoose.Types.ObjectId(userCompanyId);
+    }
+    
     const istNow = DateTime.now().setZone('Asia/Kolkata');
     const todayStr = istNow.toFormat('yyyy-MM-dd');
 
-    const [vehicles, attToday, allPendingRecords] = await Promise.all([
+    console.log(`[AI-DEBUG] Starting Briefing for User: ${req.user.name}, Company: ${userCompanyId}, Date: ${todayStr}`);
+
+    const [vehicles, allIncompleteAttendance, allPendingRecords] = await Promise.all([
         Vehicle.find({ company: userCompanyId }).lean(),
-        Attendance.find({ company: userCompanyId, date: todayStr }).lean(),
+        Attendance.find({ 
+            company: userCompanyId, 
+            status: 'incomplete' 
+        }).lean(),
         Attendance.find({
             company: userCompanyId,
             'pendingExpenses.status': 'pending'
         }).lean()
     ]);
 
-    console.log(`[AI-Briefing] Company: ${userCompanyId}, AllPendingRecords: ${allPendingRecords.length}`);
+    console.log(`[AI-DEBUG] Raw Counts - Vehicles: ${vehicles.length}, IncompleteAtt: ${allIncompleteAttendance.length}, RecordsWithPending: ${allPendingRecords.length}`);
 
     // Flatten all pending expenses for counting
     let pendingFuelCount = 0;
@@ -144,10 +153,10 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     });
 
     const totalPending = pendingFuelCount + pendingParkingCount;
-    // Count running cars as drivers with incomplete attendance shifts today
-    const activeCount = attToday.filter(a => a.status === 'incomplete').length;
+    // Count running cars as ALL incomplete attendance shifts (ignore date)
+    const activeCount = allIncompleteAttendance.length;
 
-    console.log(`[AI-Briefing] Calculated: Fuel=${pendingFuelCount}, Parking=${pendingParkingCount}, RunningCars=${activeCount}`);
+    console.log(`[AI-DEBUG] Final Stats - RunningCars: ${activeCount}, FuelPending: ${pendingFuelCount}, ParkingPending: ${pendingParkingCount}`);
 
     const hour = istNow.hour;
     const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
