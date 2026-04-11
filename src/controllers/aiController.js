@@ -119,25 +119,49 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     const istNow = DateTime.now().setZone('Asia/Kolkata');
     const todayStr = istNow.toFormat('yyyy-MM-dd');
 
-    const [vehicles, attToday, pendingFuel, pendingParking] = await Promise.all([
+    const [vehicles, attToday, allPendingRecords] = await Promise.all([
         Vehicle.find({ company: userCompanyId }).lean(),
-        Attendance.find({ company: userCompanyId, date: todayStr }).lean(),
-        Fuel.find({ company: userCompanyId, status: 'pending' }).lean(),
-        Parking.find({ companyId: userCompanyId, status: 'pending' }).lean()
+        Attendance.find({ 
+            company: userCompanyId, 
+            $or: [{ date: todayStr }, { status: 'incomplete' }] 
+        }).lean(),
+        Attendance.find({
+            company: userCompanyId,
+            'pendingExpenses.status': 'pending'
+        }).lean()
     ]);
 
-    const activeCount = vehicles.filter(v => v.status === 'Running').length;
+    console.log(`[AI-Briefing] Company: ${userCompanyId}, AllPendingRecords: ${allPendingRecords.length}`);
+
+    // Flatten all pending expenses for counting
+    let pendingFuelCount = 0;
+    let pendingParkingCount = 0;
+    
+    allPendingRecords.forEach(att => {
+        (att.pendingExpenses || []).forEach(exp => {
+            if (exp.status === 'pending') {
+                if (exp.type === 'fuel') pendingFuelCount++;
+                if (exp.type === 'parking') pendingParkingCount++;
+            }
+        });
+    });
+
+    const totalPending = pendingFuelCount + pendingParkingCount;
+    // Count ALL incomplete shifts as Running Cars
+    const activeCount = attToday.filter(a => a.status === 'incomplete').length;
+
+    console.log(`[AI-Briefing] Calculated: Fuel=${pendingFuelCount}, Parking=${pendingParkingCount}, RunningCars=${activeCount}`);
 
     const hour = istNow.hour;
     const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
 
     const briefingPrompt = `
         You are the "Fleet Commander Assistant". 
-        Give a PROACTIVE briefing to in Hinglish.
+        Give a PROACTIVE briefing to Abhay Sahab in Hinglish.
         Analyze the numbers:
         - Active Cars: ${activeCount} of ${vehicles.length}
         - Drivers on Duty: ${attToday.length}
-        - PENDING APPROVALS: ${pendingFuel.length} fuel and ${pendingParking.length} parking slips.
+        - PENDING APPROVALS: ${pendingFuelCount} fuel and ${pendingParkingCount} parking slips (${totalPending} total).
         
         🔴 LOGIC RULE: 
         - If PENDING APPROVALS are 0, do NOT mention them. Just say "All records are updated".

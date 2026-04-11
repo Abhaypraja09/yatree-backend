@@ -387,11 +387,17 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
-                Attendance.find({ company: companyObjectId, date: targetDate }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
+                Attendance.find({ 
+                    company: companyObjectId, 
+                    $or: [
+                        { date: targetDate }, 
+                        { status: 'incomplete' }
+                    ] 
+                }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
                 User.countDocuments({ company: companyObjectId, role: 'Driver', tripStatus: 'pending_approval' }),
                 User.countDocuments({ company: companyObjectId, role: 'Staff' }),
                 StaffAttendance.find({ company: companyObjectId, date: targetDate }).populate('staff', 'name').lean(),
-                Attendance.find({ company: companyObjectId, 'punchOut.otherRemarks': { $exists: true, $ne: '' } }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(10).lean()
+                Attendance.find({ company: companyObjectId, status: 'incomplete' }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(20).lean()
             ]),
             Promise.all([
                 Vehicle.aggregate([{ $match: { company: companyObjectId, isOutsideCar: true } }, { $project: { month: { $substr: [{ $ifNull: ["$carNumber", ""] }, { $add: [{ $indexOfBytes: ["$carNumber", "#"] }, 1] }, 7] }, isBuy: { $eq: [{ $ifNull: ["$transactionType", "Buy"] }, "Buy"] }, amount: "$dutyAmount", isE: { $ne: [{ $ifNull: ["$eventId", null] }, null] } } }, { $facet: { e: [{ $match: { month: monthPrefix, isE: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }], o: [{ $match: { month: monthPrefix, isE: false, isBuy: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }] } }]),
@@ -453,8 +459,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const finalResponse = {
             date: targetDate, totalVehicles, totalInternalVehicles,
             totalDrivers: allD.length, internalDriversCount: allD.filter(d => !d.isFreelancer).length, freelancerDriversCount: allD.filter(d => d.isFreelancer).length,
-            countPunchIns: attToday.length,
+            countPunchIns: attToday.filter(a => a.date === targetDate).length,
             activeDutiesCount: attToday.filter(a => a.status === 'incomplete').length,
+            runningCars: attToday.filter(a => a.status === 'incomplete').length,
             pendingApprovalsCount: pendingApps,
             monthlyFastagTotal: fT[0]?.t || 0,
             monthlyFuelAmount: mFuel[0]?.t || 0,
@@ -5892,11 +5899,13 @@ const getLiveFeed = asyncHandler(async (req, res) => {
 
     const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
     const totalUsedVehiclesCount = liveVehiclesFeed.length; // Since we filtered for only used
+    const runningCars = activeVehiclesCount;
 
     const finalResponse = {
         date: targetDate,
         totalVehicles,
         activeVehiclesCount,
+        runningCars,
         totalUsedVehiclesCount,
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
