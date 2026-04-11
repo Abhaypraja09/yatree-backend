@@ -121,9 +121,9 @@ const getAIBriefing = asyncHandler(async (req, res) => {
 
     const [vehicles, attToday, allPendingRecords] = await Promise.all([
         Vehicle.find({ company: userCompanyId }).lean(),
-        Attendance.find({ 
-            company: userCompanyId, 
-            $or: [{ date: todayStr }, { status: 'incomplete' }] 
+        Attendance.find({
+            company: userCompanyId,
+            $or: [{ date: todayStr }, { status: 'incomplete' }]
         }).lean(),
         Attendance.find({
             company: userCompanyId,
@@ -136,7 +136,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     // Flatten all pending expenses for counting
     let pendingFuelCount = 0;
     let pendingParkingCount = 0;
-    
+
     allPendingRecords.forEach(att => {
         (att.pendingExpenses || []).forEach(exp => {
             if (exp.status === 'pending') {
@@ -147,7 +147,6 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     });
 
     const totalPending = pendingFuelCount + pendingParkingCount;
-    // Count ALL incomplete shifts as Running Cars
     const activeCount = attToday.filter(a => a.status === 'incomplete').length;
 
     console.log(`[AI-Briefing] Calculated: Fuel=${pendingFuelCount}, Parking=${pendingParkingCount}, RunningCars=${activeCount}`);

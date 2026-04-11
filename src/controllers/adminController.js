@@ -5768,8 +5768,10 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find({
             company: companyObjectId,
-            date: targetDate,
-            status: { $in: ['incomplete', 'completed'] }
+            $or: [
+                { date: targetDate },
+                { status: 'incomplete' }
+            ]
         }).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
