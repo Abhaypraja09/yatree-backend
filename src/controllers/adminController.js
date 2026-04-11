@@ -3339,13 +3339,9 @@ const approveRejectExpense = asyncHandler(async (req, res) => {
             const finalSlipPhoto = (req.body.slipPhoto !== undefined) ? req.body.slipPhoto : (expense.slipPhoto || '');
 
             // Sanitize paymentSource — use Admin override if provided, else fallback to driver's
-            const validPaymentSources = ['Office', 'Guest / Client'];
+            const validPaymentSources = ['Office', 'Guest'];
             const rawPaymentSource = paymentSource || expense.paymentSource || 'Office';
-            const finalPaymentSource = validPaymentSources.includes(rawPaymentSource)
-                ? rawPaymentSource
-                : rawPaymentSource.toLowerCase().includes('guest')
-                    ? 'Guest / Client'
-                    : 'Office';
+            const finalPaymentSource = (rawPaymentSource.toLowerCase().includes('guest')) ? 'Guest' : 'Office';
 
             console.log(`[approveRejectExpense] Creating fuel entry: vehicleId=${vehicleId}, amount=${finalAmount}, qty=${finalQuantity}, rate=${finalRate}, odometer=${finalOdometer}, paymentSource=${finalPaymentSource}`);
 
