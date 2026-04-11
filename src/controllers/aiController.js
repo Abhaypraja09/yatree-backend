@@ -121,10 +121,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
 
     const [vehicles, attToday, allPendingRecords] = await Promise.all([
         Vehicle.find({ company: userCompanyId }).lean(),
-        Attendance.find({
-            company: userCompanyId,
-            $or: [{ date: todayStr }, { status: 'incomplete' }]
-        }).lean(),
+        Attendance.find({ company: userCompanyId, date: todayStr }).lean(),
         Attendance.find({
             company: userCompanyId,
             'pendingExpenses.status': 'pending'
@@ -136,7 +133,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     // Flatten all pending expenses for counting
     let pendingFuelCount = 0;
     let pendingParkingCount = 0;
-
+    
     allPendingRecords.forEach(att => {
         (att.pendingExpenses || []).forEach(exp => {
             if (exp.status === 'pending') {
@@ -147,6 +144,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     });
 
     const totalPending = pendingFuelCount + pendingParkingCount;
+    // Count running cars as drivers with incomplete attendance shifts today
     const activeCount = attToday.filter(a => a.status === 'incomplete').length;
 
     console.log(`[AI-Briefing] Calculated: Fuel=${pendingFuelCount}, Parking=${pendingParkingCount}, RunningCars=${activeCount}`);
@@ -155,37 +153,29 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
 
     const briefingPrompt = `
-        You are the "Texi Fleet AI Assistant". 
+        You are the "Fleet Commander Assistant". 
         Give a PROACTIVE briefing to Abhay Sahab in Hinglish.
-        
-        CRITICAL CURRENT DATA:
-        - Active Cars/Running Today: ${activeCount} (These are drivers currently on duty)
-        - Total Drivers in System: ${vehicles.length} cars available.
-        - Drivers on Duty (Punch-ins): ${attToday.length}
+        Analyze the numbers:
+        - Active Cars: ${activeCount} of ${vehicles.length}
+        - Drivers on Duty: ${attToday.length}
         - PENDING APPROVALS: ${pendingFuelCount} fuel and ${pendingParkingCount} parking slips (${totalPending} total).
         
-        FRONTEND ROUTES (Use these for markdown links if needed):
-        - Dashboard: /admin
-        - Live Status: /admin/live-feed
-        - Fuel Approvals: /admin/fuel
-        - Parking Approvals: /admin/parking
+        🔴 LOGIC RULE: 
+        - If PENDING APPROVALS are 0, do NOT mention them. Just say "All records are updated".
+        - If PENDING APPROVALS are > 0, REMIND Abhay strongly that he needs to check them.
         
-        🔴 LOGIC RULES: 
-        - If PENDING APPROVALS > 0, tell Abhay Sahab specifically: "Abhay Sahab, aapke paas ${totalPending} parchi approval ke liye pending hain."
-        - Total active drivers are ${activeCount}. If this is 12, say 12. Do not hallucinate other numbers.
-        - Keep it very concise (Max 3-4 sentences).
+        Keep it concise (Max 4 sentences) in Hinglish.
     `;
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         const result = await model.generateContent(briefingPrompt);
         res.json({ briefing: result.response.text() });
     } catch (error) {
-        console.error("Gemini Error:", error);
-        const totalPending = pendingFuelCount + pendingParkingCount;
+        const totalPending = pendingFuel.length + pendingParking.length;
         const msg = totalPending > 0
-            ? `${greeting} Abhay Sahab! System mein ${activeCount} active cars aur ${attToday.length} drivers on duty hain. Kripya ${totalPending} pending slips check karein.`
-            : `${greeting} Abhay Sahab! Sab theek hai. ${activeCount} active cars aur ${attToday.length} drivers on duty. All records updated!`;
+            ? `${greeting}! Status: ${activeCount} active cars, ${attToday.length} drivers on duty. Kripya ${totalPending} pending slips check karein.`
+            : `${greeting}! Sab theek hai. ${activeCount} active cars aur ${attToday.length} drivers on duty. All records updated!`;
         res.json({ briefing: msg });
     }
 });
