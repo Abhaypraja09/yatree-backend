@@ -171,14 +171,15 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     `;
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(briefingPrompt);
         res.json({ briefing: result.response.text() });
     } catch (error) {
-        const totalPending = pendingFuel.length + pendingParking.length;
+        console.error("Gemini Error:", error);
+        const totalPending = pendingFuelCount + pendingParkingCount;
         const msg = totalPending > 0
-            ? `${greeting}! Status: ${activeCount} active cars, ${attToday.length} drivers on duty. Kripya ${totalPending} pending slips check karein.`
-            : `${greeting}! Sab theek hai. ${activeCount} active cars aur ${attToday.length} drivers on duty. All records updated!`;
+            ? `${greeting} Abhay Sahab! System mein ${activeCount} active cars aur ${attToday.length} drivers on duty hain. Kripya ${totalPending} pending slips check karein.`
+            : `${greeting} Abhay Sahab! Sab theek hai. ${activeCount} active cars aur ${attToday.length} drivers on duty. All records updated!`;
         res.json({ briefing: msg });
     }
 });
