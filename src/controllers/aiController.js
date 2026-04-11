@@ -18,8 +18,8 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Extensive model fallback for production stability
 const modelsToTry = [
-    "gemini-2.5-flash", 
-    "gemini-2.0-flash"
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
 ];
 
 // --- SYSTEM INSTRUCTIONS (SMART AGENT MODE) ---
@@ -279,4 +279,60 @@ const processAIQuery = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { processAIQuery };
+// @desc    Get AI Daily Briefing
+// @route   GET /api/ai/briefing
+// @access  Private
+const getAIBriefing = asyncHandler(async (req, res) => {
+    const userCompanyId = req.user.company?._id || req.user.company;
+    const istNow = DateTime.now().setZone('Asia/Kolkata');
+    const todayStr = istNow.toFormat('yyyy-MM-dd');
+    const todayStart = istNow.startOf('day').toJSDate();
+    const todayEnd = istNow.endOf('day').toJSDate();
+
+    // Fetch core data for briefing
+    const [vehicles, driversCount, presentCount, todayFuel, recentParking] = await Promise.all([
+        Vehicle.find({ company: userCompanyId }).lean(),
+        User.countDocuments({ company: userCompanyId, role: 'Driver' }),
+        Attendance.countDocuments({ company: userCompanyId, date: todayStr }),
+        Fuel.find({ company: userCompanyId, date: { $gte: todayStart, $lte: todayEnd } }).lean(),
+        Parking.find({ companyId: userCompanyId, date: { $gte: todayStart, $lte: todayEnd } }).lean()
+    ]);
+
+    const activeVehicles = vehicles.filter(v => v.status === 'Running').length;
+    const maintenanceVehicles = vehicles.filter(v => v.status === 'Maintenance').length;
+    const fuelAmount = todayFuel.reduce((sum, f) => sum + (f.amount || 0), 0);
+    const parkingAmount = recentParking.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    const briefingContext = {
+        date: todayStr,
+        fleetSize: vehicles.length,
+        activeVehicles,
+        maintenanceVehicles,
+        totalDrivers: driversCount,
+        driversPresent: presentCount,
+        todayExpenses: {
+            fuel: fuelAmount,
+            parking: parkingAmount
+        }
+    };
+
+    const briefingPrompt = `
+        You are the "Fleet Command Center". 
+        Based on the data below, provide a short, professional, and encouraging "Morning Briefing" (Max 3-4 sentences).
+        Mention how many cars are running, maintenance status, and today's early costs.
+        Language: Use a mix of English and Hindi (Hinglish) as requested by the user.
+
+        DATA: ${JSON.stringify(briefingContext)}
+    `;
+
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(briefingPrompt);
+        const briefing = result.response.text();
+        res.json({ briefing: briefing || "Good morning! Ready to manage your fleet today?" });
+    } catch (error) {
+        res.json({ briefing: `Good morning! Current fleet update: ${activeVehicles} active, ${presentCount} drivers present.` });
+    }
+});
+
+module.exports = { processAIQuery, getAIBriefing };

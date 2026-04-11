@@ -12,7 +12,7 @@ const Advance = require('../models/Advance');
 const Parking = require('../models/Parking');
 const StaffAttendance = require('../models/StaffAttendance');
 const AccidentLog = require('../models/AccidentLog');
-const PartsWarranty = require('../models/PartsWarranty');
+
 const LeaveRequest = require('../models/LeaveRequest');
 const Event = require('../models/Event');
 const Loan = require('../models/Loan');
@@ -396,8 +396,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             Promise.all([
                 Vehicle.aggregate([{ $match: { company: companyObjectId, isOutsideCar: true } }, { $project: { month: { $substr: [{ $ifNull: ["$carNumber", ""] }, { $add: [{ $indexOfBytes: ["$carNumber", "#"] }, 1] }, 7] }, isBuy: { $eq: [{ $ifNull: ["$transactionType", "Buy"] }, "Buy"] }, amount: "$dutyAmount", isE: { $ne: [{ $ifNull: ["$eventId", null] }, null] } } }, { $facet: { e: [{ $match: { month: monthPrefix, isE: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }], o: [{ $match: { month: monthPrefix, isE: false, isBuy: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }] } }]),
                 AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
-                AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: yStart, $lte: yEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
-                PartsWarranty.aggregate([{ $match: { company: companyObjectId } }, { $group: { _id: null, t: { $sum: '$cost' } } }])
+                AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: yStart, $lte: yEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
                 getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
@@ -420,7 +419,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const [vExp, dExp, upcomingS] = alertData;
         const [fT, aD, mFuel, mPark, bTax, mMaintAgg] = financialData;
         const [attToday, pendingApps, totalStaff, staffAttToday, reportedIss] = fleetStatus;
-        const [outFacet, mAcc, yAcc, tWarr] = outsideData;
+        const [outFacet, mAcc, yAcc] = outsideData;
         const [salReg, salFree, mAtt, allD, allV] = salaryData;
         const [fToday, aToday, fAdvData, fTToday] = miscData;
 
@@ -465,7 +464,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             monthlyBorderTaxAmount: bTax[0]?.t || 0,
             monthlyAccidentAmount: mAcc[0]?.t || 0,
             yearlyAccidentAmount: yAcc[0]?.t || 0,
-            totalWarrantyCost: tWarr[0]?.t || 0,
+
             totalExpenseAmount: (mFuel[0]?.t || 0) + monthlyMaintAmount + (mPark.reduce((s, p) => s + p.t, 0)) + (bTax[0]?.t || 0) + (mAcc[0]?.t || 0),
             totalStaff, countStaffPresent: staffAttToday.length,
             monthlyRegularAdvanceTotal: aD[0]?.t || 0,
@@ -494,7 +493,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 finalResponse.dutyHistoryThisMonth = [];
             }
             if (!p.vehiclesManagement) {
-                ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount', 'totalWarrantyCost'].forEach(k => finalResponse[k] = 0);
+                ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount'].forEach(k => finalResponse[k] = 0);
                 finalResponse.reportedIssues = [];
             }
             if (!p.fleetOperations) {
@@ -1692,19 +1691,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         .populate('driver', 'name mobile')
         .sort({ date: -1 });
 
-    // 9. Fetch Parts Warranty
-    const warrantyQuery = {
-        $or: [
-            { company: new mongoose.Types.ObjectId(companyId) },
-            { company: companyId }
-        ]
-    };
-    if (startDate && endDate) {
-        warrantyQuery.purchaseDate = { $gte: startDate, $lte: endDate };
-    }
-    const partsWarranty = await PartsWarranty.find(warrantyQuery)
-        .populate('vehicle', 'carNumber model')
-        .sort({ date: -1 });
+
 
     const finalResponse = {
         attendance: finalReports,
@@ -1715,7 +1702,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
         advances,
         parking,
         accidentLogs,
-        partsWarranty
+
     };
 
     if (req.user && req.user.role === 'Executive') {
@@ -1732,7 +1719,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
         if (!p.vehiclesManagement) {
             finalResponse.fastagRecharges = [];
-            ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount', 'totalWarrantyCost'].forEach(k => finalResponse[k] = 0);
+            ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount'].forEach(k => finalResponse[k] = 0);
             finalResponse.reportedIssues = [];
         }
         if (!p.fleetOperations) {
