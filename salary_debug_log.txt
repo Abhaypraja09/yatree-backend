@@ -1,0 +1,175 @@
+--- STARTING SALARY CHECK ---
+MongoDB Connected
+Found 19 drivers.
+
+----------------------------------------
+Driver: Suresh Patel 
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-17] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-16] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-14] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Abhay 
+Profile Daily Wage: 500
+Status: active | Freelancer: false
+  Last 1 Completed Duties:
+    [2026-02-19] Stored: 500 | Used: 500 (Attendance Record)
+
+----------------------------------------
+Driver: Arjun Bhat 
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-16] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-14] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Shanti Lal  
+Profile Daily Wage: 500
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-17] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-14] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-13] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-12] Stored: 500 | Used: 500 (Attendance Record)
+
+----------------------------------------
+Driver: Bharat  
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-14] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-13] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-13] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Devdutt 
+Profile Daily Wage: 0
+Status: active | Freelancer: true
+  No completed attendance found.
+
+----------------------------------------
+Driver: Bharat ji 
+Profile Daily Wage: 0
+Status: active | Freelancer: true
+  No completed attendance found.
+
+----------------------------------------
+Driver: Shailendra 
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-17] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-14] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Rahul Kumar garg  
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-17] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-16] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Kailash Bhatt 
+Profile Daily Wage: 500
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-18] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-17] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-16] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-15] Stored: 500 | Used: 500 (Attendance Record)
+
+----------------------------------------
+Driver: Piyush Menaria 
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-17] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-16] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Heeralal 
+Profile Daily Wage: 500
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-18] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-17] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-16] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-15] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-14] Stored: 500 | Used: 500 (Attendance Record)
+
+----------------------------------------
+Driver: Gopal Audichiy 
+Profile Daily Wage: 400
+Status: active | Freelancer: false
+  Last 5 Completed Duties:
+    [2026-02-19] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-18] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-17] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-16] Stored: 400 | Used: 400 (Attendance Record)
+    [2026-02-15] Stored: 400 | Used: 400 (Attendance Record)
+
+----------------------------------------
+Driver: Satish Kumar 
+Profile Daily Wage: 500
+Status: active | Freelancer: false
+  Last 3 Completed Duties:
+    [2026-02-19] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-18] Stored: 500 | Used: 500 (Attendance Record)
+    [2026-02-17] Stored: 500 | Used: 500 (Attendance Record)
+
+----------------------------------------
+Driver: Amrit 
+Profile Daily Wage: 500
+Status: active | Freelancer: true
+  No completed attendance found.
+
+----------------------------------------
+Driver: Davi Shing 
+Profile Daily Wage: 600
+Status: active | Freelancer: true
+  No completed attendance found.
+
+----------------------------------------
+Driver: Harish 
+Profile Daily Wage: 600
+Status: active | Freelancer: true
+  Last 1 Completed Duties:
+    [2026-02-18] Stored: 600 | Used: 600 (Attendance Record)
+
+----------------------------------------
+Driver: Ashish 
+Profile Daily Wage: 600
+Status: active | Freelancer: true
+  Last 1 Completed Duties:
+    [2026-02-18] Stored: 600 | Used: 600 (Attendance Record)
+
+----------------------------------------
+Driver: Harish vasnav 
+Profile Daily Wage: 300
+Status: active | Freelancer: true
+  Last 1 Completed Duties:
+    [2026-02-19] Stored: 300 | Used: 300 (Attendance Record)
+--- CHECK COMPLETE ---

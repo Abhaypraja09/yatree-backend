@@ -1,0 +1,14 @@
+Connected to DB
+--- STAFF USERS ---
+Name: Harsh Thakur, Mobile: +91 8955463241, Username: Harshthakur, HasPassword: true, Status: active
+Name: Shivam Soni, Mobile: 8949733352, Username: shivamsoni, HasPassword: true, Status: active
+Name: Ruchitra Soni, Mobile: 7247465997, Username: ruchitra1, HasPassword: true, Status: active
+Name: Rohit Prajapat, Mobile: 8619283494, Username: rohitp, HasPassword: true, Status: active
+Name: Manish Bansal, Mobile: 9116995843, Username: bmanish, HasPassword: true, Status: active
+Name: Uttam Prajapat, Mobile: 6378916410, Username: uttamp, HasPassword: true, Status: active
+Name: Ronak Vaishnav, Mobile: 8890611430, Username: ronakv, HasPassword: true, Status: active
+Name: Rahul  Bhati, Mobile: 8890777993, Username: rahulb, HasPassword: true, Status: active
+Name: Chandni Verma, Mobile: 6377899309, Username: chandni1, HasPassword: true, Status: active
+Name: Demo, Mobile: 1234512347, Username: demo, HasPassword: true, Status: active
+--- ADMIN USERS ---
+Name: System Admin, Mobile: 9999888877, Role: Admin
