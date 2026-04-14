@@ -3662,7 +3662,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driverQuery.isFreelancer = { $ne: true };
     }
 
-    const drivers = await User.find(driverQuery).select('name mobile dailyWage salary overtime').lean();
+    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled').lean();
     if (!drivers.length) return [];
 
     const driverIds = drivers.map(d => d._id);
@@ -4433,15 +4433,21 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         .populate('staff', 'name mobile salary monthlyLeaveAllowance')
         .sort({ date: -1 });
 
-    // If month/year provided, calculate summary
-    const { month, year, staffId: targetStaffId } = req.query;
-    if (month && year) {
-        const reqMonth = parseInt(month, 10);
-        const reqYear = parseInt(year, 10);
+    // If month/year OR custom range provided, calculate summary
+    const { month, year, from: qFrom, to: qTo, staffId: targetStaffId } = req.query;
+    if ((month && year) || (qFrom && qTo)) {
+        let searchStartDT, searchEndDT;
 
-        // Fetch 2 months of data to ensure we hit all variations of cycle starts and ends
-        const searchStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).minus({ days: 31 });
-        const searchEndDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).plus({ months: 2 });
+        if (qFrom && qTo) {
+            searchStartDT = DateTime.fromISO(qFrom).setZone('Asia/Kolkata');
+            searchEndDT = DateTime.fromISO(qTo).setZone('Asia/Kolkata');
+        } else {
+            const reqMonth = parseInt(month, 10);
+            const reqYear = parseInt(year, 10);
+            searchStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).minus({ days: 31 });
+            searchEndDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).plus({ months: 2 });
+        }
+
         const startStrQuery = searchStartDT.toFormat('yyyy-MM-dd');
         const endStrQuery = searchEndDT.toFormat('yyyy-MM-dd');
 
@@ -4484,30 +4490,34 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         const todayStr = now.toFormat('yyyy-MM-dd');
 
         const report = allStaff.map(s => {
-            const joiningDate = s.joiningDate ? new Date(s.joiningDate) : new Date(s.createdAt);
-            const joinDay = DateTime.fromJSDate(joiningDate).setZone('Asia/Kolkata').day;
+            let cycleStartDT, cycleEndDT;
 
-            // Cycle for the requested month starts in that month on the joinDay
-            // E.g. req=Feb, join=5th => cycle is Feb 5 to Mar 4
-            let cycleStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: joinDay }, { zone: 'Asia/Kolkata' });
+            if (qFrom && qTo) {
+                cycleStartDT = DateTime.fromISO(qFrom).setZone('Asia/Kolkata');
+                cycleEndDT = DateTime.fromISO(qTo).setZone('Asia/Kolkata');
+            } else {
+                const reqMonth = parseInt(month, 10);
+                const reqYear = parseInt(year, 10);
+                const joiningDate = s.joiningDate ? new Date(s.joiningDate) : new Date(s.createdAt);
+                const joinDay = DateTime.fromJSDate(joiningDate).setZone('Asia/Kolkata').day;
 
-            // VALIDATION: If the joinDay is 31 but requested month only has 28 days, luxon pushes it to Mar 3rd.
-            if (cycleStartDT.month !== reqMonth) {
-                cycleStartDT = cycleStartDT.set({ day: 0 }); // last day of reqMonth
-            }
+                // Cycle for the requested month starts in that month on the joinDay
+                cycleStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: joinDay }, { zone: 'Asia/Kolkata' });
 
-            // DYNAMIC CYCLE SHIFT: If we are in the requested month but the joinDay hasn't arrived yet, 
-            // the active cycle is actually the one that started in the previous month.
-            const isCurrentMonth = reqMonth === now.month && reqYear === now.year;
-            if (isCurrentMonth && now.day < joinDay) {
-                cycleStartDT = cycleStartDT.minus({ months: 1 });
-                // Re-clamp for the previous month
-                if (cycleStartDT.day !== joinDay && cycleStartDT.plus({ days: 1 }).day === 1) {
-                    // It was clamped or should be clamped
+                // VALIDATION: If the joinDay is 31 but requested month only has 28 days
+                if (cycleStartDT.month !== reqMonth) {
+                    cycleStartDT = cycleStartDT.set({ day: 0 }); // last day of reqMonth
                 }
+
+                // DYNAMIC CYCLE SHIFT: If we are in the requested month but the joinDay hasn't arrived yet
+                const isCurrentMonth = reqMonth === now.month && reqYear === now.year;
+                if (isCurrentMonth && now.day < joinDay) {
+                    cycleStartDT = cycleStartDT.minus({ months: 1 });
+                }
+
+                cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
             }
 
-            const cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
             const cycleStart = cycleStartDT.toFormat('yyyy-MM-dd');
             const cycleEnd = cycleEndDT.toFormat('yyyy-MM-dd');
 
@@ -5078,7 +5088,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             date: { $gte: startStr, $lte: endStr }
         }).populate('vehicle', 'carNumber').sort({ date: 1 });
 
-        const driver = await User.findById(driverId).select('name mobile dailyWage salary overtime');
+        const driver = await User.findById(driverId).select('name mobile role dailyWage salary overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled');
         if (!driver) {
             res.status(404);
             throw new Error('Driver not found');
@@ -5770,12 +5780,17 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         date: targetDate // Strictly show attendance for the target date only
     };
     
-    // EXCLUDE 'deleted' status explicitly (safety measure for soft-delete)
-    const [attendanceToday, fuelEntriesToday, totalVehicles, liveDriversFeed, allVehicles, outsideVehiclesToday] = await Promise.all([
+    // EXCLUDE 'deleted' and 'blocked' drivers explicitly
+    const [attendanceToday, fuelEntriesToday, totalVehicles, allDriversFromDB, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find(attQuery).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
-        User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
+        User.find({ 
+            company: companyObjectId, 
+            role: 'Driver', 
+            isFreelancer: { $ne: true },
+            status: { $in: ['active', 'Active', 'Present'] } // Allowing multiple active-like statuses
+        }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
         Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean(),
         Vehicle.find({
             company: companyObjectId,
@@ -5786,7 +5801,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
 
     // Ensure all drivers with attendance today are in the feed, even if not in the default Driver list
     const driversInAttendanceRaw = attendanceToday.map(a => a.driver).filter(d => d);
-    const seenDriverIds = new Set(liveDriversFeed.map(df => df._id.toString()));
+    const seenDriverIds = new Set(allDriversFromDB.map(df => df._id.toString()));
     const driversInAttendance = [];
 
     driversInAttendanceRaw.forEach(d => {
@@ -5797,18 +5812,24 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         }
     });
 
-    const combinedDrivers = [...liveDriversFeed, ...driversInAttendance];
+    const combinedDrivers = [...allDriversFromDB, ...driversInAttendance];
 
     const mappedDrivers = combinedDrivers.map(driver => {
-        const atts = attendanceToday.filter(a => a.driver?._id?.toString() === driver._id.toString());
+        const dId = driver._id?.toString();
+        const atts = attendanceToday.filter(a => {
+            const aDrId = (a.driver?._id || a.driver)?.toString();
+            return aDrId === dId;
+        });
+
         let status = 'Absent';
         if (atts.some(a => a.status === 'incomplete')) status = 'Present';
         else if (atts.some(a => a.status === 'completed')) status = 'Completed';
         return { ...driver, attendances: atts, status };
-    }).filter(driver => {
-        // Only show drivers (regular or freelancer) if they have active or completed attendance for the target date
-        return driver.status !== 'Absent';
     });
+
+    const liveDriversFeed = mappedDrivers.filter(driver => driver.status !== 'Absent');
+    // Only show active company drivers (not freelancers) in the Absent list
+    const absentDriversFeed = mappedDrivers.filter(driver => driver.status === 'Absent' && driver.isFreelancer !== true);
 
     // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Freelancers.Hub)
     let regularSalaryTotal = 0;
@@ -5920,10 +5941,12 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             outsideCarCount: validOutsideVehicles.length,
             grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal + outsideCarTotal
         },
-        liveDriversFeed: mappedDrivers,
+        liveDriversFeed: liveDriversFeed,
+        absentDriversFeed: absentDriversFeed,
         liveVehiclesFeed,
         dailyFuelEntries: fuelEntriesToday,
         dutyHistoryThisMonth: attendanceToday,
+        absentDriversCount: absentDriversFeed.length,
         lastUpdated: new Date().toISOString()
     };
 
