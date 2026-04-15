@@ -5272,14 +5272,15 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { month, year } = req.query;
 
-    if (!month || !year) {
-        return res.status(400).json({ message: 'Month and Year are required' });
+    if (!year) {
+        return res.status(400).json({ message: 'Year is required' });
     }
 
-    const m = parseInt(month);
+    const isFullYear = !month || month === 'All';
+    const m = (isFullYear || !month) ? 1 : parseInt(month);
     const y = parseInt(year);
-    const monthStart = new Date(y, m - 1, 1);
-    const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+    const monthStart = isFullYear ? new Date(y, 0, 1) : new Date(y, m - 1, 1);
+    const monthEnd = isFullYear ? new Date(y, 11, 31, 23, 59, 59, 999) : new Date(y, m, 0, 23, 59, 59, 999);
     const monthStartStr = DateTime.fromJSDate(monthStart).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
     const monthEndStr = DateTime.fromJSDate(monthEnd).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
@@ -5504,14 +5505,8 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
 
         const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
 
-        // General Maintenance
-        const vGeneralMaint = vMaintAll.filter(m => {
-            if (m.maintenanceType === 'Car Service') return false;
-            const cat = String(m.category || '').toLowerCase();
-            const desc = String(m.description || '').toLowerCase();
-            const typeValue = String(m.maintenanceType || '').toLowerCase();
-            return !serviceRegex.test(cat) && !serviceRegex.test(desc) && !serviceRegex.test(typeValue);
-        });
+        // General Maintenance (Include ALL records for Master Data accuracy)
+        const vGeneralMaint = vMaintAll;
         const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
         // Service Hub records from Maintenance
@@ -5887,7 +5882,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const dailySalaryTotal = regularSalaryTotal;
     const dailyFreelancerSalaryTotal = freelancerSalaryTotal; // Only isFreelancer=true attendance
 
-    const liveVehiclesFeed = allVehicles.map(v => {
+    const allMappedVehicles = allVehicles.map(v => {
         const vIdStr = v._id.toString();
         const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === vIdStr);
         const fuelH = fuelEntriesToday.filter(f => (f.vehicle?._id || f.vehicle || '').toString() === vIdStr);
@@ -5901,7 +5896,9 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             attendances: vehicleAtts,
             fuelToday: fuelH
         };
-    }).filter(v => v.status !== 'Idle') // Only show used/in-use vehicles as requested
+    });
+
+    const liveVehiclesFeed = allMappedVehicles.filter(v => v.status !== 'Idle')
         .sort((a, b) => {
             // Priority: 'Used' before 'In Use' to show free/completed cars first as requested
             if (a.status === 'Used' && b.status === 'In Use') return -1;
@@ -5920,6 +5917,8 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             return new Date(bLastTime) - new Date(aLastTime);
         });
 
+    const unusedVehiclesFeed = allMappedVehicles.filter(v => v.status === 'Idle');
+
     const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
     const totalUsedVehiclesCount = liveVehiclesFeed.length; // Since we filtered for only used
     const runningCars = activeVehiclesCount;
@@ -5930,6 +5929,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         activeVehiclesCount,
         runningCars,
         totalUsedVehiclesCount,
+        unusedVehiclesCount: unusedVehiclesFeed.length,
         countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
         dailyStats: {
@@ -5944,6 +5944,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         liveDriversFeed: liveDriversFeed,
         absentDriversFeed: absentDriversFeed,
         liveVehiclesFeed,
+        unusedVehiclesFeed,
         dailyFuelEntries: fuelEntriesToday,
         dutyHistoryThisMonth: attendanceToday,
         absentDriversCount: absentDriversFeed.length,
