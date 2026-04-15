@@ -2555,7 +2555,7 @@ const deleteBorderTax = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/maintenance
 // @access  Private/Admin
 const addMaintenanceRecord = asyncHandler(async (req, res) => {
-    const {
+    let {
         vehicleId,
         companyId,
         maintenanceType,
@@ -2573,6 +2573,10 @@ const addMaintenanceRecord = asyncHandler(async (req, res) => {
         status,
         driverId
     } = req.body;
+
+    // Normalize array values (FormData can send duplicate keys as arrays)
+    if (Array.isArray(vehicleId)) vehicleId = vehicleId[0];
+    if (Array.isArray(companyId)) companyId = companyId[0];
 
     const maintenanceData = {
         vehicle: vehicleId,
@@ -2782,6 +2786,7 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
     // Clear dashboard cache on any mutation
     DASHBOARD_CACHE.clear();
     const { id } = req.params;
+    console.log(`[UPDATE_MAINTENANCE] ID: ${id}, Body keys: ${Object.keys(req.body).join(', ')}, File: ${req.file ? 'yes' : 'no'}`);
     let targetDoc = null;
     let docType = 'maintenance';
 
@@ -2809,7 +2814,7 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         throw new Error('Record not found in any collection');
     }
 
-    const {
+    let {
         vehicleId,
         maintenanceType,
         category,
@@ -2825,6 +2830,10 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         status,
         driverId
     } = req.body;
+
+    // Normalize array values (FormData can send duplicate keys as arrays)
+    if (Array.isArray(vehicleId)) vehicleId = vehicleId[0];
+    if (Array.isArray(billDate)) billDate = billDate[0];
 
     if (docType === 'maintenance') {
         if (vehicleId) targetDoc.vehicle = vehicleId;
