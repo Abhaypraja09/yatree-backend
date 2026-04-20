@@ -2928,12 +2928,11 @@ const recalculateFuelMetrics = async (vehicleId) => {
         } else {
             entry.distance = entry.odometer - prevOdometer;
 
-            if (entry.distance > 0 && prevAmount > 0 && prevRate > 0) {
-                // Formula: Mileage = Distance / (Amount / Rate)
-                // This simplifies to: (Distance * Rate) / Amount
-                entry.mileage = Number(((entry.distance * prevRate) / prevAmount).toFixed(2));
-                // Cost/KM = Amount paid previously / Distance covered now
-                entry.costPerKm = Number((prevAmount / entry.distance).toFixed(2));
+            if (entry.distance > 0 && entry.quantity > 0) {
+                // Simplified intuitive mileage: Distance covered / Fuel just filled
+                entry.mileage = Number((entry.distance / entry.quantity).toFixed(2));
+                // Cost/KM = Current Amount / Distance covered
+                entry.costPerKm = Number((entry.amount / entry.distance).toFixed(2));
             } else {
                 entry.distance = 0;
                 entry.mileage = 0;
@@ -5512,10 +5511,15 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vReimbursableParking = parkingData.filter(p => p.isReimbursable !== false && p.vehicle?.toString() === vId);
         const totalReimbursableParking = vReimbursableParking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-        const serviceRegex = /wash|puncture|puncher|tissue|water|cleaning|mask|sanitizer/i;
+        const serviceRegex = /wash|puncture|puncher|other service|wiring|radiator|checkup|top-up|kapda|coolant|tissue|water|cleaning|mask|sanitizer/i;
 
-        // General Maintenance (Include ALL records for Master Data accuracy)
-        const vGeneralMaint = vMaintAll;
+        // General Maintenance (Filter out minor services like wash/puncture/other service)
+        const vGeneralMaint = vMaintAll.filter(m => {
+            const type = String(m.maintenanceType || '').toLowerCase();
+            const desc = String(m.description || '').toLowerCase();
+            const cat = String(m.category || '').toLowerCase();
+            return !serviceRegex.test(type) && !serviceRegex.test(desc) && !serviceRegex.test(cat);
+        });
         const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
         // Service Hub records from Maintenance
