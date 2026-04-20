@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const asyncHandler = require('express-async-handler');
 const { DateTime } = require('luxon');
@@ -16,32 +17,97 @@ require('dotenv').config();
 const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim();
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-// Fallback models for stability
+// Use fewer, faster models to prevent 30s timeout
 const modelsToTry = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-flash-latest"
+    "gemini-flash-latest",
+    "gemini-1.5-flash-latest"
 ];
 
-// --- SYSTEM INSTRUCTIONS (THE FLEET COMMANDER PERSONA) ---
+// --- FALLBACK LOGIC FOR GOOGLE API FAILURE ---
+function generateLocalFallback(data, queryType = 'briefing') {
+    // Handle both nested and flat structures
+    const vehicles = data.fleetOverview?.totalVehicles || data.totalVehicles || 0;
+    const active = data.fleetOverview?.activeVehicles || data.activeVehicles || 0;
+    const pendingFuel = data.adminPendingTasks?.fuelPendingCount || data.fuelPending || 0;
+    const pendingParking = data.adminPendingTasks?.parkingPendingCount || data.parkingPending || 0;
+    const alerts = data.expiryAlerts || data.alerts || [];
+
+    const hour = new Date().getHours() + 5; 
+    const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
+
+    if (queryType === 'briefing') {
+        let alertText = alerts.length > 0 
+            ? `⚠️ Attention: ${alerts.length} expiries detected (like ${alerts[0].carNumber} ${alerts[0].type}).`
+            : "No urgent alerts detected in own fleet.";
+
+        return `${greeting}.
+📊 Status Update:
+- Fleet Size: ${vehicles} Owned Vehicles
+- Active Today: ${active} Running
+- Approvals: ${pendingFuel + pendingParking} pending records.
+${alertText}`;
+    }
+
+    return `${greeting}. I am in basic mode. Current Info: ${active}/${vehicles} vehicles running. Alerts status: ${alerts.length} active.`;
+}
+
+
+
+// --- SYSTEM INSTRUCTIONS (HAND MATH AI FLEET ASSISTANT) ---
 const SYSTEM_PROMPT = `
-You are the "Fleet Executive Advisor" for Abhay, the company owner. 
-You don't just answer; you ADVISE, REMIND, and ANALYZE like a senior manager.
+You are an AI Fleet Management Assistant for a Taxi Fleet CRM system called "HAND MATH".
 
-🔴 YOUR CORE RESPONSIBILITIES:
-1. **Approval Vigilance**: Check if there are receipts (Parking/Fuel) that Abhay hasn't approved yet. If found, REMIND him politely: "Aapne X driver ki fuel parchi abhi tak approve nahi ki hai."
-2. **Proactive Insights**: If you see a driver driving very low KM, try to explain why based on the context (e.g. Maintenance, Weekend, No duty).
-3. **Data Interpretation**: Don't just show numbers. Tell him WHAT they mean. (e.g. "Aaj fuel ka kharcha control mein hai" or "Aaj expenses thode bypass ho rahe hain").
-4. **Action Navigation**: Always provide navigation actions using the [ACTION: ...] tag.
+STRICT RULES:
+- GREETING: Use time-based greetings like "Good Morning", "Good Afternoon", or "Good Evening" depending on the current time.
+- NO NAMES: DO NOT use any names (like Abhay Sahab, etc.) in your greetings or responses.
+- LANGUAGE MATCH: Respond in the SAME language as the user's query. If the user asks in Hindi, respond in Hindi. If the user asks in English, respond in English.
+- DATA ONLY: Use ONLY the provided real-time data for the internal fleet.
+- OWNED FLEET ONLY: Do NOT count "Outside Cars" or "Event Cars" as part of the company's own fleet. Only focus on internal vehicles for expiry and costs.
 
-🔴 COMMUNICATION STYLE:
-- Language: Professional Hinglish (Hindi + English).
-- Tone: Vigilant, loyal, and proactive.
-- Approach: If the user doesn't ask, tell them "Aaj ka khaas update ye hai..."
+- NO ASSUMPTIONS: Do NOT guess or generate fake numbers. If data is missing, say "Data not available".
+- Keep responses short, clear, and business-focused. Avoid long explanations.
 
-🧠 ACTION TAG FORMAT:
-[ACTION: {"type": "navigate", "path": "/admin/fuel", "filters": {"search": "Abhay", "month": "4", "year": "2026"}}]
+FINAL INSTRUCTION:
+Accuracy is more important than creativity. Act like a direct business control assistant.
 `;
+
+
+
+function buildSmartPrompt(insights, userQuery) {
+  return `
+You are an Expert Fleet Management AI Consultant.
+
+Your job:
+- Analyze fleet performance
+- Detect problems
+- Find cost leaks
+- Suggest actionable improvements
+
+Strict Rules:
+- Do NOT give generic answers
+- Always use numbers and data
+- Be concise but insightful
+- Answer like a business consultant
+
+User Question:
+"${userQuery}"
+
+Fleet Insights Data:
+${JSON.stringify(insights, null, 2)}
+
+Response Format:
+1. 📊 Current Situation (short summary)
+2. ⚠️ Problems Detected
+3. 💡 Recommendations
+4. 📈 Growth Opportunities
+
+Important:
+- If data is missing, say "insufficient data"
+- Highlight anomalies (high cost, low usage, idle vehicles)
+- Compare performance wherever possible
+`;
+}
+
 
 // @desc    Process AI question with Proactive Approval Reminders
 const processAIQuery = asyncHandler(async (req, res) => {
@@ -107,7 +173,9 @@ const processAIQuery = asyncHandler(async (req, res) => {
             response: responseText
         });
 
-        res.json({ response: responseText });
+        const alertsDetected = /puc|insurance|fitness|expiry|expire|overdue/i.test(responseText);
+        res.json({ response: responseText, alertsDetected });
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -126,7 +194,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     console.log(`[AI-DEBUG] Starting Briefing for User: ${req.user.name}, Company: ${userCompanyId}, Date: ${todayStr}`);
 
     const [vehicles, allIncompleteAttendance, allPendingRecords] = await Promise.all([
-        Vehicle.find({ company: userCompanyId }).lean(),
+        Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean(),
         Attendance.find({ 
             company: userCompanyId, 
             status: 'incomplete' 
@@ -136,6 +204,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
             'pendingExpenses.status': 'pending'
         }).lean()
     ]);
+
 
     console.log(`[AI-DEBUG] Raw Counts - Vehicles: ${vehicles.length}, IncompleteAtt: ${allIncompleteAttendance.length}, RecordsWithPending: ${allPendingRecords.length}`);
 
@@ -152,34 +221,95 @@ const getAIBriefing = asyncHandler(async (req, res) => {
         });
     });
 
+    // Calculate alerts (Insurance, FITNESS, PUC, etc.)
+    const expiryAlerts = [];
+    const thirtyDaysFromNow = DateTime.now().plus({ days: 30 });
+
+    vehicles.forEach(v => {
+        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < thirtyDaysFromNow) {
+            expiryAlerts.push({ carNumber: v.carNumber, type: 'INSURANCE', date: v.insuranceExpiry });
+        }
+        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < thirtyDaysFromNow) {
+            expiryAlerts.push({ carNumber: v.carNumber, type: 'FITNESS', date: v.fitnessExpiry });
+        }
+        if (v.documents && Array.isArray(v.documents)) {
+            v.documents.forEach(doc => {
+                const docDate = doc.expiryDate ? new Date(doc.expiryDate) : null;
+                const expDate = docDate ? DateTime.fromJSDate(docDate) : null;
+                if (expDate && expDate < thirtyDaysFromNow) {
+                    expiryAlerts.push({ carNumber: v.carNumber, type: doc.documentType || 'DOC', date: doc.expiryDate });
+                }
+            });
+        }
+    });
+
     const totalPending = pendingFuelCount + pendingParkingCount;
     // Count running cars as ALL incomplete attendance shifts (ignore date)
     const activeCount = allIncompleteAttendance.length;
 
-    console.log(`[AI-DEBUG] Final Stats - RunningCars: ${activeCount}, FuelPending: ${pendingFuelCount}, ParkingPending: ${pendingParkingCount}`);
+    console.log(`[AI-DEBUG] Final Stats - RunningCars: ${activeCount}, FuelPending: ${pendingFuelCount}, ParkingPending: ${pendingParkingCount}, Alerts: ${expiryAlerts.length}`);
+
 
     const hour = istNow.hour;
     const greeting = hour < 12 ? "Good Morning" : (hour < 17 ? "Good Afternoon" : "Good Evening");
 
     const briefingPrompt = `
-        You are the "Fleet Commander Assistant". 
-        Give a PROACTIVE briefing to Abhay Sahab in Hinglish.
-        Analyze the numbers:
-        - Active Cars: ${activeCount} of ${vehicles.length}
-        - Drivers on Duty: ${attToday.length}
-        - PENDING APPROVALS: ${pendingFuelCount} fuel and ${pendingParkingCount} parking slips (${totalPending} total).
+        You are the "HAND MATH AI Fleet Assistant". 
+        Give a PROACTIVE briefing in the SAME language used in the system (Hindi or English).
+        
+        STRICT RULES:
+        - NO NAMES: DO NOT use any names (like Abhay Sahab) in your greetings or responses.
+        - GREETING: Use time-based greetings (Good Morning/Afternoon/Evening) depending on the time of day.
+        - DATA: Analyze these numbers for the INTERNAL FLEET ONLY:
+            - Active (Running) Cars: ${activeCount}
+            - Total Internal Vehicles: ${vehicles.length}
+            - PENDING APPROVALS: ${pendingFuelCount} fuel and ${pendingParkingCount} parking slips (${totalPending} total).
+            - EXPIRY ALERTS: ${JSON.stringify(expiryAlerts.slice(0, 3))}
         
         🔴 LOGIC RULE: 
-        - If PENDING APPROVALS are 0, do NOT mention them. Just say "All records are updated".
-        - If PENDING APPROVALS are > 0, REMIND Abhay strongly that he needs to check them.
+        - If PENDING APPROVALS are 0, do NOT mention approvals. Just say "All records are updated".
+        - If PENDING APPROVALS are > 0, REMIND the manager to check them.
+        - ALWAYS mention detected expiry alerts (if any) clearly.
+
         
-        Keep it concise (Max 4 sentences) in Hinglish.
+        Keep it very concise (Max 3-4 sentences).
     `;
 
+
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(briefingPrompt);
-        res.json({ briefing: result.response.text() });
+        let responseText = "";
+        
+        // --- ADDED 15s TIMEOUT TO PREVENT AXIOS TIMEOUT ---
+        const aiCall = (async () => {
+            for (const modelName of modelsToTry) {
+                try {
+                    const model = genAI.getGenerativeModel({ model: modelName });
+                    const result = await model.generateContent(briefingPrompt);
+                    return result.response.text();
+                } catch (err) { console.error(`Briefing Error (${modelName}):`, err.message); }
+            }
+            return "";
+        })();
+
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(""), 15000));
+        
+        responseText = await Promise.race([aiCall, timeoutPromise]);
+
+        if (!responseText) {
+            console.log("[AI-TIMEOUT] Falling back to local briefing.");
+            responseText = generateLocalFallback({ 
+                totalVehicles: vehicles.length, 
+                activeVehicles: activeCount, 
+                fuelPending: pendingFuelCount, 
+                parkingPending: pendingParkingCount,
+                alerts: expiryAlerts 
+            }, 'briefing');
+        }
+
+        
+        const alertsDetected = (expiryAlerts && expiryAlerts.length > 0) || /puc|insurance|fitness|expiry|expire|overdue/i.test(responseText);
+        res.json({ briefing: responseText, alertsDetected });
+
     } catch (error) {
         console.error("AI Briefing Error:", error.message);
         res.json({ 
@@ -188,4 +318,72 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { processAIQuery, getAIBriefing };
+// @desc    Process Analytical AI Question
+const analyzeFleetPerformance = asyncHandler(async (req, res) => {
+    const { question } = req.body;
+    const userCompanyId = req.user.company?._id || req.user.company;
+
+    if (!API_KEY) return res.status(503).json({ message: "AI Config Missing." });
+
+    try {
+        const istNow = DateTime.now().setZone('Asia/Kolkata');
+        const startOfMonth = istNow.startOf('month').toJSDate();
+
+        // --- DEEP ANALYTICAL DATA FETCHING (Owned Fleet Only) ---
+        const [vehicles, attendanceToday, monthlyFuel, monthlyMaintenance] = await Promise.all([
+            Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean(),
+            Attendance.find({ company: userCompanyId, date: istNow.toFormat('yyyy-MM-dd') }).populate('driver').lean(),
+            Fuel.find({ company: userCompanyId, date: { $gte: startOfMonth } }).lean(),
+            Maintenance.find({ company: userCompanyId, billDate: { $gte: startOfMonth } }).lean()
+        ]);
+
+
+        const insights = {
+            fleetComposition: {
+                totalVehicles: vehicles.length,
+                running: vehicles.filter(v => v.status === 'Running').length,
+                underMaintenance: vehicles.filter(v => v.status === 'Maintenance').length,
+                idle: vehicles.length - attendanceToday.length
+            },
+            operationalEfficiency: {
+                activeDutiesToday: attendanceToday.length,
+                avgKmPerDuty: attendanceToday.length > 0 
+                    ? attendanceToday.reduce((acc, a) => acc + (a.totalKm || 0), 0) / attendanceToday.length 
+                    : 0
+            },
+            costBasics: {
+                monthlyFuelSpend: monthlyFuel.reduce((acc, f) => acc + (f.amount || 0), 0),
+                monthlyMaintenanceSpend: monthlyMaintenance.reduce((acc, m) => acc + (m.amount || 0), 0),
+                avgFuelRate: monthlyFuel.length > 0 
+                    ? monthlyFuel.reduce((acc, f) => acc + (f.pricePerLitre || 0), 0) / monthlyFuel.length 
+                    : 0
+            },
+            anomalies: {
+                lowUtilizationVehicles: vehicles.filter(v => !attendanceToday.some(a => a.vehicle?.toString() === v._id.toString())).map(v => v.carNumber),
+                excessiveMaintenance: monthlyMaintenance.filter(m => m.amount > 10000).map(m => ({ car: m.carNumber, amount: m.amount }))
+            }
+        };
+
+        const finalPrompt = buildSmartPrompt(insights, question);
+
+        let responseText = "";
+        for (const modelName of modelsToTry) {
+            try {
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent(finalPrompt);
+                responseText = result.response.text();
+                if (responseText) break;
+            } catch (err) { console.error(`Analysis Error (${modelName}):`, err.message); }
+        }
+
+        if (!responseText) throw new Error("AI analysis unavailable.");
+
+        const alertsDetected = /low usage|maintenance|anomaly|attention|alert|expiry/i.test(responseText);
+        res.json({ response: responseText, alertsDetected });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+module.exports = { processAIQuery, getAIBriefing, analyzeFleetPerformance };
