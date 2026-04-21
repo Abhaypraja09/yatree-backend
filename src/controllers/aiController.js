@@ -11,6 +11,8 @@ const Fuel = require('../models/Fuel');
 const AIChat = require('../models/AIChat');
 const Attendance = require('../models/Attendance');
 const Parking = require('../models/Parking');
+const Loan = require('../models/Loan');
+const Allowance = require('../models/Allowance');
 require('dotenv').config();
 
 // Clean API Key from ENV (Remove spaces)
@@ -123,15 +125,90 @@ const processAIQuery = asyncHandler(async (req, res) => {
         const istNow = DateTime.now().setZone('Asia/Kolkata');
         const todayStr = istNow.toFormat('yyyy-MM-dd');
 
+        const startOfMonth = istNow.startOf('month').toFormat('yyyy-MM-dd');
+        const endOfMonth = istNow.endOf('month').toFormat('yyyy-MM-dd');
+
         // --- DEEP DATA FETCHING ---
-        const [vehicles, drivers, attendanceToday, pendingFuel, pendingParking, pendingAdvances] = await Promise.all([
+        const [
+            vehicles, 
+            drivers, 
+            attendanceToday, 
+            pendingFuel, 
+            pendingParking, 
+            pendingAdvances,
+            monthlyAttendance,
+            monthlyAdvances,
+            monthlyLoans,
+            monthlyAllowances
+        ] = await Promise.all([
             Vehicle.find({ company: userCompanyId }).lean(),
             User.find({ company: userCompanyId, role: 'Driver' }).lean(),
             Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').lean(),
             Fuel.find({ company: userCompanyId, status: 'pending' }).populate('vehicle').lean(),
             Parking.find({ companyId: userCompanyId, status: 'pending' }).populate('driverId').lean(),
-            Advance.find({ company: userCompanyId, status: 'pending' }).populate('driver').lean()
+            Advance.find({ company: userCompanyId, status: 'pending' }).populate('driver').lean(),
+            Attendance.find({ company: userCompanyId, date: { $gte: startOfMonth, $lte: endOfMonth } }).lean(),
+            Advance.find({ 
+                company: userCompanyId, 
+                date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } 
+            }).lean(),
+            Loan.find({ company: userCompanyId, status: 'Active' }).lean(),
+            Allowance.find({ company: userCompanyId, date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean()
         ]);
+
+        // Calculate a robust salary summary matching adminController logic
+        const driverSalaries = drivers.filter(d => !d.isFreelancer).map(d => {
+            const dId = d._id.toString();
+            const atts = monthlyAttendance.filter(a => a.driver?.toString() === dId);
+            const advs = monthlyAdvances.filter(a => a.driver?.toString() === dId);
+            const loans = monthlyLoans.filter(l => l.driver?.toString() === dId);
+            const allowances = monthlyAllowances.filter(al => al.driver?.toString() === dId);
+            
+            const attendanceDates = new Set();
+            let totalWage = 0;
+            let totalBonuses = 0;
+            let totalOT = 0;
+
+            // Sort to process earlier duties first
+            const sortedAtts = [...atts].sort((a,b) => (a.date||'').localeCompare(b.date||''));
+
+            sortedAtts.forEach(a => {
+                // Rule: Wage only ONCE per day
+                if (!attendanceDates.has(a.date)) {
+                    attendanceDates.add(a.date);
+                    let dayWage = Number(a.dailyWage) || Number(d.dailyWage) || 0;
+                    if (!dayWage && d.salary) {
+                        dayWage = Math.round(Number(d.salary) / 26);
+                    }
+                    totalWage += dayWage;
+                }
+
+                // Cumulative Bonuses
+                const sameDay = Number(a.punchOut?.allowanceTA) || 0;
+                const nightStay = Number(a.punchOut?.nightStayAmount) || 0;
+                const special = Number(a.punchOut?.specialPay) || 0;
+                totalBonuses += (sameDay + nightStay + special + (Number(a.outsideTrip?.bonusAmount) || 0));
+
+                // OT Calculation
+                if (d.overtime?.enabled && a.punchIn?.time && a.punchOut?.time) {
+                    const hours = (new Date(a.punchOut.time) - new Date(a.punchIn.time)) / 3600000;
+                    const otH = Math.max(0, hours - (Number(d.overtime.thresholdHours) || 9));
+                    totalOT += Math.round(otH * (Number(d.overtime.ratePerHour) || 0));
+                }
+            });
+
+            const totalEarned = totalWage + totalBonuses + totalOT + allowances.reduce((s, al) => s + (Number(al.amount) || 0), 0);
+            const totalAdvance = advs.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+            const totalEMI = loans.reduce((sum, l) => sum + (Number(l.monthlyEMI) || 0), 0);
+            
+            return {
+                name: d.name,
+                earnedThisMonth: totalEarned,
+                advanceTaken: totalAdvance,
+                loanEMI: totalEMI,
+                balanceDue: totalEarned - totalAdvance - totalEMI
+            };
+        });
 
         // Add "Pending Tasks" to context to trigger AI reminders
         dataContext.adminPendingTasks = {
@@ -139,16 +216,23 @@ const processAIQuery = asyncHandler(async (req, res) => {
             unapprovedParkingSlips: pendingParking.length,
             pendingAdvanceRequests: pendingAdvances.length,
             details: {
-                fuel: pendingFuel.map(f => `${f.vehicle?.plateNumber} (₹${f.amount})`).join(', '),
+                fuel: pendingFuel.map(f => `${f.vehicle?.carNumber || 'N/A'} (₹${f.amount})`).join(', '),
                 parking: pendingParking.map(p => `${p.driverId?.name} (₹${p.amount})`).join(', ')
             }
         };
 
         dataContext.fleetOverview = {
             totalCars: vehicles.length,
-            runningCars: vehicles.filter(v => v.status === 'Running').length,
+            runningCars: attendanceToday.filter(a => a.status === 'incomplete').length,
             maintenanceCars: vehicles.filter(v => v.status === 'Maintenance').length,
             driversOnDuty: attendanceToday.length
+        };
+
+        dataContext.financials = {
+            currentMonthDriverSalaries: driverSalaries,
+            totalSalaryLiability: driverSalaries.reduce((sum, d) => sum + d.earnedThisMonth, 0),
+            totalAdvancesGiven: driverSalaries.reduce((sum, d) => sum + d.advanceTaken, 0),
+            totalLoanEMI: driverSalaries.reduce((sum, d) => sum + d.loanEMI, 0)
         };
 
         // --- GENERATE AI RESPONSE ---
@@ -193,11 +277,12 @@ const getAIBriefing = asyncHandler(async (req, res) => {
 
     console.log(`[AI-DEBUG] Starting Briefing for User: ${req.user.name}, Company: ${userCompanyId}, Date: ${todayStr}`);
 
-    const [vehicles, allIncompleteAttendance, allPendingRecords] = await Promise.all([
+    const [vehicles, todayIncompleteAttendance, allPendingRecords] = await Promise.all([
         Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean(),
         Attendance.find({ 
             company: userCompanyId, 
-            status: 'incomplete' 
+            status: 'incomplete',
+            date: todayStr
         }).lean(),
         Attendance.find({
             company: userCompanyId,
@@ -206,7 +291,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     ]);
 
 
-    console.log(`[AI-DEBUG] Raw Counts - Vehicles: ${vehicles.length}, IncompleteAtt: ${allIncompleteAttendance.length}, RecordsWithPending: ${allPendingRecords.length}`);
+    console.log(`[AI-DEBUG] Raw Counts - Vehicles: ${vehicles.length}, TodayActive: ${todayIncompleteAttendance.length}, RecordsWithPending: ${allPendingRecords.length}`);
 
     // Flatten all pending expenses for counting
     let pendingFuelCount = 0;
@@ -244,8 +329,8 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     });
 
     const totalPending = pendingFuelCount + pendingParkingCount;
-    // Count running cars as ALL incomplete attendance shifts (ignore date)
-    const activeCount = allIncompleteAttendance.length;
+    // Count running cars as today's incomplete attendance only for consistency with Live Feed
+    const activeCount = todayIncompleteAttendance.length;
 
     console.log(`[AI-DEBUG] Final Stats - RunningCars: ${activeCount}, FuelPending: ${pendingFuelCount}, ParkingPending: ${pendingParkingCount}, Alerts: ${expiryAlerts.length}`);
 
@@ -255,6 +340,9 @@ const getAIBriefing = asyncHandler(async (req, res) => {
 
     const briefingPrompt = `
         You are the "HAND MATH AI Fleet Assistant". 
+        Current Time Context: ${greeting} (${istNow.toFormat('hh:mm a')})
+
+        Instruction: Start your response with "${greeting}".
         Give a PROACTIVE briefing in the SAME language used in the system (Hindi or English).
         
         STRICT RULES:
@@ -386,4 +474,35 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
     }
 });
 
-module.exports = { processAIQuery, getAIBriefing, analyzeFleetPerformance };
+const checkAlerts = asyncHandler(async (req, res) => {
+    const userCompanyId = req.user.company?._id || req.user.company;
+    const thirtyDaysFromNow = DateTime.now().plus({ days: 30 });
+
+    const vehicles = await Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean();
+    
+    let alertsList = [];
+    for (const v of vehicles) {
+        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < thirtyDaysFromNow) {
+            alertsList.push({ carNumber: v.carNumber, type: 'INSURANCE', date: v.insuranceExpiry });
+        }
+        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < thirtyDaysFromNow) {
+            alertsList.push({ carNumber: v.carNumber, type: 'FITNESS', date: v.fitnessExpiry });
+        }
+        if (v.documents && Array.isArray(v.documents)) {
+            v.documents.forEach(doc => {
+                const docDate = doc.expiryDate ? new Date(doc.expiryDate) : null;
+                const expDate = docDate ? DateTime.fromJSDate(docDate) : null;
+                if (expDate && expDate < thirtyDaysFromNow) {
+                    alertsList.push({ carNumber: v.carNumber, type: doc.documentType || 'DOC', date: doc.expiryDate });
+                }
+            });
+        }
+    }
+    // Sort by date (most urgent first) and take top 3
+    alertsList.sort((a, b) => new Date(a.date) - new Date(b.date));
+    const top3Alerts = alertsList.slice(0, 3);
+
+    res.json({ alertsDetected: top3Alerts.length > 0, alerts: top3Alerts });
+});
+
+module.exports = { processAIQuery, getAIBriefing, analyzeFleetPerformance, checkAlerts };

@@ -389,10 +389,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             Promise.all([
                 Attendance.find({ 
                     company: companyObjectId, 
-                    $or: [
-                        { date: targetDate }, 
-                        { status: 'incomplete' }
-                    ] 
+                    date: targetDate
                 }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
                 User.countDocuments({ company: companyObjectId, role: 'Driver', tripStatus: 'pending_approval' }),
                 User.countDocuments({ company: companyObjectId, role: 'Staff' }),
@@ -5799,7 +5796,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             isFreelancer: { $ne: true },
             status: { $in: ['active', 'Active', 'Present'] } // Allowing multiple active-like statuses
         }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
-        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model').lean(),
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model status').lean(),
         Vehicle.find({
             company: companyObjectId,
             isOutsideCar: true,
@@ -5905,6 +5902,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
 
         return {
             ...v,
+            dbStatus: v.status,
             status: hasActive ? 'In Use' : (wasUsedToday ? 'Used' : 'Idle'),
             attendances: vehicleAtts,
             fuelToday: fuelH
