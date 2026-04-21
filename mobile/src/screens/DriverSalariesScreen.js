@@ -21,11 +21,12 @@ const DriverSalariesScreen = () => {
     const [salaries, setSalaries] = useState([]);
     const [advances, setAdvances] = useState([]);
     const [loans, setLoans] = useState([]);
+    const [allowances, setAllowances] = useState([]);
     const [drivers, setDrivers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('salaries'); // 'salaries', 'advances', 'loans'
+    const [activeTab, setActiveTab] = useState('special'); // 'salaries', 'advances', 'loans', 'special'
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
@@ -49,12 +50,14 @@ const DriverSalariesScreen = () => {
                 api.get(`/api/admin/salary-summary/${selectedCompany._id}?month=${selectedMonth}&year=${selectedYear}`),
                 api.get(`/api/admin/advances/${selectedCompany._id}?month=${selectedMonth}&year=${selectedYear}&isFreelancer=false`),
                 api.get(`/api/admin/loans/${selectedCompany._id}`),
-                api.get(`/api/admin/drivers/${selectedCompany._id}?usePagination=false&isFreelancer=false`)
+                api.get(`/api/admin/drivers/${selectedCompany._id}?usePagination=false&isFreelancer=false`),
+                api.get(`/api/admin/allowances/${selectedCompany._id}?month=${selectedMonth}&year=${selectedYear}`)
             ]);
             setSalaries(salRes.data || []);
             setAdvances(advRes.data || []);
             setLoans(loanRes.data || []);
             setDrivers(driversRes.data.drivers || []);
+            setAllowances(Array.isArray(allowancesRes.data) ? allowancesRes.data : (allowancesRes.data?.allowances || []));
         } catch (err) {
             console.error('Failed to fetch salary data', err);
         } finally {
@@ -176,6 +179,22 @@ const DriverSalariesScreen = () => {
         );
     };
 
+    const AllowanceCard = ({ item }) => (
+        <View style={styles.card}>
+            <View style={styles.cardHeader}>
+                <View style={{flexDirection:'row', gap:12, alignItems:'center'}}>
+                    <View style={[styles.avatar, {backgroundColor:'rgba(16, 185, 129, 0.1)'}]}><Text style={[styles.avatarText, {color:'#10b981'}]}>{item.driver?.name?.charAt(0)}</Text></View>
+                    <View>
+                        <Text style={styles.driverName}>{item.driver?.name}</Text>
+                        <Text style={styles.metaT}>{formatDateIST(item.date)}</Text>
+                    </View>
+                </View>
+                <Text style={[styles.netV, {color:'#10b981'}]}>+₹{item.amount}</Text>
+            </View>
+            <View style={[styles.remarkBox, {backgroundColor:'rgba(16, 185, 129, 0.05)'}]}><Text style={[styles.remarkT, {color:'rgba(16, 185, 129, 0.6)'}]}>{item.type}: {item.remark || 'Special Payment'}</Text></View>
+        </View>
+    );
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.summaryArea}>
@@ -192,11 +211,7 @@ const DriverSalariesScreen = () => {
             </View>
 
             <View style={styles.tabBar}>
-                {['salaries', 'advances', 'loans'].map(t => (
-                    <TouchableOpacity key={t} style={[styles.tab, activeTab === t && styles.tabActive]} onPress={() => setActiveTab(t)}>
-                        <Text style={[styles.tabT, activeTab === t && {color:'#fbbf24'}]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
-                    </TouchableOpacity>
-                ))}
+                {/* Tabs removed as per request to focus on Special Pay */}
             </View>
 
             <View style={styles.controls}>
@@ -213,11 +228,8 @@ const DriverSalariesScreen = () => {
 
             {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#fbbf24" /></View> : (
                 <FlatList
-                    data={activeTab === 'salaries' ? salaries.filter(s => s.name?.toLowerCase().includes(searchTerm.toLowerCase())) :
-                          activeTab === 'advances' ? advances.filter(a => a.driver?.name?.toLowerCase().includes(searchTerm.toLowerCase())) :
-                          loans.filter(l => l.driver?.name?.toLowerCase().includes(searchTerm.toLowerCase()))
-                    }
-                    renderItem={({ item }) => activeTab === 'salaries' ? <SalaryCard item={item} /> : activeTab === 'advances' ? <AdvanceCard item={item} /> : <LoanCard item={item} />}
+                    data={allowances.filter(al => al.driver?.name?.toLowerCase().includes(searchTerm.toLowerCase()))}
+                    renderItem={({ item }) => <AllowanceCard item={item} />}
                     keyExtractor={item => item._id}
                     contentContainerStyle={styles.list}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fbbf24" />}

@@ -105,7 +105,27 @@ const FuelScreen = () => {
         const total = filteredEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
         const liters = filteredEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
         const distance = filteredEntries.reduce((sum, e) => sum + (e.distance || 0), 0);
-        const efficiency = liters > 0 ? (distance / liters).toFixed(1) : 0;
+
+        // Group entries by vehicle to calculate "consumed" liters (excluding latest fill)
+        const vehicleGroups = {};
+        filteredEntries.forEach(entry => {
+            const vehicleId = entry.vehicle?._id || entry.vehicle;
+            if (!vehicleId) return;
+            if (!vehicleGroups[vehicleId]) vehicleGroups[vehicleId] = [];
+            vehicleGroups[vehicleId].push(entry);
+        });
+
+        let totalConsumedLiters = 0;
+        Object.values(vehicleGroups).forEach(group => {
+            // Sort by date/odometer
+            const sorted = [...group].sort((a, b) => new Date(b.date) - new Date(a.date));
+            // Exclude the most recent fill quantity
+            const quantityToExclude = Number(sorted[0]?.quantity) || 0;
+            const groupTotalQuantity = group.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+            totalConsumedLiters += Math.max(0, groupTotalQuantity - quantityToExclude);
+        });
+
+        const efficiency = totalConsumedLiters > 0 ? (distance / totalConsumedLiters).toFixed(2) : 0;
         return { total, liters, distance, efficiency };
     }, [entries, searchTerm]);
 
@@ -152,18 +172,33 @@ const FuelScreen = () => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.summary}>
-                <View style={styles.summaryCard}>
+                <View style={[styles.summaryCard, { background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' }]}>
                     <View style={styles.sumTop}>
                         <View>
                             <Text style={styles.sumL}>{months[selectedMonth]} FUEL EXPENDITURE</Text>
                             <Text style={styles.sumV}>₹{stats.total.toLocaleString()}</Text>
                         </View>
-                        <View style={styles.sumIcon}><Droplets size={26} color="#fbbf24" /></View>
+                        <View style={styles.sumIcon}>
+                            <View style={{ position: 'absolute', inset: 0, backgroundColor: '#fbbf24', opacity: 0.1, borderRadius: 16 }} />
+                            <Droplets size={26} color="#fbbf24" style={{ zIndex: 1 }} />
+                        </View>
                     </View>
                     <View style={styles.sumGrid}>
-                        <View style={styles.sumItem}><Text style={styles.sumIL}>TOTAL VOLUME</Text><Text style={styles.sumIV}>{stats.liters.toFixed(1)} L</Text></View>
-                        <View style={styles.sumItem}><Text style={styles.sumIL}>DIST. RUN</Text><Text style={styles.sumIV}>{stats.distance} KM</Text></View>
-                        <View style={styles.sumItem}><Text style={styles.sumIL}>AVG EFFICIENCY</Text><Text style={[styles.sumIV, {color:'#10b981'}]}>{stats.efficiency} KM/L</Text></View>
+                        <View style={styles.sumItem}>
+                            <Text style={styles.sumIL}>TOTAL VOLUME</Text>
+                            <Text style={styles.sumIV}>{stats.liters.toFixed(1)} L</Text>
+                        </View>
+                        <View style={styles.sumItem}>
+                            <Text style={styles.sumIL}>DIST. RUN</Text>
+                            <Text style={styles.sumIV}>{stats.distance} KM</Text>
+                        </View>
+                        <View style={styles.sumItem}>
+                            <Text style={styles.sumIL}>AVG EFFICIENCY</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <TrendingUp size={14} color="#10b981" />
+                                <Text style={[styles.sumIV, { color: '#10b981' }]}>{stats.efficiency} KM/L</Text>
+                            </View>
+                        </View>
                     </View>
                 </View>
             </View>
@@ -324,97 +359,109 @@ const FuelScreen = () => {
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0D111D' },
-    summary: { padding: 25 },
-    summaryCard: { backgroundColor: '#161B2A', borderRadius: 32, padding: 25, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-    sumTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
-    sumL: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
-    sumV: { color: 'white', fontSize: 32, fontWeight: '950', marginTop: 4 },
-    sumIcon: { width: 50, height: 50, borderRadius: 16, backgroundColor: 'rgba(251, 191, 36, 0.08)', justifyContent: 'center', alignItems: 'center' },
-    sumGrid: { flexDirection: 'row', gap: 15 },
+    container: { flex: 1, backgroundColor: '#070a14' },
+    summary: { padding: 20 },
+    summaryCard: { 
+        backgroundColor: '#161B2A', 
+        borderRadius: 32, 
+        padding: 24, 
+        borderWidth: 1, 
+        borderColor: 'rgba(255,255,255,0.08)',
+        shadowColor: '#fbbf24',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10
+    },
+    sumTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    sumL: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '900', letterSpacing: 1.5, textTransform: 'uppercase' },
+    sumV: { color: 'white', fontSize: 36, fontWeight: '950', marginTop: 4, letterSpacing: -1 },
+    sumIcon: { width: 56, height: 56, borderRadius: 18, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+    sumGrid: { flexDirection: 'row', gap: 12, backgroundColor: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
     sumItem: { flex: 1 },
-    sumIL: { color: 'rgba(255,255,255,0.2)', fontSize: 8, fontWeight: '900', marginBottom: 4 },
-    sumIV: { color: 'white', fontSize: 15, fontWeight: '900' },
-    tabs: { flexDirection: 'row', paddingHorizontal: 25, gap: 10, marginBottom: 20 },
-    tab: { flex: 1, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.02)', justifyContent: 'center', alignItems: 'center' },
-    tabA: { backgroundColor: 'rgba(251, 191, 36, 0.1)', borderWidth: 1, borderColor: 'rgba(251, 191, 36, 0.15)' },
-    tabT: { color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: '900' },
+    sumIL: { color: 'rgba(255,255,255,0.3)', fontSize: 8, fontWeight: '900', marginBottom: 6, textTransform: 'uppercase' },
+    sumIV: { color: 'white', fontSize: 15, fontWeight: '950' },
+    tabs: { flexDirection: 'row', paddingHorizontal: 20, gap: 10, marginBottom: 20 },
+    tab: { flex: 1, height: 48, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    tabA: { backgroundColor: 'rgba(251, 191, 36, 0.12)', borderColor: 'rgba(251, 191, 36, 0.3)' },
+    tabT: { color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
     tabTA: { color: '#fbbf24' },
-    controls: { paddingHorizontal: 25, gap: 15, marginBottom: 20 },
-    monthBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#161B2A', height: 54, borderRadius: 18, paddingHorizontal: 15 },
-    monthT: { color: 'white', fontSize: 14, fontWeight: '950' },
-    searchRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161B2A', height: 52, borderRadius: 18, paddingHorizontal: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-    si: { flex: 1, color: 'white', fontWeight: '600', marginLeft: 10 },
-    list: { paddingHorizontal: 25, paddingBottom: 150 },
-    card: { backgroundColor: '#161B2A', borderRadius: 32, padding: 22, marginBottom: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden' },
-    glow: { position: 'absolute', left: 0, top: 20, width: 4, height: 40, borderTopRightRadius: 4, borderBottomRightRadius: 4 },
-    cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-    vInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    vIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.02)', justifyContent: 'center', alignItems: 'center' },
-    vPlate: { color: 'white', fontSize: 18, fontWeight: '950' },
-    vSub: { color: 'rgba(255,255,255,0.3)', fontSize: 11, fontWeight: '700' },
-    vAmt: { color: 'white', fontSize: 20, fontWeight: '950' },
-    vQty: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: '800' },
-    statLine: { flexDirection: 'row', gap: 15, marginBottom: 18 },
-    sItem: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.15)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-    sVal: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700' },
-    cardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)' },
-    driverTag: { color: 'rgba(255,255,255,0.25)', fontSize: 10, fontWeight: '800' },
+    controls: { paddingHorizontal: 20, gap: 12, marginBottom: 20 },
+    monthBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111827', height: 56, borderRadius: 20, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    monthT: { color: 'white', fontSize: 15, fontWeight: '900', letterSpacing: 0.5 },
+    searchRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', height: 54, borderRadius: 20, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    si: { flex: 1, color: 'white', fontWeight: '800', marginLeft: 12, fontSize: 14 },
+    list: { paddingHorizontal: 20, paddingBottom: 150 },
+    card: { backgroundColor: '#111827', borderRadius: 32, padding: 24, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' },
+    glow: { position: 'absolute', left: 0, top: 24, width: 4, height: 44, borderTopRightRadius: 6, borderBottomRightRadius: 6 },
+    cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    vInfo: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    vIconBox: { width: 48, height: 48, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    vPlate: { color: 'white', fontSize: 19, fontWeight: '950', letterSpacing: -0.5 },
+    vSub: { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '700', marginTop: 2 },
+    vAmt: { color: 'white', fontSize: 22, fontWeight: '950' },
+    vQty: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: '800', marginTop: 2 },
+    statLine: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+    sItem: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0,0,0,0.25)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
+    sVal: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '800' },
+    cardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' },
+    driverTag: { color: 'rgba(255,255,255,0.3)', fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
     fab: { 
         position: 'absolute', 
-        bottom: 35, 
-        right: 25, 
-        width: 68, 
-        height: 68, 
-        borderRadius: 24, 
+        bottom: 40, 
+        right: 20, 
+        width: 72, 
+        height: 72, 
+        borderRadius: 26, 
         backgroundColor: '#fbbf24', 
         justifyContent: 'center', 
         alignItems: 'center',
-        ...Platform.select({
-            web: { boxShadow: '0 10px 20px rgba(0,0,0,0.5)' },
-            default: { elevation: 12 }
-        })
+        shadowColor: '#fbbf24',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        elevation: 15
     },
-    center: { flex: 1, justifyContent: 'center' },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     mOverlay: { flex: 1, backgroundColor: 'rgba(7, 10, 20, 0.98)', justifyContent: 'flex-end' },
-    mBox: { backgroundColor: '#161B2A', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 30, maxHeight: '92%' },
-    mHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
-    mT: { color: 'white', fontSize: 22, fontWeight: '950' },
-    ig: { marginBottom: 20 },
-    l: { color: '#fbbf24', fontSize: 9, fontWeight: '950', marginBottom: 10, letterSpacing: 1.5 },
-    mi: { backgroundColor: '#0D111D', borderRadius: 18, height: 56, paddingHorizontal: 18, color: 'white', fontWeight: '700', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-    sel: { backgroundColor: '#0D111D', borderRadius: 18, height: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    mBox: { backgroundColor: '#111827', borderTopLeftRadius: 44, borderTopRightRadius: 44, padding: 32, maxHeight: '94%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+    mHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
+    mT: { color: 'white', fontSize: 24, fontWeight: '950', letterSpacing: -0.5 },
+    ig: { marginBottom: 24 },
+    l: { color: '#fbbf24', fontSize: 10, fontWeight: '950', marginBottom: 12, letterSpacing: 2, textTransform: 'uppercase' },
+    mi: { backgroundColor: '#070a14', borderRadius: 20, height: 62, paddingHorizontal: 20, color: 'white', fontWeight: '800', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', fontSize: 16 },
+    sel: { backgroundColor: '#070a14', borderRadius: 20, height: 62, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
     row: { flexDirection: 'row' },
-    save: { backgroundColor: '#fbbf24', height: 66, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-    saveT: { color: '#000', fontSize: 16, fontWeight: '950' },
+    save: { backgroundColor: '#fbbf24', height: 70, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginTop: 12, shadowColor: '#fbbf24', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 12 },
+    saveT: { color: '#000', fontSize: 17, fontWeight: '950', letterSpacing: 0.5 },
 
     // Detail Modal Styles
-    detailOverlay: { flex: 1, backgroundColor: 'rgba(7, 10, 20, 0.95)', justifyContent: 'flex-end' },
-    detailContent: { backgroundColor: '#0D111D', borderTopLeftRadius: 40, borderTopRightRadius: 40, height: '90%', padding: 25 },
-    detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
+    detailOverlay: { flex: 1, backgroundColor: 'rgba(7, 10, 20, 0.96)', justifyContent: 'flex-end' },
+    detailContent: { backgroundColor: '#070a14', borderTopLeftRadius: 44, borderTopRightRadius: 44, height: '92%', padding: 28 },
+    detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
     dhLeft: { flex: 1 },
-    targetLabel: { color: '#fbbf24', fontSize: 10, fontWeight: '950', letterSpacing: 2 },
-    detailTitle: { color: 'white', fontSize: 24, fontWeight: '950', marginTop: 4 },
-    detailSub: { color: 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: '700', marginTop: 4 },
-    closeBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#161B2A', justifyContent: 'center', alignItems: 'center' },
-    detailSection: { backgroundColor: '#161B2A', borderRadius: 28, padding: 22, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
-    sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-    sectionTitle: { fontSize: 11, fontWeight: '1000', letterSpacing: 1.5 },
-    sectionSub: { color: 'rgba(255,255,255,0.2)', fontSize: 8, fontWeight: '900', marginTop: 2 },
-    statsRow: { flexDirection: 'row', gap: 15, marginBottom: 20 },
-    miniStat: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 16 },
-    miniStatL: { color: 'rgba(255,255,255,0.3)', fontSize: 8, fontWeight: '900', marginBottom: 4 },
-    miniStatV: { color: 'white', fontSize: 15, fontWeight: '950' },
-    boxGrid: { flexDirection: 'row', gap: 15, marginBottom: 20 },
-    detailBox: { flex: 1, backgroundColor: 'rgba(0,0,0,0.15)', padding: 15, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
-    boxTime: { color: 'white', fontSize: 16, fontWeight: '950', marginTop: 4 },
-    mRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-    mL: { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '700' },
-    mV: { color: 'white', fontSize: 13, fontWeight: '900' },
-    badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
-    badgeT: { fontSize: 9, fontWeight: '1000', letterSpacing: 1 },
-    modalScroll: { marginBottom: 10 },
-    evidenceImg: { width: '100%', height: 180, borderRadius: 16, backgroundColor: '#000' }
+    targetLabel: { color: '#fbbf24', fontSize: 11, fontWeight: '950', letterSpacing: 2.5, textTransform: 'uppercase' },
+    detailTitle: { color: 'white', fontSize: 28, fontWeight: '950', marginTop: 6, letterSpacing: -0.5 },
+    detailSub: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontWeight: '700', marginTop: 6 },
+    closeBtn: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    detailSection: { backgroundColor: '#111827', borderRadius: 32, padding: 24, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+    sectionTitle: { fontSize: 12, fontWeight: '1000', letterSpacing: 2, textTransform: 'uppercase' },
+    sectionSub: { color: 'rgba(255,255,255,0.3)', fontSize: 9, fontWeight: '900', marginTop: 4 },
+    statsRow: { flexDirection: 'row', gap: 14, marginBottom: 24 },
+    miniStat: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', padding: 18, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
+    miniStatL: { color: 'rgba(255,255,255,0.3)', fontSize: 9, fontWeight: '900', marginBottom: 6, textTransform: 'uppercase' },
+    miniStatV: { color: 'white', fontSize: 17, fontWeight: '950' },
+    boxGrid: { flexDirection: 'row', gap: 14, marginBottom: 24 },
+    detailBox: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', padding: 18, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+    boxTime: { color: 'white', fontSize: 18, fontWeight: '950', marginTop: 6 },
+    mRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
+    mL: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '700' },
+    mV: { color: 'white', fontSize: 14, fontWeight: '900' },
+    badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
+    badgeT: { fontSize: 10, fontWeight: '1000', letterSpacing: 1.5 },
+    modalScroll: { marginBottom: 12 },
+    evidenceImg: { width: '100%', height: 220, borderRadius: 24, backgroundColor: '#000', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }
 });
 
 export default FuelScreen;

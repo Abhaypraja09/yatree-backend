@@ -89,7 +89,8 @@ const vehicleSchema = new mongoose.Schema({
         amount: { type: Number, required: true },
         date: { type: Date, default: Date.now },
         method: { type: String }, // e.g., ICICI Bank, UPI, etc.
-        remarks: { type: String }
+        remarks: { type: String },
+        receiptPhoto: { type: String }
     }],
     documents: [{
         documentType: {

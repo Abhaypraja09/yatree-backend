@@ -94,6 +94,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 100
     },
+    sameDayReturnEnabled: {
+        type: Boolean,
+        default: false
+    },
     monthlyLeaveAllowance: {
         type: Number,
         default: 4

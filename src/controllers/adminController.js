@@ -31,7 +31,7 @@ const CACHE_TTL = 10 * 60 * 1000; // 10 mins cache for heavy financial stats
 // @access  Private/Admin
 const createDriver = async (req, res, next) => {
     try {
-        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username, dailyWage, salary, nightStayBonus, sameDayReturnBonus } = req.body;
+        const { name, mobile, password, companyId, isFreelancer, licenseNumber, username, dailyWage, salary, nightStayBonus, sameDayReturnBonus, sameDayReturnEnabled } = req.body;
         console.log('CREATE DRIVER BODY:', req.body);
         const freelancer = isFreelancer === 'true' || isFreelancer === true;
 
@@ -79,6 +79,7 @@ const createDriver = async (req, res, next) => {
             salary: Number(salary) || 0,
             nightStayBonus: (nightStayBonus !== undefined && nightStayBonus !== '') ? Number(nightStayBonus) : 0,
             sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 0,
+            sameDayReturnEnabled: sameDayReturnEnabled === 'true' || sameDayReturnEnabled === true,
             overtime: {
                 enabled: req.body.overtimeEnabled === 'true' || req.body.overtimeEnabled === true,
                 thresholdHours: Number(req.body.overtimeThreshold) || 9,
@@ -384,7 +385,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Fuel.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' }, q: { $sum: '$quantity' } } }]),
                 Parking.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$serviceType", t: { $sum: '$amount' } } }]),
                 BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
-                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
+                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                require('../models/Allowance').aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
                 Attendance.find({ 
@@ -420,7 +422,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const totalVehicles = basicCounts[0]?.total[0]?.c || 0;
         const totalInternalVehicles = basicCounts[0]?.internal[0]?.c || 0;
         const [vExp, dExp, upcomingS] = alertData;
-        const [fT, aD, mFuel, mPark, bTax, mMaintAgg] = financialData;
+        const [fT, aD, mFuel, mPark, bTax, mMaintAgg, mSpecialPayAgg] = financialData;
         const [attToday, pendingApps, totalStaff, staffAttToday, reportedIss] = fleetStatus;
         const [outFacet, mAcc, yAcc] = outsideData;
         const [salReg, salFree, mAtt, allD, allV] = salaryData;
@@ -432,6 +434,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyEventTotal = outFacet[0]?.e[0]?.t || 0;
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
         const monthlyMaintAmount = mMaintAgg[0]?.t || 0;
+        const monthlySpecialPayTotal = mSpecialPayAgg[0]?.t || 0;
 
         // FLATTEN & CALCULATE ALERTS
         const today = baseDate.toJSDate();
@@ -479,6 +482,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             reportedIssues: reportedIss,
             monthlySalaryTotal: monthlyRegularSalaryTotal + outsideCarsMonthlyTotal,
             monthlyRegularSalaryTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
+            monthlySpecialPayTotal,
             monthlyOutsideCarsTotal: outsideCarsMonthlyTotal,
             monthlyEventTotal,
             dailyFuelAmount: { total: fToday.reduce((s, x) => s + (x.amount || 0), 0), count: fToday.length },
@@ -786,6 +790,10 @@ const updateDriver = asyncHandler(async (req, res) => {
 
         if (req.body.sameDayReturnBonus !== undefined && req.body.sameDayReturnBonus !== '') {
             driver.sameDayReturnBonus = Number(req.body.sameDayReturnBonus);
+        }
+        
+        if (req.body.sameDayReturnEnabled !== undefined) {
+            driver.sameDayReturnEnabled = req.body.sameDayReturnEnabled === 'true' || req.body.sameDayReturnEnabled === true;
         }
 
         if (req.body.licenseNumber !== undefined) {
@@ -1831,12 +1839,18 @@ const rechargeFastag = asyncHandler(async (req, res) => {
     const rechargeAmount = Number(amount);
 
     // Update balance and history
+    let receiptUrl = '';
+    if (req.file) {
+        receiptUrl = req.file.path;
+    }
+
     vehicle.fastagBalance = (vehicle.fastagBalance || 0) + rechargeAmount;
     vehicle.fastagHistory.push({
         amount: rechargeAmount,
         method: method || 'Manual',
         remarks: remarks || '',
-        date: date ? new Date(date) : new Date()
+        date: date ? new Date(date) : new Date(),
+        receiptPhoto: receiptUrl
     });
 
     await vehicle.save();
@@ -1879,6 +1893,10 @@ const updateFastagRecharge = asyncHandler(async (req, res) => {
     historyEntry.method = method || historyEntry.method;
     historyEntry.remarks = remarks || historyEntry.remarks;
     if (date) historyEntry.date = new Date(date);
+    
+    if (req.file) {
+        historyEntry.receiptPhoto = req.file.path;
+    }
 
     await vehicle.save();
     res.json({ message: 'Fastag entry updated', newBalance: vehicle.fastagBalance });
@@ -2658,8 +2676,9 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             parkingQuery.date = { $gte: startOfMonth, $lte: endOfMonth };
             attendanceQuery.createdAt = { $gte: startOfMonth, $lte: endOfMonth };
         } else {
-            const startOfYear = new Date(parseInt(year), 0, 1);
-            const endOfYear = new Date(parseInt(year), 11, 31, 23, 59, 59, 999);
+            // Standardize to Indian Financial Year (April to March) for 'Full Year'
+            const startOfYear = new Date(parseInt(year), 3, 1); // April 1st
+            const endOfYear = new Date(parseInt(year) + 1, 2, 31, 23, 59, 59, 999); // March 31st of next year
             query.billDate = { $gte: startOfYear, $lte: endOfYear };
             parkingQuery.date = { $gte: startOfYear, $lte: endOfYear };
             attendanceQuery.createdAt = { $gte: startOfYear, $lte: endOfYear };
@@ -2736,14 +2755,22 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
         combined = combined.filter(r => {
             const cat = String(r.category || '').toLowerCase();
             const desc = String(r.description || '').toLowerCase();
+            const mType = String(r.maintenanceType || '').toLowerCase();
 
+            // Operational services: Wash, Puncture, Tissue, Water
             const isWash = cat.includes('wash') || desc.includes('wash');
             const isPuncture = cat.includes('punc') || desc.includes('punc');
             const isTissue = cat.includes('tissue') || desc.includes('tissue');
             const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
                 (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
-            const isOtherService = (r.maintenanceType || '') === 'Driver Services';
-            return isWash || isPuncture || isTissue || isWater || isOtherService;
+            
+            // Catch anything explicitly marked as an operational service, 
+            // BUT EXCLUDE mechanical repairs (even if they use the word 'service' like 'Periodic Service')
+            const isExplicitService = mType.includes('service');
+            const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) || 
+                                /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
+            
+            return (isWash || isPuncture || isTissue || isWater || isExplicitService) && !isMechanical;
         });
     } else {
         // Exclude driver services from the main maintenance view
@@ -5282,44 +5309,62 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     }
 
     const isFullYear = !month || month === 'All';
-    const m = (isFullYear || !month) ? 1 : parseInt(month);
     const y = parseInt(year);
-    const monthStart = isFullYear ? new Date(y, 0, 1) : new Date(y, m - 1, 1);
-    const monthEnd = isFullYear ? new Date(y, 11, 31, 23, 59, 59, 999) : new Date(y, m, 0, 23, 59, 59, 999);
-    const monthStartStr = DateTime.fromJSDate(monthStart).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-    const monthEndStr = DateTime.fromJSDate(monthEnd).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+    const m = (isFullYear || !month) ? 4 : parseInt(month);
+    
+    // Use Luxon for strict IST boundaries to prevent early-morning data loss (12AM-5:30AM IST)
+    const luxonStart = isFullYear 
+        ? DateTime.fromObject({ year: y, month: 4, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('day')
+        : DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('day');
+        
+    const luxonEnd = isFullYear
+        ? DateTime.fromObject({ year: y + 1, month: 3, day: 31 }, { zone: 'Asia/Kolkata' }).endOf('day')
+        : luxonStart.endOf('month');
+
+    const monthStart = luxonStart.toJSDate();
+    const monthEnd = luxonEnd.toJSDate();
+    const monthStartStr = luxonStart.toFormat('yyyy-MM-dd');
+    const monthEndStr = luxonEnd.toFormat('yyyy-MM-dd');
+
+    // Standardize company query for both ObjectId and String formats to ensure 100% data capture
+    const companyQuery = {
+        $or: [
+            { company: new mongoose.Types.ObjectId(companyId) },
+            { company: companyId }
+        ]
+    };
 
     // 1. Get all fleet vehicles
     const vehicles = await Vehicle.find({
-        company: companyId,
+        ...companyQuery,
         isOutsideCar: { $ne: true }
     }).select('carNumber model fastagHistory');
 
     // 2. Fetch all related data for the month concurrently
     const [fuelData, maintenanceData, parkingData, attendanceData, borderTaxData, allAllowances] = await Promise.all([
         Fuel.find({
-            company: companyId,
+            ...companyQuery,
             date: { $gte: monthStart, $lte: monthEnd }
         }),
         Maintenance.find({
-            company: companyId,
+            ...companyQuery,
             billDate: { $gte: monthStart, $lte: monthEnd }
         }),
         Parking.find({
-            company: companyId,
+            ...companyQuery,
             date: { $gte: monthStart, $lte: monthEnd }
         }),
         Attendance.find({
-            company: companyId,
+            ...companyQuery,
             date: { $gte: monthStartStr, $lte: monthEndStr },
             status: { $in: ['completed', 'incomplete'] }
         }).populate('driver', 'name isFreelancer dailyWage salary overtime'),
         BorderTax.find({
-            company: companyId,
-            date: { $gte: monthStart, $lte: monthEnd }
+            ...companyQuery,
+            date: { $gte: monthStartStr, $lte: monthEndStr }
         }),
         Allowance.find({
-            company: companyId,
+            ...companyQuery,
             date: { $gte: monthStart, $lte: monthEnd }
         })
     ]);
@@ -5508,24 +5553,37 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vReimbursableParking = parkingData.filter(p => p.isReimbursable !== false && p.vehicle?.toString() === vId);
         const totalReimbursableParking = vReimbursableParking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-        const serviceRegex = /wash|puncture|puncher|other service|wiring|radiator|checkup|top-up|kapda|coolant|tissue|water|cleaning|mask|sanitizer/i;
+        // Strictly identify operational services (Wash, Water, etc.) vs mechanical maintenance
+        const operationalRegex = /wash|washing|cleaning|tissue|water|mask|sanitizer|kapda|punc|puncture|puncher/i;
+        const mechanicalRegex = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i;
 
-        // General Maintenance (Filter out minor services like wash/puncture/other service)
+        // General Maintenance (Mechanical Repairs)
         const vGeneralMaint = vMaintAll.filter(m => {
             const type = String(m.maintenanceType || '').toLowerCase();
             const desc = String(m.description || '').toLowerCase();
             const cat = String(m.category || '').toLowerCase();
-            return !serviceRegex.test(type) && !serviceRegex.test(desc) && !serviceRegex.test(cat);
+            
+            const isOp = operationalRegex.test(type) || operationalRegex.test(desc) || operationalRegex.test(cat);
+            const isMech = mechanicalRegex.test(type) || mechanicalRegex.test(desc) || mechanicalRegex.test(cat);
+            
+            // If it has mechanical keywords, it MUST go to Maintenance, not Wash/Fastag
+            if (isMech) return true;
+            // If it's not operational, it's general maintenance
+            return !isOp;
         });
         const totalMaintAmount = vGeneralMaint.reduce((sum, m) => sum + (m.amount || 0), 0);
 
-        // Service Hub records from Maintenance
+        // Service Hub (Operational) records from Maintenance
         const vMaintServices = vMaintAll.filter(m => {
-            if (m.maintenanceType === 'Car Service') return true;
             const cat = String(m.category || '').toLowerCase();
             const desc = String(m.description || '').toLowerCase();
-            const typeValue = String(m.maintenanceType || '').toLowerCase();
-            return serviceRegex.test(cat) || serviceRegex.test(desc) || serviceRegex.test(typeValue);
+            const type = String(m.maintenanceType || '').toLowerCase();
+            
+            const isOp = operationalRegex.test(cat) || operationalRegex.test(desc) || operationalRegex.test(type) || type.includes('service');
+            const isMech = mechanicalRegex.test(cat) || mechanicalRegex.test(desc) || mechanicalRegex.test(type);
+            
+            // Operational if it matches keywords/type AND is NOT mechanical
+            return isOp && !isMech;
         });
 
         // Split Parking into 'parking' and 'car_service'
@@ -5582,6 +5640,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         let vPendingWashAmount = 0;
         let vPendingPuncAmount = 0;
         let vPendingParkingAmount = 0;
+        let vPendingMaintExpenses = [];
 
         vAtt.forEach(a => {
             // Distance calculation
@@ -5622,6 +5681,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                             }
                         } else {
                             vPendingMaintAmount += amt;
+                            vPendingMaintExpenses.push({ ...exp.toObject(), date: a.date });
                         }
                     }
                 });
@@ -5665,14 +5725,36 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             },
             maintenance: {
                 totalAmount: totalMaintAmount + vPendingMaintAmount,
-                count: vGeneralMaint.length,
-                records: vGeneralMaint.map(m => ({
-                    type: m.maintenanceType,
-                    category: m.category,
-                    amount: m.amount,
-                    date: m.billDate,
-                    description: m.description
-                }))
+                count: vGeneralMaint.length + vParkingServices.length,
+                records: [
+                    ...vGeneralMaint.map(m => ({
+                        _id: m._id,
+                        type: m.maintenanceType,
+                        category: m.category,
+                        amount: m.amount,
+                        date: m.billDate,
+                        description: m.description,
+                        source: 'Admin'
+                    })),
+                    ...vParkingServices.map(p => ({
+                        _id: p._id,
+                        type: 'Car Service',
+                        category: p.remark || 'Car Service (Driver Entry)',
+                        amount: p.amount,
+                        date: p.date,
+                        description: `[Driver App] Location: ${p.location || 'N/A'}. Remark: ${p.remark || 'N/A'}`,
+                        source: 'Driver App'
+                    })),
+                    ...vPendingMaintExpenses.map(exp => ({
+                        _id: exp._id,
+                        type: 'Car Service',
+                        category: exp.type === 'wash' ? 'Car Wash' : exp.type === 'puncture' ? 'Puncture Repair' : (exp.fuelType || 'Other Service'),
+                        amount: exp.amount,
+                        date: exp.date,
+                        description: `[PENDING] Driver Log: ${exp.remark || exp.fuelType || 'Manual Entry'}`,
+                        source: 'Driver App (Pending)'
+                    }))
+                ]
             },
             parking: {
                 totalAmount: totalParkingAmount + vPendingParkingAmount,

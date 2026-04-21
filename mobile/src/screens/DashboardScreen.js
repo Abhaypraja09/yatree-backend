@@ -59,8 +59,7 @@ const DashboardScreen = ({ navigation }) => {
 
     const KPI_CARDS = [
         { label: "EXPIRED DOCUMENTS", value: stats?.expiringAlerts?.filter(a => a.daysLeft <= 0).length || 0, icon: ShieldAlert, color: "#f43f5e", route: "Vehicles", isCurrency: false },
-        { label: "TOTAL DRIVER SALARY", value: stats?.monthlyRegularSalaryTotal, icon: Users, color: "#10b981", route: "Salaries", isCurrency: true },
-        { label: "TOTAL DRIVER ADVANCE", value: stats?.monthlyRegularAdvanceTotal, icon: CreditCard, color: "#3b82f6", route: "Advances", isCurrency: true },
+        { label: "SPECIAL PAY", value: stats?.monthlySpecialPayTotal, icon: Users, color: "#10b981", route: "Salaries", isCurrency: true },
         { label: "FUEL (MONTHLY)", value: stats?.monthlyFuelAmount, icon: Fuel, color: "#fbbf24", route: "Fuel", isCurrency: true },
         { label: "MAINTENANCE (MONTHLY)", value: stats?.monthlyMaintenanceAmount, icon: Wrench, color: "#f43f5e", route: "Maintenance", isCurrency: true },
         { label: "FREELANCERS (MONTHLY)", value: stats?.monthlyFreelancerSalaryTotal, icon: Zap, color: "#8b5cf6", route: "Freelancers", isCurrency: true },
