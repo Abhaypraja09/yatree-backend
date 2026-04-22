@@ -66,6 +66,7 @@ STRICT RULES:
 - DATA ONLY: Use ONLY the provided real-time data for the internal fleet.
 - OWNED FLEET ONLY: Do NOT count "Outside Cars" or "Event Cars" as part of the company's own fleet. Only focus on internal vehicles for expiry and costs.
 
+- FINANCIAL TERMS: When discussing salaries, always distinguish between "Gross Liability" (Total earned by drivers) and "Net Payable" (Actual payout after deducting Advances and Loan EMIs). The dashboard "Monthly Payroll" shows the Net Payable.
 - NO ASSUMPTIONS: Do NOT guess or generate fake numbers. If data is missing, say "Data not available".
 - Keep responses short, clear, and business-focused. Avoid long explanations.
 
@@ -98,12 +99,13 @@ Fleet Insights Data:
 ${JSON.stringify(insights, null, 2)}
 
 Response Format:
-1. 📊 Current Situation (short summary)
+1. 📊 Current Situation (Include Salary Liability vs Net Payable if asked about money)
 2. ⚠️ Problems Detected
 3. 💡 Recommendations
 4. 📈 Growth Opportunities
 
 Important:
+- If asked about salary, provide: Gross Liability, Total Advances, Total EMIs, and Net Payable.
 - If data is missing, say "insufficient data"
 - Highlight anomalies (high cost, low usage, idle vehicles)
 - Compare performance wherever possible
@@ -139,21 +141,24 @@ const processAIQuery = asyncHandler(async (req, res) => {
             monthlyAttendance,
             monthlyAdvances,
             monthlyLoans,
-            monthlyAllowances
+            monthlyAllowances,
+            monthlyParking
         ] = await Promise.all([
             Vehicle.find({ company: userCompanyId }).lean(),
             User.find({ company: userCompanyId, role: 'Driver' }).lean(),
             Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').lean(),
             Fuel.find({ company: userCompanyId, status: 'pending' }).populate('vehicle').lean(),
-            Parking.find({ companyId: userCompanyId, status: 'pending' }).populate('driverId').lean(),
+            Parking.find({ company: userCompanyId, status: 'pending' }).populate('driverId').lean(),
             Advance.find({ company: userCompanyId, status: 'pending' }).populate('driver').lean(),
             Attendance.find({ company: userCompanyId, date: { $gte: startOfMonth, $lte: endOfMonth } }).lean(),
             Advance.find({ 
                 company: userCompanyId, 
-                date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } 
+                date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() },
+                remark: { $not: /Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/ }
             }).lean(),
             Loan.find({ company: userCompanyId, status: 'Active' }).lean(),
-            Allowance.find({ company: userCompanyId, date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean()
+            Allowance.find({ company: userCompanyId, date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean(),
+            Parking.find({ company: userCompanyId, date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean()
         ]);
 
         // Calculate a robust salary summary matching adminController logic
@@ -164,6 +169,13 @@ const processAIQuery = asyncHandler(async (req, res) => {
             const loans = monthlyLoans.filter(l => l.driver?.toString() === dId);
             const allowances = monthlyAllowances.filter(al => al.driver?.toString() === dId);
             
+            // Fetch monthly parking for this driver
+            const dName = d.name?.trim().toLowerCase();
+            const dParking = monthlyParking.filter(p => 
+                p.driverId?.toString() === dId || 
+                (p.driver?.trim().toLowerCase() === dName && !p.driverId)
+            );
+
             const attendanceDates = new Set();
             let totalWage = 0;
             let totalBonuses = 0;
@@ -173,21 +185,20 @@ const processAIQuery = asyncHandler(async (req, res) => {
             const sortedAtts = [...atts].sort((a,b) => (a.date||'').localeCompare(b.date||''));
 
             sortedAtts.forEach(a => {
-                // Rule: Wage only ONCE per day
+                // Rule: Wage only ONCE per day (Matching adminController logic)
                 if (!attendanceDates.has(a.date)) {
                     attendanceDates.add(a.date);
-                    let dayWage = Number(a.dailyWage) || Number(d.dailyWage) || 0;
-                    if (!dayWage && d.salary) {
-                        dayWage = Math.round(Number(d.salary) / 26);
-                    }
+                    // Use recorded wage. Fallback to profile only if record has no wage field.
+                    let dayWage = (a.dailyWage !== undefined && a.dailyWage !== null) ? Number(a.dailyWage) : (Number(d.dailyWage) || 0);
                     totalWage += dayWage;
                 }
 
-                // Cumulative Bonuses
+                // Cumulative Bonuses (SDR, Night Stay, etc.)
                 const sameDay = Number(a.punchOut?.allowanceTA) || 0;
                 const nightStay = Number(a.punchOut?.nightStayAmount) || 0;
                 const special = Number(a.punchOut?.specialPay) || 0;
-                totalBonuses += (sameDay + nightStay + special + (Number(a.outsideTrip?.bonusAmount) || 0));
+                const bonus = Math.max(sameDay + nightStay + special, Number(a.outsideTrip?.bonusAmount) || 0);
+                totalBonuses += bonus;
 
                 // OT Calculation
                 if (d.overtime?.enabled && a.punchIn?.time && a.punchOut?.time) {
@@ -197,18 +208,54 @@ const processAIQuery = asyncHandler(async (req, res) => {
                 }
             });
 
-            const totalEarned = totalWage + totalBonuses + totalOT + allowances.reduce((s, al) => s + (Number(al.amount) || 0), 0);
-            const totalAdvance = advs.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-            const totalEMI = loans.reduce((sum, l) => sum + (Number(l.monthlyEMI) || 0), 0);
+            const parkingTotal = dParking.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const allowanceTotal = allowances.reduce((sum, al) => sum + (Number(al.amount) || 0), 0);
             
+            const totalEarned = totalWage + totalBonuses + totalOT + allowanceTotal + parkingTotal;
+            const totalAdvances = advs.reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
+
+            // EMI Calculation
+            let totalEMI = 0;
+            const selM = istNow.month;
+            const selY = istNow.year;
+            const currentPeriod = istNow.startOf('month');
+
+            loans.forEach(loan => {
+                const repayment = (loan.repayments || []).find(r => r.month === selM && r.year === selY);
+                if (repayment) {
+                    totalEMI += Number(repayment.amount) || 0;
+                } else if (loan.status === 'Active' && loan.startDate && loan.remainingAmount > 0) {
+                    const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
+                    const monthsDiff = Math.floor(currentPeriod.diff(loanStart, 'months').months + 0.05);
+                    const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 12);
+
+                    if (monthsDiff >= 0 && monthsDiff < tenure) {
+                        totalEMI += Number(loan.monthlyEMI) || 0;
+                    }
+                }
+            });
+
             return {
+                driverId: dId,
                 name: d.name,
-                earnedThisMonth: totalEarned,
-                advanceTaken: totalAdvance,
-                loanEMI: totalEMI,
-                balanceDue: totalEarned - totalAdvance - totalEMI
+                totalEarned,
+                totalAdvances,
+                totalEMI,
+                netPayable: totalEarned - totalAdvances - totalEMI
             };
         });
+
+        const totalSalaryLiability = driverSalaries.reduce((sum, d) => sum + d.totalEarned, 0);
+        const totalNetPayable = driverSalaries.reduce((sum, d) => sum + d.netPayable, 0);
+        const totalAdvancesSum = driverSalaries.reduce((sum, d) => sum + d.totalAdvances, 0);
+        const totalEMISum = driverSalaries.reduce((sum, d) => sum + d.totalEMI, 0);
+
+        dataContext.fleetFinance = {
+            monthlySalaryLiability: totalSalaryLiability,
+            monthlyNetPayable: totalNetPayable,
+            monthlyAdvances: totalAdvancesSum,
+            monthlyEMIs: totalEMISum
+        };
 
         // Add "Pending Tasks" to context to trigger AI reminders
         dataContext.adminPendingTasks = {
