@@ -429,6 +429,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const [fToday, aToday, fAdvData, fTToday] = miscData;
 
         const monthlyRegularSalaryTotal = salReg.reduce((s, x) => s + (x.totalEarned || 0), 0);
+        const monthlyRegularAdvanceTotal = salReg.reduce((s, x) => s + (x.totalAdvances || 0), 0);
+        const monthlyRegularLoanEMITotal = salReg.reduce((s, x) => s + (x.totalEMI || 0), 0);
         const monthlyNetSalaryTotal = salReg.reduce((s, x) => s + (x.netPayable || 0), 0);
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
         const monthlyEventTotal = outFacet[0]?.e[0]?.t || 0;
@@ -474,7 +476,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
             totalExpenseAmount: (mFuel[0]?.t || 0) + monthlyMaintAmount + (mPark.reduce((s, p) => s + p.t, 0)) + (bTax[0]?.t || 0) + (mAcc[0]?.t || 0),
             totalStaff, countStaffPresent: staffAttToday.length,
-            monthlyRegularAdvanceTotal: aD[0]?.t || 0,
+            monthlyRegularAdvanceTotal,
+            monthlyRegularLoanEMITotal,
             monthlyDriverServicesAmount: mPark.find(p => p._id === 'car_service')?.t || 0,
             staffAttendanceToday: staffAttToday,
             attendanceDetails: attToday,
