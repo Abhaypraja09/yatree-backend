@@ -308,20 +308,20 @@ const getAIBriefing = asyncHandler(async (req, res) => {
 
     // Calculate alerts (Insurance, FITNESS, PUC, etc.)
     const expiryAlerts = [];
-    const thirtyDaysFromNow = DateTime.now().plus({ days: 30 });
+    const fourteenDaysFromNow = DateTime.now().plus({ days: 14 });
 
     vehicles.forEach(v => {
-        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < thirtyDaysFromNow) {
+        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < fourteenDaysFromNow) {
             expiryAlerts.push({ carNumber: v.carNumber, type: 'INSURANCE', date: v.insuranceExpiry });
         }
-        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < thirtyDaysFromNow) {
+        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < fourteenDaysFromNow) {
             expiryAlerts.push({ carNumber: v.carNumber, type: 'FITNESS', date: v.fitnessExpiry });
         }
         if (v.documents && Array.isArray(v.documents)) {
             v.documents.forEach(doc => {
                 const docDate = doc.expiryDate ? new Date(doc.expiryDate) : null;
                 const expDate = docDate ? DateTime.fromJSDate(docDate) : null;
-                if (expDate && expDate < thirtyDaysFromNow) {
+                if (expDate && expDate < fourteenDaysFromNow) {
                     expiryAlerts.push({ carNumber: v.carNumber, type: doc.documentType || 'DOC', date: doc.expiryDate });
                 }
             });
@@ -476,23 +476,23 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
 
 const checkAlerts = asyncHandler(async (req, res) => {
     const userCompanyId = req.user.company?._id || req.user.company;
-    const thirtyDaysFromNow = DateTime.now().plus({ days: 30 });
+    const fourteenDaysFromNow = DateTime.now().plus({ days: 14 });
 
     const vehicles = await Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean();
     
     let alertsList = [];
     for (const v of vehicles) {
-        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < thirtyDaysFromNow) {
+        if (v.insuranceExpiry && DateTime.fromJSDate(v.insuranceExpiry) < fourteenDaysFromNow) {
             alertsList.push({ carNumber: v.carNumber, type: 'INSURANCE', date: v.insuranceExpiry });
         }
-        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < thirtyDaysFromNow) {
+        if (v.fitnessExpiry && DateTime.fromJSDate(v.fitnessExpiry) < fourteenDaysFromNow) {
             alertsList.push({ carNumber: v.carNumber, type: 'FITNESS', date: v.fitnessExpiry });
         }
         if (v.documents && Array.isArray(v.documents)) {
             v.documents.forEach(doc => {
                 const docDate = doc.expiryDate ? new Date(doc.expiryDate) : null;
                 const expDate = docDate ? DateTime.fromJSDate(docDate) : null;
-                if (expDate && expDate < thirtyDaysFromNow) {
+                if (expDate && expDate < fourteenDaysFromNow) {
                     alertsList.push({ carNumber: v.carNumber, type: doc.documentType || 'DOC', date: doc.expiryDate });
                 }
             });
