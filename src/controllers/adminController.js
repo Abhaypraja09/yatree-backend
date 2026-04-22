@@ -3928,7 +3928,8 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             console.error(`[getDriverSalarySummaryInternal] Error for driver ${d._id}:`, err);
             return null;
         }
-    }).filter(s => s !== null && (s.workingDays > 0 || s.totalAllowances > 0 || s.totalEMI > 0 || s.totalAdvances > 0));
+    }).filter(s => s !== null);
+
 
     return summaries;
 };
@@ -4827,7 +4828,8 @@ const updateAttendance = asyncHandler(async (req, res) => {
         startKm,
         endKm,
         punchInTime,
-        punchOutTime
+        punchOutTime,
+        tripType
     } = req.body;
 
     console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}`, { parkingAmount, parkingPaidBy, dailyWage, startKm, endKm });
@@ -4990,7 +4992,22 @@ const updateAttendance = asyncHandler(async (req, res) => {
             attendance.outsideTrip = { occurred: true, tripType: 'Manual', bonusAmount: 0 };
         }
         attendance.outsideTrip.bonusAmount = Number(bonusAmount) || 0;
-        attendance.outsideTrip.occurred = (Number(bonusAmount) || 0) > 0;
+        attendance.outsideTrip.occurred = (Number(bonusAmount) || 0) > 0 || (attendance.outsideTrip.tripType && !attendance.outsideTrip.tripType.toLowerCase().includes('local'));
+        attendance.markModified('outsideTrip');
+    }
+
+    if (tripType !== undefined) {
+        if (!attendance.outsideTrip) {
+            attendance.outsideTrip = { occurred: false, tripType: '', bonusAmount: 0 };
+        }
+        attendance.outsideTrip.tripType = tripType;
+        // Auto-set occurred based on tripType
+        const typeLower = tripType.toLowerCase();
+        if (typeLower.includes('local')) {
+            attendance.outsideTrip.occurred = false;
+        } else if (typeLower.includes('night') || typeLower.includes('day') || typeLower.includes('return')) {
+            attendance.outsideTrip.occurred = true;
+        }
         attendance.markModified('outsideTrip');
     }
 
