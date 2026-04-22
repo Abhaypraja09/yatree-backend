@@ -2955,13 +2955,12 @@ const recalculateFuelMetrics = async (vehicleId) => {
         } else {
             entry.distance = entry.odometer - prevOdometer;
 
-            if (entry.distance > 0 && entry.quantity > 0) {
-                // Simplified intuitive mileage: Distance covered / Fuel just filled
-                entry.mileage = Number((entry.distance / entry.quantity).toFixed(2));
-                // Cost/KM = Current Amount / Distance covered
-                entry.costPerKm = Number((entry.amount / entry.distance).toFixed(2));
+            if (entry.distance > 0 && prevQuantity > 0) {
+                // Mileage = Distance covered / Fuel added at the START of this trip (prev entry)
+                entry.mileage = Number((entry.distance / prevQuantity).toFixed(2));
+                // Cost/KM = Previous Amount / Distance covered
+                entry.costPerKm = Number((prevAmount / entry.distance).toFixed(2));
             } else {
-                entry.distance = 0;
                 entry.mileage = 0;
                 entry.costPerKm = 0;
             }
