@@ -3757,15 +3757,15 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
     };
 
     const [allAttendance, allMonthlyAdvances, allParking, allTimeAdvances, allLoans, allAllowances] = await Promise.all([
-        Attendance.find(attendanceQuery).lean(),
-        Advance.find(advanceQuery).lean(),
-        Parking.find(parkingQuery).lean(),
-        Advance.find(allTimeAdvanceQuery).lean(),
-        Loan.find({ company: companyId }).lean(),
+        Attendance.find(attendanceQuery, 'driver date dailyWage status punchIn.time punchOut.time punchOut.nightStayAmount punchOut.allowanceTA punchOut.specialPay outsideTrip.bonusAmount').lean(),
+        Advance.find(advanceQuery, 'driver amount recoveredAmount date remark').lean(),
+        Parking.find(parkingQuery, 'driverId driver amount date').lean(),
+        Advance.find(allTimeAdvanceQuery, 'driver amount recoveredAmount').lean(),
+        Loan.find({ company: companyId }, 'driver totalAmount tenureMonths monthlyEMI startDate status remainingAmount repayments').lean(),
         Allowance.find({
             company: companyId,
             date: { $gte: startJS, $lte: endJS }
-        }).lean()
+        }, 'driver amount date type remark').lean()
     ]);
 
     // Grouping records by driver for efficient lookup
@@ -3819,6 +3819,11 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         loansByDriver.get(dId).push(l);
     });
 
+    // Pre-calculate current period for loan calculations
+    const selM = parseInt(month);
+    const selY = parseInt(year);
+    const currentPeriod = DateTime.fromObject({ year: selY, month: selM, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
+
     // 4. Summarize each driver
     const summaries = drivers.map(d => {
         try {
@@ -3831,19 +3836,22 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             const driverLoans = loansByDriver.get(dId) || [];
 
             // 💰 RECORD ATTENDANCE EARNINGS
-            const dailyAggs = new Map();
-            const datesProcessed = new Set();
             let totalRoutineEarnings = 0;
             let nightStayCount = 0;
+            const datesProcessed = new Set();
+            
+            // Optimization: check if overtime is enabled once
+            const otEnabled = !!d.overtime?.enabled;
+            const otThreshold = Number(d.overtime?.thresholdHours) || 9;
+            const otRate = Number(d.overtime?.ratePerHour) || 0;
 
-            driverAtt.forEach(att => {
-                const dateStr = att.date || (att.punchIn?.time ? DateTime.fromJSDate(att.punchIn.time).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd') : 'unknown');
+            for (let i = 0; i < driverAtt.length; i++) {
+                const att = driverAtt[i];
+                const dateStr = att.date || 'unknown';
 
                 // Base Wage (One per day)
-                let wage = 0;
                 if (!datesProcessed.has(dateStr)) {
-                    // Strictly use Log Book recorded salary (no fallbacks)
-                    wage = Number(att.dailyWage) || 0;
+                    totalRoutineEarnings += (Number(att.dailyWage) || 0);
                     datesProcessed.add(dateStr);
                 }
 
@@ -3853,16 +3861,15 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
 
                 let otBonus = 0;
-                if (d.overtime?.enabled && att.punchIn?.time && att.punchOut?.time) {
+                if (otEnabled && att.punchIn?.time && att.punchOut?.time) {
                     const durationMs = new Date(att.punchOut.time).getTime() - new Date(att.punchIn.time).getTime();
-                    const totalHours = durationMs / (1000 * 60 * 60);
-                    const otHours = Math.max(0, totalHours - (Number(d.overtime.thresholdHours) || 9));
-                    otBonus = Math.round(otHours * (Number(d.overtime.ratePerHour) || 0));
+                    const otHours = Math.max(0, (durationMs / 3600000) - otThreshold);
+                    otBonus = Math.round(otHours * otRate);
                 }
 
-                totalRoutineEarnings += (wage + bonuses + otBonus);
+                totalRoutineEarnings += (bonuses + otBonus);
                 if (nightStay > 0) nightStayCount += 1;
-            });
+            }
 
             // 🅿️ PARKING
             let parkingTotal = 0;
@@ -3889,9 +3896,6 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                     totalEMIDeducted += Number(repayment.amount) || 0;
                     activeLoansInfo.push({ loanId: loan._id, amount: repayment.amount, isPaid: true });
                 } else if (loan.status === 'Active' && loan.startDate && loan.remainingAmount > 0) {
-                    const selM = parseInt(month);
-                    const selY = parseInt(year);
-                    const currentPeriod = DateTime.fromObject({ year: selY, month: selM, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('month');
                     const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
                     const monthsDiff = Math.floor(currentPeriod.diff(loanStart, 'months').months + 0.05);
                     const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 12);
@@ -5397,6 +5401,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     // Group allowances by driver and date to attribute to their first vehicle of the day
     const allowanceMap = new Map();
     allAllowances.forEach(al => {
+        if (!al.driver) return;
         const dId = al.driver.toString();
         const dateStr = DateTime.fromJSDate(al.date).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
         const key = `${dId}_${dateStr}`;
@@ -5414,7 +5419,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         const vId = a.vehicle?.toString();
         if (!vId || !a.driver) return;
         
-        const dId = a.driver._id ? a.driver._id.toString() : a.driver.toString();
+        const dId = a.driver._id ? a.driver._id.toString() : (a.driver.toString ? a.driver.toString() : 'unknown');
         const dName = a.driver.name || 'Unknown';
         const dDate = a.date;
         const wageKey = `${dId}_${dDate}`;
@@ -5575,6 +5580,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         // Strictly identify operational services (Wash, Water, etc.) vs mechanical maintenance
         const operationalRegex = /wash|washing|cleaning|tissue|water|mask|sanitizer|kapda|punc|puncture|puncher/i;
         const mechanicalRegex = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i;
+        const serviceRegex = /wash|washing|punc|puncture|puncher|service|cleaning/i;
 
         // General Maintenance (Mechanical Repairs)
         const vGeneralMaint = vMaintAll.filter(m => {
@@ -5700,7 +5706,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
                             }
                         } else {
                             vPendingMaintAmount += amt;
-                            vPendingMaintExpenses.push({ ...exp.toObject(), date: a.date });
+                            vPendingMaintExpenses.push({ ...(exp.toObject ? exp.toObject() : exp), date: a.date });
                         }
                     }
                 });
