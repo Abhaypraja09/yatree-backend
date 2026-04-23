@@ -4630,14 +4630,15 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 cursor = cursor.plus({ days: 1 });
             }
 
-            const paidLeavesUsed = verifiedPaidLeaves;
-            const extraLeaves = Math.max(0, totalAbsences - paidLeavesUsed);
+            const paidLeavesUsed = 0; // All leaves are unpaid as per user request: "leave ka paymenty nahi add hoga"
+            const extraLeaves = totalAbsences;
 
             const baseSalary = s.salary || 0;
             const perDaySalary = baseSalary / 30; // 30 day basis
 
-            // Positive Accrual Logic: Salary = (Actual Progress + Paid Buffer Days + Sunday Holidays + Extra Sundays) * Rate
-            const finalSalary = (regularEffectivePresent + paidLeavesUsed + sundaysPassed + sundaysWorked) * perDaySalary;
+            // Updated Logic: Only Sundays are paid holidays. Other leaves are unpaid.
+            // Salary = (Regular Days Worked + Sunday Holidays + Extra Sundays Worked) * Rate
+            const finalSalary = (regularEffectivePresent + sundaysPassed + sundaysWorked) * perDaySalary;
 
             // Cycle Metadata for UI Heatmap
             const fullCycleAttendance = [];

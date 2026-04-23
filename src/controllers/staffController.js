@@ -293,10 +293,20 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     const totalEffectivePresent = presentDays + (halfDays * 0.5);
 
     // Sundays Worked (for Company staff, this is a bonus)
+    let sundaysPassed = 0;
     const sundaysWorked = attendance.filter(a => {
         const day = DateTime.fromISO(a.date).weekday;
+        if (day === 7) sundaysPassed++;
         return day === 7 && a.status === 'present';
     }).length;
+
+    // Recount sundaysPassed based on the full range (including days with no attendance records)
+    sundaysPassed = 0;
+    let sundayCounter = csDate;
+    while (sundayCounter <= ceDate) {
+        if (sundayCounter.weekday === 7) sundaysPassed++;
+        sundayCounter = sundayCounter.plus({ days: 1 });
+    }
 
     // Absences: Compared against required working days
     const totalAbsences = Math.max(0, workingDaysPassed - totalEffectivePresent);
@@ -316,8 +326,9 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     const baseSalary = staffUser.salary || 0;
     const perDaySalary = baseSalary / 30; // 30 day basis
 
-    // Total Pay = Worked Days + Limited Approved Paid Leaves
-    const finalSalary = (totalEffectivePresent + paidLeavesUsed) * perDaySalary;
+    // Total Pay = Worked Days + Sundays (Paid Holidays)
+    // Note: User explicitly requested: "leave ka payment nahi add hoga" (Leaves are NOT paid)
+    const finalSalary = (totalEffectivePresent + sundaysPassed) * perDaySalary;
 
     return {
         cycleStart,
@@ -327,15 +338,16 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         halfDays,
         sundaysWorked,
         workingDaysPassed,
+        sundaysPassed,
         leavesTaken: totalAbsences,
         allowance,
         paidLeavesUsed,
-        extraLeaves: unpaidLeaves,
+        extraLeaves: totalAbsences, // All leaves are now unpaid as per user request
         salary: baseSalary,
         perDaySalary: Math.round(perDaySalary),
         totalEarned: Math.round(finalSalary),
         finalSalary: Math.round(finalSalary),
-        deduction: Math.round(unpaidLeaves * perDaySalary),
+        deduction: Math.round(totalAbsences * perDaySalary),
         sundayBonus: staffUser.staffType === 'Hotel' ? 0 : Math.round(sundaysWorked * perDaySalary),
         attendanceData: attendance
     };
