@@ -60,6 +60,7 @@ const {
     createStaff,
     deleteStaff,
     getStaffAttendanceReports,
+    getStaffStats,
     addManualDuty,
     adminPunchIn,
     adminPunchOut,
@@ -71,6 +72,7 @@ const {
     updateMaintenanceRecord,
     updateStaff,
     getPendingLeaveRequests,
+    getAllLeaveRequests,
     approveRejectLeave,
     getVehicleMonthlyDetails,
     addBackdatedAttendance,
@@ -211,11 +213,13 @@ router.post('/staff', adminOrExecutive, checkCompany, createStaff);
 router.put('/staff/:id', adminOrExecutive, checkCompany, updateStaff);
 router.delete('/staff/:id', adminOrExecutive, checkCompany, deleteStaff);
 router.get('/staff-attendance/:companyId', adminOrExecutive, checkCompany, getStaffAttendanceReports);
+router.get('/staff-stats/:companyId', adminOrExecutive, checkCompany, getStaffStats);
 router.delete('/staff-attendance/:id', adminOrExecutive, checkCompany, deleteStaffAttendance);
 router.post('/staff-attendance/backdate', adminOrExecutive, checkCompany, addBackdatedAttendance);
 
 // Leave Requests
 router.get('/leaves/pending/:companyId', adminOrExecutive, checkCompany, getPendingLeaveRequests);
+router.get('/leaves/all/:companyId', adminOrExecutive, checkCompany, getAllLeaveRequests);
 router.patch('/leaves/:id', adminOrExecutive, checkCompany, approveRejectLeave);
 
 // Generic Upload Route

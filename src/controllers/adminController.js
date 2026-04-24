@@ -18,6 +18,30 @@ const Event = require('../models/Event');
 const Loan = require('../models/Loan');
 const Allowance = require('../models/Allowance');
 const { DateTime } = require('luxon');
+
+// Helper to check granular permissions for Executives
+const hasModuleAccess = (user, moduleKey, subKey = null) => {
+    if (!user) return false;
+    if (user.role === 'Admin' || user.role === 'SuperAdmin') return true;
+    if (user.role !== 'Executive') return false;
+    
+    // Safety for missing permissions
+    if (!user.permissions) return false;
+    
+    const perm = user.permissions[moduleKey];
+    if (perm === undefined || perm === null) return false;
+    
+    if (typeof perm === 'boolean') return perm;
+    
+    if (typeof perm === 'object') {
+        if (perm.all === true) return true;
+        if (subKey) return !!perm[subKey];
+        // For group headers/modules, check if ANY sub-item is active
+        // Use Object.entries to be sure we are checking the values correctly
+        return Object.values(perm).some(v => v === true);
+    }
+    return false;
+};
 const asyncHandler = require('express-async-handler');
 
 console.log('--- ADMIN CONTROLLER LOADED (V1.1) ---');
@@ -389,8 +413,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 require('../models/Allowance').aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
-                Attendance.find({ 
-                    company: companyObjectId, 
+                Attendance.find({
+                    company: companyObjectId,
                     date: targetDate
                 }).populate('driver', 'name mobile isFreelancer salary dailyWage').populate('vehicle', 'carNumber').lean(),
                 User.countDocuments({ company: companyObjectId, role: 'Driver', tripStatus: 'pending_approval' }),
@@ -497,20 +521,58 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         };
 
         if (req.user && req.user.role === 'Executive') {
-            const p = req.user.permissions || {};
-            if (!p.driversService) {
-                ['totalDrivers', 'internalDriversCount', 'freelancerDriversCount', 'totalStaff', 'countStaffPresent', 'monthlySalaryTotal', 'monthlyRegularSalaryTotal', 'monthlyNetSalaryTotal', 'monthlyFreelancerSalaryTotal'].forEach(k => finalResponse[k] = 0);
-                finalResponse.staffAttendanceToday = [];
+            // Drivers Service Fine-grained
+            if (!hasModuleAccess(req.user, 'driversService', 'payroll')) {
+                ['monthlyRegularSalaryTotal', 'monthlyRegularAdvanceTotal', 'monthlyRegularLoanEMITotal', 'monthlyNetSalaryTotal'].forEach(k => finalResponse[k] = 0);
+            }
+            if (!hasModuleAccess(req.user, 'driversService', 'freelancers')) {
+                finalResponse.monthlyFreelancerSalaryTotal = 0;
+            }
+            if (!hasModuleAccess(req.user, 'driversService', 'drivers')) {
                 finalResponse.dutyHistoryThisMonth = [];
             }
-            if (!p.vehiclesManagement) {
-                ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount'].forEach(k => finalResponse[k] = 0);
+
+            // Vehicles Management Fine-grained
+            if (!hasModuleAccess(req.user, 'vehiclesManagement', 'maintenance')) {
+                finalResponse.monthlyMaintenanceAmount = 0;
+            }
+            if (!hasModuleAccess(req.user, 'vehiclesManagement', 'accidentLogs')) {
+                ['monthlyAccidentAmount', 'yearlyAccidentAmount'].forEach(k => finalResponse[k] = 0);
+            }
+            if (!hasModuleAccess(req.user, 'vehiclesManagement', 'vehiclesMgt')) {
+                ['totalVehicles', 'totalInternalVehicles'].forEach(k => finalResponse[k] = 0);
                 finalResponse.reportedIssues = [];
             }
-            if (!p.fleetOperations) {
-                ['monthlyFuelAmount', 'monthlyFuelQuantity', 'monthlyParkingAmount', 'monthlyBorderTaxAmount', 'dailyFuelAmount', 'dailyFastagTotal'].forEach(k => finalResponse[k] = 0);
+
+            // Fleet Operations Fine-grained
+            if (!hasModuleAccess(req.user, 'fleetOperations', 'fuel')) {
+                ['monthlyFuelAmount', 'monthlyFuelQuantity', 'dailyFuelAmount'].forEach(k => finalResponse[k] = 0);
                 finalResponse.dailyFuelEntries = [];
             }
+            if (!hasModuleAccess(req.user, 'driversService', 'parking')) {
+                finalResponse.monthlyParkingAmount = 0;
+            }
+            if (!hasModuleAccess(req.user, 'fleetOperations', 'carUtility')) {
+                ['monthlyBorderTaxAmount', 'dailyFastagTotal', 'monthlyFastagTotal', 'monthlyDriverServicesAmount'].forEach(k => finalResponse[k] = 0);
+            }
+
+            // Buy/Sell Fine-grained
+            if (!hasModuleAccess(req.user, 'buySell', 'outsideCars')) {
+                finalResponse.monthlyOutsideCarsTotal = 0;
+            }
+            if (!hasModuleAccess(req.user, 'buySell', 'eventManagement')) {
+                finalResponse.monthlyEventTotal = 0;
+            }
+
+            // Staff Management
+            if (!hasModuleAccess(req.user, 'staffManagement')) {
+                ['totalStaff', 'countStaffPresent'].forEach(k => finalResponse[k] = 0);
+                finalResponse.staffAttendanceToday = [];
+            }
+
+            // Recalculate totals after zeroing
+            finalResponse.monthlySalaryTotal = (finalResponse.monthlyRegularSalaryTotal || 0) + (finalResponse.monthlyOutsideCarsTotal || 0);
+            finalResponse.totalExpenseAmount = (finalResponse.monthlyFuelAmount || 0) + (finalResponse.monthlyMaintenanceAmount || 0) + (finalResponse.monthlyParkingAmount || 0) + (finalResponse.monthlyBorderTaxAmount || 0) + (finalResponse.monthlyAccidentAmount || 0);
         }
 
         DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
@@ -765,7 +827,7 @@ const updateDriver = asyncHandler(async (req, res) => {
         if (req.body.password) {
             // Logic: Admins can reset anyone's password. Drivers/Staff need oldPassword to change their own.
             const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
-            
+
             if (!isAdmin) {
                 if (!req.body.oldPassword) {
                     return res.status(400).json({ message: 'Old password is required for security' });
@@ -794,7 +856,7 @@ const updateDriver = asyncHandler(async (req, res) => {
         if (req.body.sameDayReturnBonus !== undefined && req.body.sameDayReturnBonus !== '') {
             driver.sameDayReturnBonus = Number(req.body.sameDayReturnBonus);
         }
-        
+
         if (req.body.sameDayReturnEnabled !== undefined) {
             driver.sameDayReturnEnabled = req.body.sameDayReturnEnabled === 'true' || req.body.sameDayReturnEnabled === true;
         }
@@ -1541,7 +1603,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
             // Duration in milliseconds
             const durationMs = pOut.getTime() - pIn.getTime();
             const hours = durationMs / (1000 * 60 * 60);
-            
+
             otHours = Math.max(0, hours - (Number(a.driver.overtime.thresholdHours) || 9));
             otAmount = Math.round(otHours * (Number(a.driver.overtime.ratePerHour) || 0));
         }
@@ -1721,23 +1783,21 @@ const getDailyReports = asyncHandler(async (req, res) => {
     };
 
     if (req.user && req.user.role === 'Executive') {
-        const p = req.user.permissions || {};
-
-        if (!p.driversService) {
+        if (!hasModuleAccess(req.user, 'driversService')) {
             finalResponse.attendance = finalResponse.attendance.filter(a => a.isOutsideCar);
             finalResponse.advances = [];
         }
 
-        if (!p.buySell) {
+        if (!hasModuleAccess(req.user, 'buySell')) {
             finalResponse.attendance = finalResponse.attendance.filter(a => !a.isOutsideCar);
         }
 
-        if (!p.vehiclesManagement) {
+        if (!hasModuleAccess(req.user, 'vehiclesManagement')) {
             finalResponse.fastagRecharges = [];
             ['totalVehicles', 'monthlyMaintenanceAmount', 'monthlyAccidentAmount', 'yearlyAccidentAmount'].forEach(k => finalResponse[k] = 0);
             finalResponse.reportedIssues = [];
         }
-        if (!p.fleetOperations) {
+        if (!hasModuleAccess(req.user, 'fleetOperations')) {
             ['monthlyFuelAmount', 'monthlyFuelQuantity', 'monthlyParkingAmount', 'monthlyBorderTaxAmount', 'dailyFuelAmount', 'dailyFastagTotal'].forEach(k => finalResponse[k] = 0);
             finalResponse.dailyFuelEntries = [];
         }
@@ -1824,7 +1884,7 @@ const rechargeFastag = asyncHandler(async (req, res) => {
     const { amount, method, remarks, date } = req.body;
     logToFile(`[RECHARGE_FASTAG] User: ${req.user?._id}, Role: ${req.user?.role}, Vehicle: ${req.params.id}, Amount: ${amount}`);
 
-    if (req.user?.role === 'Executive' && !req.user?.permissions?.fleetOperations) {
+    if (req.user?.role === 'Executive' && !hasModuleAccess(req.user, 'fleetOperations')) {
         logToFile(`[RECHARGE_FASTAG] FORBIDDEN: User ${req.user?._id} missing fleetOperations permission`);
         return res.status(403).json({ message: 'Permission Denied: Fleet Operations access required' });
     }
@@ -1896,7 +1956,7 @@ const updateFastagRecharge = asyncHandler(async (req, res) => {
     historyEntry.method = method || historyEntry.method;
     historyEntry.remarks = remarks || historyEntry.remarks;
     if (date) historyEntry.date = new Date(date);
-    
+
     if (req.file) {
         historyEntry.receiptPhoto = req.file.path;
     }
@@ -2766,13 +2826,13 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             const isTissue = cat.includes('tissue') || desc.includes('tissue');
             const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
                 (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
-            
+
             // Catch anything explicitly marked as an operational service, 
             // BUT EXCLUDE mechanical repairs (even if they use the word 'service' like 'Periodic Service')
             const isExplicitService = mType.includes('service');
-            const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) || 
-                                /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
-            
+            const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) ||
+                /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
+
             return (isWash || isPuncture || isTissue || isWater || isExplicitService) && !isMechanical;
         });
     } else {
@@ -3839,7 +3899,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             let totalRoutineEarnings = 0;
             let nightStayCount = 0;
             const datesProcessed = new Set();
-            
+
             // Optimization: check if overtime is enabled once
             const otEnabled = !!d.overtime?.enabled;
             const otThreshold = Number(d.overtime?.thresholdHours) || 9;
@@ -4007,17 +4067,17 @@ const createExecutive = asyncHandler(async (req, res) => {
             status: 'active',
             isFreelancer: false,
             company: req.user.role.toLowerCase() === 'superadmin' ? (req.body.companyId || req.tenantFilter?.company) : (req.user.company?._id || req.user.company),
-            permissions: {
+            permissions: permissions || {
                 dashboard: true,
                 liveFeed: true,
                 logBook: true,
-                driversService: Boolean(permissions?.driversService),
-                buySell: Boolean(permissions?.buySell),
-                vehiclesManagement: Boolean(permissions?.vehiclesManagement),
-                fleetOperations: Boolean(permissions?.fleetOperations),
-                staffManagement: Boolean(permissions?.staffManagement),
-                manageAdmins: Boolean(permissions?.manageAdmins),
-                reports: permissions?.reports !== undefined ? Boolean(permissions.reports) : true
+                driversService: false,
+                buySell: false,
+                vehiclesManagement: false,
+                fleetOperations: false,
+                staffManagement: false,
+                manageAdmins: false,
+                reports: true
             }
         });
 
@@ -4047,19 +4107,7 @@ const updateExecutive = asyncHandler(async (req, res) => {
         executive.status = status || executive.status;
 
         if (permissions) {
-            // Robust permission update: Keep existing values for fields not in the request
-            const currentPerms = executive.permissions?.toObject() || {};
-            const updatedPerms = {
-                ...currentPerms,
-                driversService: permissions.driversService !== undefined ? Boolean(permissions.driversService) : currentPerms.driversService,
-                buySell: permissions.buySell !== undefined ? Boolean(permissions.buySell) : currentPerms.buySell,
-                vehiclesManagement: permissions.vehiclesManagement !== undefined ? Boolean(permissions.vehiclesManagement) : currentPerms.vehiclesManagement,
-                fleetOperations: permissions.fleetOperations !== undefined ? Boolean(permissions.fleetOperations) : currentPerms.fleetOperations,
-                staffManagement: permissions.staffManagement !== undefined ? Boolean(permissions.staffManagement) : currentPerms.staffManagement,
-                manageAdmins: permissions.manageAdmins !== undefined ? Boolean(permissions.manageAdmins) : currentPerms.manageAdmins,
-                reports: permissions.reports !== undefined ? Boolean(permissions.reports) : (currentPerms.reports ?? true)
-            };
-            executive.permissions = updatedPerms;
+            executive.permissions = permissions;
             executive.markModified('permissions');
         }
 
@@ -4224,13 +4272,32 @@ const getAllStaff = asyncHandler(async (req, res) => {
     const { DateTime } = require('luxon');
     const staff = await User.find({ company: req.params.companyId, role: 'Staff' })
         .select('-password')
-        .sort({ name: 1 });
+        .sort({ name: 1 })
+        .lean();
 
-    // For better UI, we'll calculate current month stats for each staff member
+    if (!staff.length) return res.json([]);
+
+    // Performance Optimization: Fetch ALL attendance for ALL staff in one query
     const now = DateTime.now().setZone('Asia/Kolkata');
-    const enhancedStaff = await Promise.all(staff.map(async (s) => {
-        const staffObj = s.toObject();
 
+    // We need to look back at least 60 days to cover any active cycles
+    const lookbackDate = now.minus({ days: 62 }).toFormat('yyyy-MM-dd');
+
+    const allAttendance = await StaffAttendance.find({
+        company: req.params.companyId,
+        date: { $gte: lookbackDate },
+        status: { $in: ['present', 'half-day'] }
+    }).lean();
+
+    // Group attendance by staffId for O(1) lookup
+    const attMap = new Map();
+    allAttendance.forEach(att => {
+        const sId = att.staff.toString();
+        if (!attMap.has(sId)) attMap.set(sId, []);
+        attMap.get(sId).push(att);
+    });
+
+    const enhancedStaff = staff.map((s) => {
         // Calculate current cycle dates
         const joiningDate = s.joiningDate || s.createdAt;
         const cycleStartDay = new Date(joiningDate).getDate();
@@ -4241,15 +4308,12 @@ const getAllStaff = asyncHandler(async (req, res) => {
         }
         const end = start.plus({ months: 1 }).minus({ days: 1 }).endOf('day');
 
-        // StaffAttendance uses YYYY-MM-DD strings for 'date'
-        const attendanceRecords = await StaffAttendance.find({
-            staff: s._id,
-            date: {
-                $gte: start.toFormat('yyyy-MM-dd'),
-                $lte: end.toFormat('yyyy-MM-dd')
-            },
-            status: { $in: ['present', 'half-day'] }
-        });
+        const startStr = start.toFormat('yyyy-MM-dd');
+        const endStr = end.toFormat('yyyy-MM-dd');
+
+        // Get records from our pre-fetched map
+        const staffAtts = attMap.get(s._id.toString()) || [];
+        const attendanceRecords = staffAtts.filter(rec => rec.date >= startStr && rec.date <= endStr);
 
         const effectivePresent = attendanceRecords.reduce((acc, rec) => {
             return acc + (rec.status === 'half-day' ? 0.5 : 1);
@@ -4260,7 +4324,6 @@ const getAllStaff = asyncHandler(async (req, res) => {
         let d = start;
         const effectiveEnd = end > now ? now : end;
         while (d <= effectiveEnd) {
-            // For Hotel staff, Sundays are working days. For Company staff, they are off.
             if (s.staffType === 'Hotel' || d.weekday !== 7) {
                 workingDaysPassed++;
             }
@@ -4270,19 +4333,20 @@ const getAllStaff = asyncHandler(async (req, res) => {
         const totalAbsences = Math.max(0, workingDaysPassed - effectivePresent);
         const allowance = s.monthlyLeaveAllowance || 4;
         const paidLeavesUsed = Math.min(totalAbsences, allowance);
-        const perDaySalary = (s.salary || 0) / 30; // Dividing by 30 for day-wise hisab
+        const perDaySalary = (s.salary || 0) / 30;
         const earnedSalary = (effectivePresent + paidLeavesUsed) * perDaySalary;
 
-        staffObj.currentCycle = {
-            presentDays: effectivePresent,
-            earnedSalary: Math.round(earnedSalary),
-            startDate: start.toFormat('dd MMM'),
-            endDate: end.toFormat('dd MMM'),
-            cycleDay: cycleStartDay
+        return {
+            ...s,
+            currentCycle: {
+                presentDays: effectivePresent,
+                earnedSalary: Math.round(earnedSalary),
+                startDate: start.toFormat('dd MMM'),
+                endDate: end.toFormat('dd MMM'),
+                cycleDay: cycleStartDay
+            }
         };
-
-        return staffObj;
-    }));
+    });
 
     res.json(enhancedStaff);
 });
@@ -4359,7 +4423,7 @@ const updateStaff = asyncHandler(async (req, res) => {
         staff.salary = salary ? Number(salary) : staff.salary;
         staff.status = status || staff.status;
         staff.monthlyLeaveAllowance = monthlyLeaveAllowance || staff.monthlyLeaveAllowance;
-        
+
         if (password) {
             const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
             if (!isAdmin) {
@@ -4461,29 +4525,41 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
 // @access  Private/AdminOrExecutive
 const getStaffAttendanceReports = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { from, to } = req.query;
+    const { from, to, month, year, staffId: targetStaffId } = req.query;
 
     const query = { company: companyId };
     if (from && to) {
         query.date = { $gte: from, $lte: to };
+    } else {
+        const defaultStart = DateTime.now().setZone('Asia/Kolkata').minus({ days: 60 }).toFormat('yyyy-MM-dd');
+        query.date = { $gte: defaultStart };
+    }
+    if (targetStaffId) query.staff = targetStaffId;
+
+    const isReportRequested = (month && year) || (from && to);
+    let attendance = [];
+
+    // Only fetch the full attendance log if we aren't generating a report, 
+    // OR if explicitly requested (e.g. for the attendance tab)
+    if (!isReportRequested || !month) {
+        attendance = await StaffAttendance.find(query)
+            .populate('staff', 'name mobile salary monthlyLeaveAllowance')
+            .sort({ date: -1 })
+            .limit(1000) // Reduced limit for faster response
+            .lean();
     }
 
-    const attendance = await StaffAttendance.find(query)
-        .populate('staff', 'name mobile salary monthlyLeaveAllowance')
-        .sort({ date: -1 });
-
-    // If month/year OR custom range provided, calculate summary
-    const { month, year, from: qFrom, to: qTo, staffId: targetStaffId } = req.query;
-    if ((month && year) || (qFrom && qTo)) {
+    if (isReportRequested) {
         let searchStartDT, searchEndDT;
 
-        if (qFrom && qTo) {
-            searchStartDT = DateTime.fromISO(qFrom).setZone('Asia/Kolkata');
-            searchEndDT = DateTime.fromISO(qTo).setZone('Asia/Kolkata');
+        if (from && to) {
+            searchStartDT = DateTime.fromISO(from).setZone('Asia/Kolkata');
+            searchEndDT = DateTime.fromISO(to).setZone('Asia/Kolkata');
         } else {
             const reqMonth = parseInt(month, 10);
             const reqYear = parseInt(year, 10);
-            searchStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).minus({ days: 31 });
+            // Fetch wider range to catch cycles that overlap
+            searchStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).minus({ days: 32 });
             searchEndDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: 1 }).plus({ months: 2 });
         }
 
@@ -4496,27 +4572,23 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
         };
         if (targetStaffId) attQuery.staff = targetStaffId;
 
-        const rangeAttendance = await StaffAttendance.find(attQuery);
+        const [rangeAttendance, allStaff, allApprovedLeaves] = await Promise.all([
+            StaffAttendance.find(attQuery).lean(),
+            User.find({ company: companyId, role: 'Staff', ...(targetStaffId && { _id: targetStaffId }) }).lean(),
+            LeaveRequest.find({
+                company: companyId,
+                status: 'Approved',
+                endDate: { $gte: startStrQuery },
+                ...(targetStaffId && { staff: targetStaffId })
+            }).lean()
+        ]);
 
-        const staffQuery = { company: companyId, role: 'Staff' };
-        if (targetStaffId) staffQuery._id = targetStaffId;
-        const allStaff = await User.find(staffQuery);
-
-        const leaveQuery = {
-            company: companyId,
-            status: 'Approved',
-            endDate: { $gte: startStrQuery }
-        };
-        if (targetStaffId) leaveQuery.staff = targetStaffId;
-
-        const allApprovedLeaves = await LeaveRequest.find(leaveQuery);
-
-        // Index for performance
+        // Pre-index for O(1) lookups
         const attByStaff = {};
         rangeAttendance.forEach(a => {
             const sId = String(a.staff);
-            if (!attByStaff[sId]) attByStaff[sId] = [];
-            attByStaff[sId].push(a);
+            if (!attByStaff[sId]) attByStaff[sId] = {};
+            attByStaff[sId][a.date] = a;
         });
 
         const leavesByStaff = {};
@@ -4525,160 +4597,132 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             if (!leavesByStaff[sId]) leavesByStaff[sId] = [];
             leavesByStaff[sId].push(l);
         });
+
         const now = DateTime.now().setZone('Asia/Kolkata');
         const todayStr = now.toFormat('yyyy-MM-dd');
 
         const report = allStaff.map(s => {
             let cycleStartDT, cycleEndDT;
 
-            if (qFrom && qTo) {
-                cycleStartDT = DateTime.fromISO(qFrom).setZone('Asia/Kolkata');
-                cycleEndDT = DateTime.fromISO(qTo).setZone('Asia/Kolkata');
+            if (from && to) {
+                cycleStartDT = DateTime.fromISO(from).setZone('Asia/Kolkata');
+                cycleEndDT = DateTime.fromISO(to).setZone('Asia/Kolkata');
             } else {
                 const reqMonth = parseInt(month, 10);
                 const reqYear = parseInt(year, 10);
                 const joiningDate = s.joiningDate ? new Date(s.joiningDate) : new Date(s.createdAt);
                 const joinDay = DateTime.fromJSDate(joiningDate).setZone('Asia/Kolkata').day;
 
-                // Cycle for the requested month starts in that month on the joinDay
                 cycleStartDT = DateTime.fromObject({ year: reqYear, month: reqMonth, day: joinDay }, { zone: 'Asia/Kolkata' });
+                if (cycleStartDT.month !== reqMonth) cycleStartDT = cycleStartDT.set({ day: 0 });
 
-                // VALIDATION: If the joinDay is 31 but requested month only has 28 days
-                if (cycleStartDT.month !== reqMonth) {
-                    cycleStartDT = cycleStartDT.set({ day: 0 }); // last day of reqMonth
-                }
-
-                // DYNAMIC CYCLE SHIFT: If we are in the requested month but the joinDay hasn't arrived yet
-                const isCurrentMonth = reqMonth === now.month && reqYear === now.year;
-                if (isCurrentMonth && now.day < joinDay) {
+                if (reqMonth === now.month && reqYear === now.year && now.day < joinDay) {
                     cycleStartDT = cycleStartDT.minus({ months: 1 });
                 }
-
                 cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
             }
 
             const cycleStart = cycleStartDT.toFormat('yyyy-MM-dd');
             const cycleEnd = cycleEndDT.toFormat('yyyy-MM-dd');
-
             const effectiveEnd = cycleEnd > todayStr ? todayStr : cycleEnd;
-
-            // Filter specific to this staff's cycle using pre-indexed data
-            const staffAtt = (attByStaff[String(s._id)] || []).filter(a =>
-                a.date >= cycleStart &&
-                a.date <= effectiveEnd
-            );
-
-            // Calculations
-            let workingDaysPassed = 0;
-            let sundaysPassed = 0;
-            let d = cycleStartDT;
-            const eDT = DateTime.fromISO(effectiveEnd);
-
-            while (d <= eDT) {
-                if (s.staffType === 'Hotel') {
-                    workingDaysPassed++;
-                } else {
-                    if (d.weekday === 7) sundaysPassed++;
-                    else workingDaysPassed++;
-                }
-                d = d.plus({ days: 1 });
-            }
-
-            const presentDays = staffAtt.filter(a => a.status === 'present').length;
-            const halfDays = staffAtt.filter(a => a.status === 'half-day').length;
-            const effectivePresent = presentDays + (halfDays * 0.5);
-
-            // Sundays worked
-            let sundaysWorked = 0;
-            let regularEffectivePresent = 0;
-
-            if (s.staffType === 'Hotel') {
-                regularEffectivePresent = effectivePresent;
-            } else {
-                sundaysWorked = staffAtt.filter(a => {
-                    return DateTime.fromISO(a.date).weekday === 7 && a.status === 'present';
-                }).length;
-
-                const regularPresents = staffAtt.filter(a => DateTime.fromISO(a.date).weekday !== 7);
-                regularEffectivePresent = regularPresents.filter(a => a.status === 'present').length + (regularPresents.filter(a => a.status === 'half-day').length * 0.5);
-            }
-
-            const totalAbsences = Math.max(0, workingDaysPassed - regularEffectivePresent);
-
-            // VERIFIED LEAVE LOGIC: Only count absences as 'paid' if there is an approved LeaveRequest for that day
+            const staffAttMap = attByStaff[String(s._id)] || {};
             const myLeaves = leavesByStaff[String(s._id)] || [];
-            let verifiedPaidLeaves = 0;
 
-            // We check each day in the cycle for an approved leave
-            let cursor = cycleStartDT;
-            const allowance = s.monthlyLeaveAllowance || 4; // Default 4 days
-
-            while (cursor <= eDT && verifiedPaidLeaves < allowance) {
-                const cStr = cursor.toFormat('yyyy-MM-dd');
-                const attRec = staffAtt.find(a => a.date === cStr);
-
-                // Absence = No record OR record marked as 'absent'
-                const isAbsence = !attRec || attRec.status === 'absent';
-                const isWorkDay = s.staffType === 'Hotel' || cursor.weekday !== 7;
-
-                if (isAbsence && isWorkDay) {
-                    const hasApprovedLeave = myLeaves.find(l => cStr >= l.startDate && cStr <= l.endDate);
-                    if (hasApprovedLeave) {
-                        verifiedPaidLeaves++;
-                    }
-                }
-                cursor = cursor.plus({ days: 1 });
-            }
-
-            const paidLeavesUsed = 0; // All leaves are unpaid as per user request: "leave ka paymenty nahi add hoga"
-            const extraLeaves = totalAbsences;
-
-            const baseSalary = s.salary || 0;
-            const perDaySalary = baseSalary / 30; // 30 day basis
-
-            // Updated Logic: Only Sundays are paid holidays. Other leaves are unpaid.
-            // Salary = (Regular Days Worked + Sunday Holidays + Extra Sundays Worked) * Rate
-            const finalSalary = (regularEffectivePresent + sundaysPassed + sundaysWorked) * perDaySalary;
-
-            // Cycle Metadata for UI Heatmap
+            let totalDaysInCycle = 0;
+            let presentDays = 0;
+            let halfDays = 0;
+            let approvedLeaveDays = 0;
+            let unapprovedAbsences = 0;
             const fullCycleAttendance = [];
-            let tempDate = cycleStartDT;
-            while (tempDate <= cycleEndDT) {
-                const dateStr = tempDate.toFormat('yyyy-MM-dd');
-                const exist = staffAtt.find(a => a.date === dateStr);
-                const isSunday = tempDate.weekday === 7;
+            const sundays = [];
+
+            let d = cycleStartDT;
+            const cycleEndLimit = cycleEndDT; // Using cycleEndDT from logic above
+
+            while (d <= cycleEndDT) {
+                const dStr = d.toFormat('yyyy-MM-dd');
+                totalDaysInCycle++;
+                const isPastOrToday = dStr <= todayStr;
+                const isSunday = d.weekday === 7;
+                const exist = staffAttMap[dStr];
+                const onApprovedLeave = myLeaves.some(l => dStr >= l.startDate && dStr <= l.endDate);
+
+                if (exist) {
+                    if (exist.status === 'present') presentDays++;
+                    else if (exist.status === 'half-day') {
+                        halfDays++;
+                        presentDays += 0.5;
+                    }
+                } else if (onApprovedLeave) {
+                    approvedLeaveDays++;
+                } else if (isPastOrToday && !isSunday) {
+                    unapprovedAbsences++;
+                }
+
+                if (isSunday) {
+                    sundays.push({ date: dStr, earned: false });
+                }
 
                 fullCycleAttendance.push({
-                    date: dateStr,
-                    day: tempDate.day,
-                    status: exist ? exist.status : (dateStr > todayStr ? 'upcoming' : 'absent'),
+                    date: dStr,
+                    day: d.day,
+                    status: exist ? exist.status : (onApprovedLeave ? 'leave' : (isPastOrToday ? 'absent' : 'upcoming')),
                     isSunday,
                     punchIn: exist?.punchIn,
                     punchOut: exist?.punchOut,
-                    _id: exist?._id || `empty-${dateStr}`
+                    _id: exist?._id || `empty-${dStr}`
                 });
-                tempDate = tempDate.plus({ days: 1 });
+
+                d = d.plus({ days: 1 });
             }
+
+            // Sunday logic
+            let paidSundays = 0;
+            let unpaidSundays = 0;
+            sundays.forEach(sun => {
+                const sunDT = DateTime.fromISO(sun.date);
+                let weekAbsence = false;
+                let checkD = sunDT.minus({ days: 6 });
+                while (checkD < sunDT) {
+                    const cStr = checkD.toFormat('yyyy-MM-dd');
+                    if (cStr >= cycleStart && cStr <= cycleEnd) {
+                        const hasAtt = staffAttMap[cStr];
+                        const hasL = myLeaves.some(l => cStr >= l.startDate && cStr <= l.endDate);
+                        if (!hasAtt && !hasL && cStr <= todayStr) {
+                            weekAbsence = true;
+                            break;
+                        }
+                    }
+                    checkD = checkD.plus({ days: 1 });
+                }
+                if (!weekAbsence) {
+                    paidSundays++;
+                    sun.earned = true;
+                } else {
+                    unpaidSundays++;
+                }
+            });
+
+            const baseSalary = s.salary || 0;
+            const earnedDays = presentDays + approvedLeaveDays + paidSundays;
+            const finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
 
             return {
                 staffId: s._id,
                 name: s.name,
                 designation: s.designation,
-                salary: baseSalary,
-                presentDays: effectivePresent,
-                sundaysWorked,
-                totalDaysPassed: workingDaysPassed + sundaysPassed,
-                workingDaysPassed,
-                sundaysPassed,
-                leavesTaken: totalAbsences,
-                allowance,
-                paidLeavesUsed,
-                extraLeaves,
-                perDaySalary: Math.round(perDaySalary),
-                deduction: Math.round(extraLeaves * perDaySalary),
-                sundayBonus: Math.round(sundaysWorked * perDaySalary),
-                attendanceData: fullCycleAttendance, // Now returns full cycle for UI
+                baseSalary,
+                presentDays,
+                approvedLeaveDays,
+                unapprovedAbsences,
+                paidSundays,
+                unpaidSundays,
+                totalDaysInCycle,
+                earnedDays,
                 finalSalary: Math.round(finalSalary),
+                perDaySalary: Math.round(baseSalary / totalDaysInCycle),
+                attendanceData: fullCycleAttendance,
+                sundaysReport: sundays,
                 cycleStart,
                 cycleEnd,
                 joiningDate: s.joiningDate
@@ -4696,8 +4740,38 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 // @access  Private/AdminOrExecutive
 const getPendingLeaveRequests = asyncHandler(async (req, res) => {
     const leaves = await LeaveRequest.find({ company: req.params.companyId, status: 'Pending' })
-        .populate('staff', 'name mobile');
+    .populate('staff', 'name mobile')
+    .lean();
     res.json(leaves);
+});
+
+const getAllLeaveRequests = asyncHandler(async (req, res) => {
+    const leaves = await LeaveRequest.find({ company: req.params.companyId })
+        .populate('staff', 'name mobile')
+        .sort({ createdAt: -1 })
+        .lean();
+    res.json(leaves);
+});
+
+// @desc    Get staff dashboard stats (Today's Attendance, Pending Leaves, Total Staff)
+// @route   GET /api/admin/staff-stats/:companyId
+// @access  Private/AdminOrExecutive
+const getStaffStats = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const { DateTime } = require('luxon');
+    const today = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+
+    const [totalStaff, todayAttendance, pendingLeaves] = await Promise.all([
+        User.countDocuments({ company: companyId, role: 'Staff' }),
+        StaffAttendance.countDocuments({ company: companyId, date: today, status: { $in: ['present', 'half-day'] } }),
+        LeaveRequest.countDocuments({ company: companyId, status: 'Pending' })
+    ]);
+
+    res.json({
+        totalStaff,
+        todayAttendance,
+        pendingLeaves
+    });
 });
 
 // @desc    Approve or Reject leave request
@@ -5335,12 +5409,12 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     const isFullYear = !month || month === 'All';
     const y = parseInt(year);
     const m = (isFullYear || !month) ? 4 : parseInt(month);
-    
+
     // Use Luxon for strict IST boundaries to prevent early-morning data loss (12AM-5:30AM IST)
-    const luxonStart = isFullYear 
+    const luxonStart = isFullYear
         ? DateTime.fromObject({ year: y, month: 4, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('day')
         : DateTime.fromObject({ year: y, month: m, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('day');
-        
+
     const luxonEnd = isFullYear
         ? DateTime.fromObject({ year: y + 1, month: 3, day: 31 }, { zone: 'Asia/Kolkata' }).endOf('day')
         : luxonStart.endOf('month');
@@ -5419,7 +5493,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     sortedAtt.forEach(a => {
         const vId = a.vehicle?.toString();
         if (!vId || !a.driver) return;
-        
+
         const dId = a.driver._id ? a.driver._id.toString() : (a.driver.toString ? a.driver.toString() : 'unknown');
         const dName = a.driver.name || 'Unknown';
         const dDate = a.date;
@@ -5469,11 +5543,11 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
     attendanceData.forEach(a => {
         if (!a.driver) return;
         const isFreelancer = a.driver.isFreelancer === true;
-        
+
         // Use the same deduplication for staff wages
         const dId = a.driver._id ? a.driver._id.toString() : a.driver.toString();
         const wageKey = `${dId}_${a.date}`;
-        
+
         let wage = 0;
         if (!globalDriverDayWageSeen.has(wageKey)) {
             // Wait, we need a separate SEEN set for summary to avoid modifying the one used for vehicle rows
@@ -5511,7 +5585,7 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
 
     allAllowances.forEach(al => {
         if (!al.driver) return;
-        const isFree = al.driver.isFreelancer === true; 
+        const isFree = al.driver.isFreelancer === true;
         (isFree ? summaryFree : summaryStaff).allowance += (Number(al.amount) || 0);
     });
 
@@ -5588,10 +5662,10 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             const type = String(m.maintenanceType || '').toLowerCase();
             const desc = String(m.description || '').toLowerCase();
             const cat = String(m.category || '').toLowerCase();
-            
+
             const isOp = operationalRegex.test(type) || operationalRegex.test(desc) || operationalRegex.test(cat);
             const isMech = mechanicalRegex.test(type) || mechanicalRegex.test(desc) || mechanicalRegex.test(cat);
-            
+
             // If it has mechanical keywords, it MUST go to Maintenance, not Wash/Fastag
             if (isMech) return true;
             // If it's not operational, it's general maintenance
@@ -5604,10 +5678,10 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             const cat = String(m.category || '').toLowerCase();
             const desc = String(m.description || '').toLowerCase();
             const type = String(m.maintenanceType || '').toLowerCase();
-            
+
             const isOp = operationalRegex.test(cat) || operationalRegex.test(desc) || operationalRegex.test(type) || type.includes('service');
             const isMech = mechanicalRegex.test(cat) || mechanicalRegex.test(desc) || mechanicalRegex.test(type);
-            
+
             // Operational if it matches keywords/type AND is NOT mechanical
             return isOp && !isMech;
         });
@@ -5868,7 +5942,9 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     if (!scId) return res.status(403).json({ message: 'Unauthorized: Company context missing.' });
 
     const companyObjectId = new mongoose.Types.ObjectId(scId);
-    const cacheKey = `livefeed_${companyId}_${targetDate}`;
+    const cacheKey = `livefeed_${scId}_${targetDate}`;
+
+    console.log(`[LIVE_FEED_DEBUG] Co: ${scId}, Date: ${targetDate}, QueryDate: ${date}`);
 
     // Explicitly allow manual refresh from the client
     if (req.query.refresh === 'true') {
@@ -5878,7 +5954,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     if (DASHBOARD_CACHE.has(cacheKey)) {
         const cached = DASHBOARD_CACHE.get(cacheKey);
         if (Date.now() - cached.time < 30 * 1000) { // 30s cache for live feed
-            console.log(`[LIVE_FEED] Returning Cached Data for ${companyId} - ${targetDate}`);
+            console.log(`[LIVE_FEED] Returning Cached Data for ${scId} - ${targetDate}`);
             return res.json(cached.data);
         }
     }
@@ -5888,21 +5964,21 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const endDT = DateTime.fromISO(targetDate, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
 
     const isToday = targetDate === todayISTString;
-    const attQuery = { 
+    const attQuery = {
         company: companyObjectId,
         date: targetDate // Strictly show attendance for the target date only
     };
-    
+
     // EXCLUDE 'deleted' and 'blocked' drivers explicitly
-    const [attendanceToday, fuelEntriesToday, totalVehicles, allDriversFromDB, allVehicles, outsideVehiclesToday] = await Promise.all([
+    const [attendanceToday, fuelEntriesToday, totalVehiclesCount, allDriversFromDB, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find(attQuery).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
         Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
-        User.find({ 
-            company: companyObjectId, 
-            role: 'Driver', 
+        User.find({
+            company: companyObjectId,
+            role: 'Driver',
             isFreelancer: { $ne: true },
-            status: { $in: ['active', 'Active', 'Present'] } // Allowing multiple active-like statuses
+            status: { $in: ['active', 'Active', 'Present'] }
         }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
         Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model status').lean(),
         Vehicle.find({
@@ -5911,8 +5987,9 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             carNumber: { $regex: new RegExp(`#${targetDate}(#|$)`) }
         }).lean()
     ]);
+    console.log(`[LIVE_FEED_QUERY] Att: ${attendanceToday.length}, Fuel: ${fuelEntriesToday.length}, Drivers: ${allDriversFromDB.length}, Vehicles: ${allVehicles.length}`);
 
-    // Ensure all drivers with attendance today are in the feed, even if not in the default Driver list
+    // 1. Combine Drivers (DB active + Anyone who worked today)
     const driversInAttendanceRaw = attendanceToday.map(a => a.driver).filter(d => d);
     const seenDriverIds = new Set(allDriversFromDB.map(df => df._id.toString()));
     const driversInAttendance = [];
@@ -5927,10 +6004,27 @@ const getLiveFeed = asyncHandler(async (req, res) => {
 
     const combinedDrivers = [...allDriversFromDB, ...driversInAttendance];
 
+    // 2. Combine Vehicles (DB active + Any vehicle used today)
+    const vehiclesInAttendanceRaw = attendanceToday.map(a => a.vehicle).filter(v => v);
+    const vehiclesInFuelRaw = fuelEntriesToday.map(f => f.vehicle).filter(v => v);
+    const seenVehicleIds = new Set(allVehicles.map(v => v._id.toString()));
+    const extraVehicles = [];
+
+    [...vehiclesInAttendanceRaw, ...vehiclesInFuelRaw].forEach(v => {
+        const vId = v._id ? v._id.toString() : v.toString();
+        if (!seenVehicleIds.has(vId)) {
+            extraVehicles.push(v);
+            seenVehicleIds.add(vId);
+        }
+    });
+
+    const combinedVehicles = [...allVehicles, ...extraVehicles];
+
     const mappedDrivers = combinedDrivers.map(driver => {
         const dId = driver._id?.toString();
         const atts = attendanceToday.filter(a => {
-            const aDrId = (a.driver?._id || a.driver)?.toString();
+            if (!a.driver) return false;
+            const aDrId = (a.driver._id || a.driver).toString();
             return aDrId === dId;
         });
 
@@ -5941,10 +6035,9 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     });
 
     const liveDriversFeed = mappedDrivers.filter(driver => driver.status !== 'Absent');
-    // Only show active company drivers (not freelancers) in the Absent list
     const absentDriversFeed = mappedDrivers.filter(driver => driver.status === 'Absent' && driver.isFreelancer !== true);
 
-    // Calculate dailyStats for the Live Feed (aligned with Reports.jsx and Freelancers.Hub)
+    // Stats Calculation
     let regularSalaryTotal = 0;
     let freelancerSalaryTotal = 0;
     const regularDriversWithWageSeen = new Set();
@@ -5956,28 +6049,19 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         const driverId = att.driver._id ? att.driver._id.toString() : att.driver.toString();
         const isFreelancer = att.driver.isFreelancer === true || att.isFreelancer === true;
 
-        // Per-duty components
-        const sameDayReturn = Number(att.punchOut?.allowanceTA) || 0;
-        const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
-        const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0);
+        const bonuses = Math.max(
+            (Number(att.punchOut?.allowanceTA) || 0) + (Number(att.punchOut?.nightStayAmount) || 0),
+            Number(att.outsideTrip?.bonusAmount) || 0
+        );
         const parking = att.punchOut?.parkingPaidBy !== 'Office' ? (Number(att.punchOut?.tollParkingAmount) || 0) : 0;
-
-        // Wage components
-        const attWage = Number(att.dailyWage) || 0;
-        const driverWage = Number(att.driver.dailyWage) || 0;
-
-        // Rule: Follow Log Book only (stop guessing profile salaries)
-        const wage = attWage; // already Number(att.dailyWage) || 0
+        const wage = Number(att.dailyWage) || 0;
 
         if (isFreelancer) {
-            // Freelancers are paid per duty/trip
             freelancerSalaryTotal += (wage + bonuses + parking);
             freelancerDriversSeen.add(driverId);
         } else {
-            // Regular drivers: bonuses/parking per duty, but daily wage only ONCE for dashboard stats consistency
             regularSalaryTotal += (bonuses + parking);
             regularDriversSeen.add(driverId);
-
             if (!regularDriversWithWageSeen.has(driverId)) {
                 regularSalaryTotal += wage;
                 regularDriversWithWageSeen.add(driverId);
@@ -5985,35 +6069,25 @@ const getLiveFeed = asyncHandler(async (req, res) => {
         }
     });
 
-    // Outside Car Vouchers are separate from Freelancer Attendance
-    // These are created via OutsideCars.jsx / EventManagement.jsx and should NOT
-    // be mixed with freelancerSalary (which tracks isFreelancer=true driver attendance)
+    let outsideCarTotal = 0;
     const attendanceVehicleIds = new Set(attendanceToday.map(a => (a.vehicle?._id || a.vehicle || '').toString()));
     const validOutsideVehicles = (outsideVehiclesToday || []).filter(v => !attendanceVehicleIds.has(v._id.toString()));
+    validOutsideVehicles.forEach(v => { outsideCarTotal += (Number(v.dutyAmount) || 0); });
 
-    let outsideCarTotal = 0;
-    validOutsideVehicles.forEach(v => {
-        const wage = Number(v.dutyAmount) || 0;
-        outsideCarTotal += wage;
-    });
-
-    const dailySalaryTotal = regularSalaryTotal;
-    const dailyFreelancerSalaryTotal = freelancerSalaryTotal; // Only isFreelancer=true attendance
-
-    const allMappedVehicles = allVehicles.map(v => {
+    const allMappedVehicles = combinedVehicles.map(v => {
         const vIdStr = v._id.toString();
-        const vehicleAtts = attendanceToday.filter(a => a.vehicle?._id?.toString() === vIdStr);
-        const fuelH = fuelEntriesToday.filter(f => (f.vehicle?._id || f.vehicle || '').toString() === vIdStr);
+        const vehicleAtts = attendanceToday.filter(a => a.vehicle && (a.vehicle._id || a.vehicle).toString() === vIdStr);
+        const fuelH = fuelEntriesToday.filter(f => f.vehicle && (f.vehicle._id || f.vehicle).toString() === vIdStr);
 
         const hasActive = vehicleAtts.some(a => a.status === 'incomplete');
         const wasUsedToday = vehicleAtts.length > 0 || fuelH.length > 0;
 
         return {
             ...v,
-            dbStatus: v.status,
             status: hasActive ? 'In Use' : (wasUsedToday ? 'Used' : 'Idle'),
             attendances: vehicleAtts,
-            fuelToday: fuelH
+            fuelToday: fuelH,
+            fuelAmount: fuelH.reduce((s, f) => s + (Number(f.amount) || 0), 0)
         };
     });
 
@@ -6035,42 +6109,33 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             const bLastTime = b.attendances[b.attendances.length - 1]?.punchIn?.time || 0;
             return new Date(bLastTime) - new Date(aLastTime);
         });
-
     const unusedVehiclesFeed = allMappedVehicles.filter(v => v.status === 'Idle');
-
-    const activeVehiclesCount = liveVehiclesFeed.filter(v => v.status === 'In Use').length;
-    const totalUsedVehiclesCount = liveVehiclesFeed.length; // Since we filtered for only used
-    const runningCars = activeVehiclesCount;
 
     const finalResponse = {
         date: targetDate,
-        totalVehicles,
-        activeVehiclesCount,
-        runningCars,
-        totalUsedVehiclesCount,
+        totalVehicles: totalVehiclesCount,
+        activeVehiclesCount: liveVehiclesFeed.filter(v => v.status === 'In Use').length,
+        totalUsedVehiclesCount: liveVehiclesFeed.length,
         unusedVehiclesCount: unusedVehiclesFeed.length,
-        countPunchIns: attendanceToday.filter(a => a.punchIn?.time).length,
+        absentDriversCount: absentDriversFeed.length,
         dailyFuelAmount: { total: fuelEntriesToday.reduce((sum, f) => sum + (Number(f.amount) || 0), 0) },
         dailyStats: {
-            regularSalary: dailySalaryTotal,
+            regularSalary: regularSalaryTotal,
             regularDriversCount: regularDriversSeen.size,
-            freelancerSalary: dailyFreelancerSalaryTotal,
+            freelancerSalary: freelancerSalaryTotal,
             freelancerDriversCount: freelancerDriversSeen.size,
             outsideCarSalary: outsideCarTotal,
-            outsideCarCount: validOutsideVehicles.length,
-            grandTotal: dailySalaryTotal + dailyFreelancerSalaryTotal + outsideCarTotal
+            grandTotal: regularSalaryTotal + freelancerSalaryTotal + outsideCarTotal
         },
-        liveDriversFeed: liveDriversFeed,
-        absentDriversFeed: absentDriversFeed,
+        liveDriversFeed,
+        absentDriversFeed,
         liveVehiclesFeed,
         unusedVehiclesFeed,
         dailyFuelEntries: fuelEntriesToday,
-        dutyHistoryThisMonth: attendanceToday,
-        absentDriversCount: absentDriversFeed.length,
         lastUpdated: new Date().toISOString()
     };
 
-    console.log(`[LIVE_FEED] Company: ${companyId}, Date: ${targetDate}, Active Fleet: ${activeVehiclesCount}/${totalVehicles}`);
+    console.log(`[LIVE_FEED] Company: ${companyId}, Date: ${targetDate}, Active Fleet: ${finalResponse.activeVehiclesCount}/${finalResponse.totalVehicles}, Drivers: ${liveDriversFeed.length}`);
 
     DASHBOARD_CACHE.set(cacheKey, { data: finalResponse, time: Date.now() });
     res.json(finalResponse);
@@ -6222,7 +6287,9 @@ module.exports = {
     deleteStaff,
     updateStaff,
     getStaffAttendanceReports,
+    getStaffStats,
     getPendingLeaveRequests,
+    getAllLeaveRequests,
     approveRejectLeave,
     adminPunchIn,
     adminPunchOut,

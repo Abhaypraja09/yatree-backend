@@ -133,16 +133,19 @@ const userSchema = new mongoose.Schema({
         default: 'Company'
     },
     permissions: {
-        dashboard: { type: Boolean, default: true },
-        liveFeed: { type: Boolean, default: true },
-        logBook: { type: Boolean, default: true },
-        driversService: { type: Boolean, default: true },
-        fleetOperations: { type: Boolean, default: true },
-        buySell: { type: Boolean, default: true },
-        vehiclesManagement: { type: Boolean, default: true },
-        staffManagement: { type: Boolean, default: true },
-        manageAdmins: { type: Boolean, default: true },
-        reports: { type: Boolean, default: true }
+        type: mongoose.Schema.Types.Mixed,
+        default: {
+            dashboard: true,
+            liveFeed: true,
+            logBook: true,
+            driversService: true,
+            fleetOperations: true,
+            buySell: true,
+            vehiclesManagement: true,
+            staffManagement: true,
+            manageAdmins: true,
+            reports: true
+        }
     },
     overtime: {
         enabled: { type: Boolean, default: false },

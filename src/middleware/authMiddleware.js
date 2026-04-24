@@ -129,7 +129,6 @@ const logToFile = (msg) => {
 
 const admin = (req, res, next) => {
     const role = req.user?.role?.toLowerCase();
-    logToFile(`[CHECK_ADMIN] User: ${req.user?._id}, Role: ${req.user?.role}, Result: ${role === 'admin' || role === 'superadmin'}`);
     if (role === 'admin' || role === 'superadmin') {
         next();
     } else {
@@ -148,7 +147,6 @@ const driver = (req, res, next) => {
 
 const adminOrExecutive = (req, res, next) => {
     const role = req.user?.role?.toLowerCase();
-    logToFile(`[CHECK_ADMIN_OR_EXEC] User: ${req.user?._id}, Role: ${req.user?.role}, Result: ${role === 'admin' || role === 'executive' || role === 'superadmin'}`);
     if (role === 'admin' || role === 'executive' || role === 'superadmin') {
         next();
     } else {

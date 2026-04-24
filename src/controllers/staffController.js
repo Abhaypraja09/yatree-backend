@@ -269,87 +269,141 @@ const getStaffLeaves = asyncHandler(async (req, res) => {
  */
 async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     const today = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
-    const effectiveEnd = cycleEnd > today ? today : cycleEnd;
+    const csDate = DateTime.fromISO(cycleStart).setZone('Asia/Kolkata');
+    const ceDate = DateTime.fromISO(cycleEnd).setZone('Asia/Kolkata');
+    const effectiveEndDT = ceDate > DateTime.fromISO(today) ? DateTime.fromISO(today) : ceDate;
+    const effectiveEnd = effectiveEndDT.toFormat('yyyy-MM-dd');
 
-    const attendance = await StaffAttendance.find({
-        staff: staffUser._id,
-        date: { $gte: cycleStart, $lte: effectiveEnd }
-    });
+    const [attendance, allApprovedLeaves] = await Promise.all([
+        StaffAttendance.find({
+            staff: staffUser._id,
+            date: { $gte: cycleStart, $lte: cycleEnd } // Fetch full cycle for better visibility
+        }).lean(),
+        LeaveRequest.find({
+            staff: staffUser._id,
+            status: 'Approved',
+            startDate: { $lte: cycleEnd },
+            endDate: { $gte: cycleStart }
+        }).lean()
+    ]);
 
-    const csDate = DateTime.fromISO(cycleStart);
-    const ceDate = DateTime.fromISO(effectiveEnd);
+    const attMap = {};
+    attendance.forEach(a => { attMap[a.date] = a; });
 
-    let workingDaysPassed = 0;
+    const isLeave = (dStr) => {
+        return allApprovedLeaves.some(l => dStr >= l.startDate && dStr <= l.endDate);
+    };
+
+    let totalDaysInCycle = 0;
+    let presentDays = 0;
+    let halfDays = 0;
+    let approvedLeaveDays = 0;
+    let unapprovedAbsences = 0;
+    let paidSundays = 0;
+    let unpaidSundays = 0;
+    let totalWorkingDaysRequired = 0;
+
+    const fullCycleAttendance = [];
+    const sundays = [];
+
     let d = csDate;
     while (d <= ceDate) {
-        if (staffUser.staffType === 'Hotel' || d.weekday !== 7) {
-            workingDaysPassed++;
+        const dStr = d.toFormat('yyyy-MM-dd');
+        totalDaysInCycle++;
+        const isPastOrToday = dStr <= today;
+        const isSunday = d.weekday === 7;
+        const exist = attMap[dStr];
+        const onApprovedLeave = isLeave(dStr);
+
+        let status = 'absent';
+        if (exist) {
+            status = exist.status;
+            if (status === 'present') presentDays++;
+            else if (status === 'half-day') {
+                halfDays++;
+                presentDays += 0.5;
+            }
+        } else if (onApprovedLeave) {
+            status = 'leave';
+            approvedLeaveDays++;
+        } else if (isPastOrToday && !isSunday) {
+            unapprovedAbsences++;
         }
+
+        if (isSunday) {
+            sundays.push({ date: dStr, earned: false });
+        } else {
+            totalWorkingDaysRequired++;
+        }
+
+        fullCycleAttendance.push({
+            date: dStr,
+            day: d.day,
+            status: exist ? exist.status : (onApprovedLeave ? 'leave' : (isPastOrToday ? 'absent' : 'upcoming')),
+            isSunday,
+            punchIn: exist?.punchIn,
+            punchOut: exist?.punchOut,
+            _id: exist?._id || `empty-${dStr}`
+        });
+
         d = d.plus({ days: 1 });
     }
 
-    const presentDays = attendance.filter(a => a.status === 'present').length;
-    const halfDays = attendance.filter(a => a.status === 'half-day').length;
-    const totalEffectivePresent = presentDays + (halfDays * 0.5);
+    // ── SUNDAY BENEFIT LOGIC ──
+    // A Sunday is paid if the staff member had NO unapproved absences in the working week (Mon-Sat)
+    // that contains this Sunday. 
+    sundays.forEach(sun => {
+        const sunDT = DateTime.fromISO(sun.date);
+        const weekStart = sunDT.minus({ days: 6 }).toFormat('yyyy-MM-dd');
+        const weekEnd = sunDT.minus({ days: 1 }).toFormat('yyyy-MM-dd'); // Mon to Sat
 
-    // Sundays Worked (for Company staff, this is a bonus)
-    let sundaysPassed = 0;
-    const sundaysWorked = attendance.filter(a => {
-        const day = DateTime.fromISO(a.date).weekday;
-        if (day === 7) sundaysPassed++;
-        return day === 7 && a.status === 'present';
-    }).length;
+        // Check for any unapproved absence in this specific window
+        let weekAbsence = false;
+        let checkD = sunDT.minus({ days: 6 });
+        while (checkD < sunDT) {
+            const checkDStr = checkD.toFormat('yyyy-MM-dd');
+            // Only count as absence if it's in the CURRENT cycle and is unapproved
+            if (checkDStr >= cycleStart && checkDStr <= cycleEnd) {
+                const dayAtt = attMap[checkDStr];
+                const dayLeave = isLeave(checkDStr);
+                if (!dayAtt && !dayLeave && checkDStr <= today) {
+                    weekAbsence = true;
+                    break;
+                }
+            }
+            checkD = checkD.plus({ days: 1 });
+        }
 
-    // Recount sundaysPassed based on the full range (including days with no attendance records)
-    sundaysPassed = 0;
-    let sundayCounter = csDate;
-    while (sundayCounter <= ceDate) {
-        if (sundayCounter.weekday === 7) sundaysPassed++;
-        sundayCounter = sundayCounter.plus({ days: 1 });
-    }
-
-    // Absences: Compared against required working days
-    const totalAbsences = Math.max(0, workingDaysPassed - totalEffectivePresent);
-
-    // Filter only APPROVED leave requests that fall within this cycle
-    const approvedLeaveDays = await LeaveRequest.countDocuments({
-        staff: staffUser._id,
-        status: 'Approved',
-        startDate: { $gte: cycleStart },
-        endDate: { $lte: effectiveEnd }
+        if (!weekAbsence) {
+            paidSundays++;
+            sun.earned = true;
+        } else {
+            unpaidSundays++;
+            sun.earned = false;
+        }
     });
 
-    const allowance = staffUser.monthlyLeaveAllowance || 4;
-    const paidLeavesUsed = Math.min(approvedLeaveDays, allowance);
-    const unpaidLeaves = Math.max(0, totalAbsences - paidLeavesUsed);
-
     const baseSalary = staffUser.salary || 0;
-    const perDaySalary = baseSalary / 30; // 30 day basis
-
-    // Total Pay = Worked Days + Sundays (Paid Holidays)
-    // Note: User explicitly requested: "leave ka payment nahi add hoga" (Leaves are NOT paid)
-    const finalSalary = (totalEffectivePresent + sundaysPassed) * perDaySalary;
+    // Salary = (Present + Approved Leaves + Earned Sundays) / Total Days in Month * Monthly Base
+    const earnedDays = presentDays + approvedLeaveDays + paidSundays;
+    const finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
 
     return {
         cycleStart,
         cycleEnd,
-        effectiveEnd,
-        presentDays: totalEffectivePresent,
+        totalDaysInCycle,
+        presentDays,
         halfDays,
-        sundaysWorked,
-        workingDaysPassed,
-        sundaysPassed,
-        leavesTaken: totalAbsences,
-        allowance,
-        paidLeavesUsed,
-        extraLeaves: totalAbsences, // All leaves are now unpaid as per user request
-        salary: baseSalary,
-        perDaySalary: Math.round(perDaySalary),
-        totalEarned: Math.round(finalSalary),
+        approvedLeaveDays,
+        unapprovedAbsences,
+        paidSundays,
+        unpaidSundays,
+        earnedDays,
+        baseSalary,
         finalSalary: Math.round(finalSalary),
-        deduction: Math.round(totalAbsences * perDaySalary),
-        sundayBonus: staffUser.staffType === 'Hotel' ? 0 : Math.round(sundaysWorked * perDaySalary),
-        attendanceData: attendance
+        perDaySalary: Math.round(baseSalary / totalDaysInCycle),
+        attendanceData: fullCycleAttendance,
+        sundaysReport: sundays
     };
 }
 
