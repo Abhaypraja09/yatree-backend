@@ -908,21 +908,28 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             })),
             allDrivers: drivers.map(d => {
                 const dId = d._id.toString();
-                // We'll just give a summary of their current month financial state
+                // Calculate their specific parking/toll total for current month
+                const driverParkingTotal = recentParking
+                    .filter(p => p.driver?.toString() === dId)
+                    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
                 return {
                     name: d.name,
                     isFreelancer: d.isFreelancer,
-                    status: d.status || 'Active'
+                    status: d.status || 'Active',
+                    currentMonthParking: driverParkingTotal
                 };
             }),
             recentActivity: [
                 ...recentFuel.slice(0, 15).map(f => ({ type: 'Fuel', car: vehicles.find(v => v._id?.toString() === f.vehicle?.toString())?.carNumber, amount: f.amount, date: f.date })),
-                ...recentMaintenance.slice(0, 15).map(m => ({ type: 'Maint', car: vehicles.find(v => v._id?.toString() === m.vehicle?.toString())?.carNumber, amount: m.amount, date: m.billDate, desc: m.description }))
-            ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 30),
+                ...recentMaintenance.slice(0, 15).map(m => ({ type: 'Maint', car: vehicles.find(v => v._id?.toString() === m.vehicle?.toString())?.carNumber, amount: m.amount, date: m.billDate, desc: m.description })),
+                ...recentParking.slice(0, 15).map(p => ({ type: 'Parking/Toll', car: vehicles.find(v => v._id?.toString() === p.vehicle?.toString())?.carNumber, amount: p.amount, date: p.date, desc: p.remarks }))
+            ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 45),
             currentMonth: {
                 month: istNow.toFormat('MMMM'),
                 fuelSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.fuel || 0,
                 maintenanceSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.maintenance || 0,
+                totalParkingSpend: recentParking.reduce((acc, p) => acc + (Number(p.amount) || 0), 0),
                 driverNetPayable: totalDriverNet,
                 staffTotalGross: totalStaffGross,
                 outsideCarsBuy: totalOutsideCarsBuy,
