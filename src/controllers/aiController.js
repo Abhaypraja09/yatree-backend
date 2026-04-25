@@ -852,30 +852,24 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             }))
         };
 
-        // Calculate final net payable for summary
-        if (insights.currentMonthStats.driverSalarySummary) {
-            insights.currentMonthStats.driverSalarySummary.netPayable =
-                insights.currentMonthStats.driverSalarySummary.grossSalary -
-                insights.currentMonthStats.driverSalarySummary.totalAdvances -
-                insights.currentMonthStats.driverSalarySummary.totalEMI;
-        }
-
-        const finalPrompt = `You are the "HAND MATH AI Fleet Assistant". 
+        // --- FINAL PROMPT ---
+        const finalPrompt = `You are the "Autonomous AI Fleet Intelligence". 
         Based on this fleet data: ${JSON.stringify(insights)}
         
         Task: Answer the user's specific question: "${question}"
         
         STRICT RULES:
         1. Be very concise and direct.
-        2. Distinguish between DRIVER salary (driverSalarySummary) and STAFF salary (staffSalarySummary).
-        3. If the user asks for "Staff salary", use the staffSalarySummary value (Total Gross).
-        4. If the user asks for "Driver salary" or just "Salary" in fleet context, use driverSalarySummary.
-        5. If the user asks for "Outside Cars", "Partner Duties", or "BUY/SELL", use outsideCarsSummary.
-        6. If "BUY" is asked, use totalBuyAmount. If "SELL" is asked, use totalSellAmount.
-        7. If the user asks for "Event Management" or "Event Revenue", use eventSummary.
-        8. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
-        9. Use professional and helpful tone.
-        10. Use the same language (Hindi/English) as the user's question.`;
+        2. Distinguish between DRIVER salary (driverNetPayable) and STAFF salary (staffTotalGross).
+        3. For monthly queries (e.g. March), check monthlyBreakdown.
+        4. If the user asks for "March Maintenance", use monthlyBreakdown.march.maintenance.
+        5. If the user asks for "March Fuel", use monthlyBreakdown.march.fuel.
+        6. If the user asks for "March Event", use monthlyBreakdown.march.events.
+        7. If "BUY" is asked for partner duties, use outsideCarsBuy.
+        8. If "SELL" is asked, use outsideCarsSell.
+        9. ONLY answer what is asked. Do not provide a long business report unless asked.
+        10. Use professional tone.
+        11. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
