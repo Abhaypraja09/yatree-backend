@@ -668,18 +668,40 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 const end = DateTime.fromFormat(l.endDate, 'yyyy-MM-dd');
                 while (d <= end) {
                     const dStr = d.toFormat('yyyy-MM-dd');
-                    if (dStr >= startOfMonth && dStr <= endOfMonth) approvedLeaveDays++;
+                    if (dStr >= startOfMonthStr && dStr <= endOfMonthStr) approvedLeaveDays++;
                     d = d.plus({ days: 1 });
                 }
             });
 
-            // Paid Sundays (Simplified: assume all Sundays paid if active)
+            // Paid Sundays (Accurate Logic: Sunday is paid only if no unapproved absence in 6 days prior)
             let paidSundays = 0;
-            let checkD = istNow.startOf('month');
+            let checkSun = istNow.startOf('month');
             const currentMonth = istNow.month;
-            while (checkD.month === currentMonth) {
-                if (checkD.weekday === 7) paidSundays++;
-                checkD = checkD.plus({ days: 1 });
+            const todayStr = istNow.toFormat('yyyy-MM-dd');
+
+            while (checkSun.month === currentMonth) {
+                if (checkSun.weekday === 7) {
+                    const sunStr = checkSun.toFormat('yyyy-MM-dd');
+                    let weekAbsence = false;
+                    
+                    // Check 6 days before Sunday
+                    let preD = checkSun.minus({ days: 6 });
+                    while (preD < checkSun) {
+                        const pStr = preD.toFormat('yyyy-MM-dd');
+                        if (pStr >= startOfMonthStr && pStr <= endOfMonthStr && pStr <= todayStr) {
+                            const hasAtt = myAtt.some(a => a.date === pStr);
+                            const hasL = myLeaves.some(l => pStr >= l.startDate && pStr <= l.endDate);
+                            if (!hasAtt && !hasL) {
+                                weekAbsence = true;
+                                break;
+                            }
+                        }
+                        preD = preD.plus({ days: 1 });
+                    }
+
+                    if (!weekAbsence) paidSundays++;
+                }
+                checkSun = checkSun.plus({ days: 1 });
             }
 
             const earnedDays = presentDays + approvedLeaveDays + paidSundays;
