@@ -806,8 +806,9 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             if (m === 4) monthlyFinancials.april.fuel += (Number(f.amount) || 0);
         });
 
-        // Maintenance
-        allMaint90.forEach(m => {
+        // Maintenance (Applying the same Filter for Driver Services)
+        const filteredAllMaint90 = filterMaint(allMaint90);
+        filteredAllMaint90.forEach(m => {
             const mon = DateTime.fromJSDate(m.billDate).setZone('Asia/Kolkata').month;
             if (mon === 3) monthlyFinancials.march.maintenance += (Number(m.amount) || 0);
             if (mon === 4) monthlyFinancials.april.maintenance += (Number(m.amount) || 0);
