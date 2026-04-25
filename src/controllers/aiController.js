@@ -944,9 +944,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     name: d.name,
                     isFreelancer: d.isFreelancer,
                     status: d.status || 'Active',
-                    currentMonthParking: driverParkingTotal,
-                    currentMonthNightStay: nightStayTotal,
-                    currentMonthAllowances: allowanceTotal + bonusTotal
+                    totalParking: driverParkingTotal,
+                    totalNightStay: nightStayTotal,
+                    totalSDRBonus: allowanceTotal,
+                    totalExtraAllowances: bonusTotal
                 };
             }),
             recentActivity: [
@@ -993,17 +994,13 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         
         STRICT RULES:
         1. Tone: Professional, respectful, and helpful (like ChatGPT).
-        2. Brevity: Be concise but thorough. Do not over-explain unless requested.
-        3. History: For any month (e.g. Feb, March, April), check "monthlyHistory" for financials and "historicalAttendance" for duty counts.
-        4. Attendance: For "Yesterday" or "Kal", use "yesterdayActive". For other specific dates, check "historicalAttendance.daily".
-        5. Terminology: 
-           - "SDR" = Same Day Return Bonus (check currentMonthAllowances).
-           - "Night amount" / "Night Stay" = (check currentMonthNightStay).
-           - "Parking" = Toll & Parking (check currentMonthParking).
+        2. Brevity: Be concise but thorough. Do not over-explain.
+        3. Autonomy: Analyze all provided JSON fields (e.g., totalSDRBonus, totalNightStay, totalParking) to answer specific fleet questions.
+        4. History: For any previous month, check "monthlyHistory" and "historicalAttendance".
+        5. Attendance: For "Yesterday" or "Kal", use "yesterdayActive".
         6. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
-        7. Partner Duties: Use outsideCarsBuy for 'BUY' and outsideCarsSell for 'SELL'.
-        8. Language: Always respond in the same language as the user (Hindi/English).
-        9. Accuracy: Only state what is in the data. If data is missing for a specific date, mention it politely.`;
+        7. Language: Always respond in the same language as the user (Hindi/English).
+        8. Accuracy: Only state what is in the data. If missing, mention it politely.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
