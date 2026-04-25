@@ -910,7 +910,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 const dId = d._id.toString();
                 // Calculate their specific parking/toll total for current month
                 const driverParkingTotal = recentParking
-                    .filter(p => p.driver?.toString() === dId)
+                    .filter(p => 
+                        (p.driverId && p.driverId.toString() === dId) || 
+                        (p.driver && p.driver.trim().toLowerCase() === d.name.trim().toLowerCase())
+                    )
                     .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
                 return {
