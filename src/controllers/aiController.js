@@ -934,11 +934,19 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     })
                     .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
+                // Calculate Night Stay and Allowances from monthlyAttendance
+                const driverAtt = (monthlyAttendance || []).filter(a => a.driver?.toString() === dId);
+                const nightStayTotal = driverAtt.reduce((sum, a) => sum + (Number(a.punchOut?.nightStayAmount) || 0), 0);
+                const allowanceTotal = driverAtt.reduce((sum, a) => sum + (Number(a.punchOut?.allowanceTA) || 0), 0);
+                const bonusTotal = driverAtt.reduce((sum, a) => sum + (Number(a.outsideTrip?.bonusAmount) || 0), 0);
+
                 return {
                     name: d.name,
                     isFreelancer: d.isFreelancer,
                     status: d.status || 'Active',
-                    currentMonthParking: driverParkingTotal
+                    currentMonthParking: driverParkingTotal,
+                    currentMonthNightStay: nightStayTotal,
+                    currentMonthAllowances: allowanceTotal + bonusTotal
                 };
             }),
             recentActivity: [
