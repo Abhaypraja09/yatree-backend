@@ -735,6 +735,26 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             }
         });
 
+        // --- EVENT MANAGEMENT CALCULATION ---
+        const events = await Event.find({
+            company: userCompanyId,
+            date: { $gte: ninetyDaysAgo }
+        }).lean();
+
+        const eventSummary = {
+            march: { revenue: 0, expense: 0 },
+            april: { revenue: 0, expense: 0 }
+        };
+
+        events.forEach(ev => {
+            const evDate = DateTime.fromJSDate(ev.date).setZone('Asia/Kolkata');
+            const monthName = evDate.month === 3 ? 'march' : (evDate.month === 4 ? 'april' : null);
+            if (monthName) {
+                eventSummary[monthName].revenue += (Number(ev.totalRevenue) || 0);
+                eventSummary[monthName].expense += (Number(ev.totalExpense) || 0);
+            }
+        });
+
         // Calculate specific car efficiency
         const carInsights = vehicles.map(v => {
             const vId = v._id?.toString();
@@ -777,7 +797,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     totalBuyAmount: totalOutsideCarsBuy,
                     totalSellAmount: totalOutsideCarsSell,
                     outsideCarsCount: currentMonthOutside.length
-                }
+                },
+                eventSummary
             },
             history90Days: {
                 totalFuelSpend: allFuel90.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
@@ -816,9 +837,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         4. If the user asks for "Driver salary" or just "Salary" in fleet context, use driverSalarySummary.
         5. If the user asks for "Outside Cars", "Partner Duties", or "BUY/SELL", use outsideCarsSummary.
         6. If "BUY" is asked, use totalBuyAmount. If "SELL" is asked, use totalSellAmount.
-        7. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
-        8. Use professional and helpful tone.
-        9. Use the same language (Hindi/English) as the user's question.`;
+        7. If the user asks for "Event Management" or "Event Revenue", use eventSummary.
+        8. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
+        9. Use professional and helpful tone.
+        10. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
