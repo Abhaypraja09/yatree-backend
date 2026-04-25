@@ -841,6 +841,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         eventExtHistory.forEach(d => processEventDuty(d, false));
 
         // --- HISTORICAL ATTENDANCE AGGREGATION (Last 180 Days) ---
+        // Count UNIQUE drivers per day using aggregation
         const attendanceHistory = await Attendance.aggregate([
             {
                 $match: {
@@ -851,7 +852,13 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             {
                 $group: {
                     _id: "$date",
-                    count: { $sum: 1 }
+                    drivers: { $addToSet: "$driver" }
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    count: { $size: "$drivers" }
                 }
             }
         ]);
@@ -859,7 +866,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         const dailyCounts = {};
         attendanceHistory.forEach(a => { dailyCounts[a._id] = a.count; });
 
-        // Group into monthly attendance totals
+        // Group into monthly attendance totals (sum of unique drivers per day is okay for general monthly activity)
         const monthlyAttendanceHistory = {};
         attendanceHistory.forEach(a => {
             const mKey = DateTime.fromFormat(a._id, 'yyyy-MM-dd').toFormat('MMMM').toLowerCase();
@@ -873,12 +880,15 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             last7DaysAttendance[dateStr] = dailyCounts[dateStr] || 0;
         }
 
+        // Calculate unique drivers for today's summary
+        const uniqueDriversToday = new Set(attendanceToday.filter(a => a.driver).map(a => (a.driver._id || a.driver).toString())).size;
+
         // Insights for Final Response
         const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
         const insights = {
             fleetSummary: {
                 totalOwned: vehicles.length,
-                activeToday: attendanceToday.length,
+                activeToday: uniqueDriversToday,
                 yesterdayActive: dailyCounts[istNow.minus({ days: 1 }).toFormat('yyyy-MM-dd')] || 0,
                 last7DaysAttendance,
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length
