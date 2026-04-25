@@ -737,24 +737,44 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         });
 
         // --- EVENT MANAGEMENT CALCULATION ---
-        const events = await Event.find({
-            company: userCompanyId,
-            date: { $gte: ninetyDaysAgo }
-        }).lean();
+        const [allEvents, eventFleetDuties, eventExtDuties] = await Promise.all([
+            Event.find({ company: userCompanyId, date: { $gte: ninetyDaysAgo } }).lean(),
+            Attendance.find({ company: userCompanyId, eventId: { $exists: true }, date: { $gte: startOfMonthStr.substring(0, 7) } }).lean(),
+            Vehicle.find({ company: userCompanyId, isOutsideCar: true, eventId: { $exists: true } }).lean()
+        ]);
 
         const eventSummary = {
             march: { revenue: 0, expense: 0 },
             april: { revenue: 0, expense: 0 }
         };
 
-        events.forEach(ev => {
-            const evDate = DateTime.fromJSDate(ev.date).setZone('Asia/Kolkata');
-            const monthName = evDate.month === 3 ? 'march' : (evDate.month === 4 ? 'april' : null);
+        // Helper to process duties
+        const processDuty = (d, isFleet) => {
+            const dateStr = d.date || d.carNumber?.split('#')[1];
+            if (!dateStr) return;
+            const month = parseInt(dateStr.split('-')[1]);
+            const monthName = month === 3 ? 'march' : (month === 4 ? 'april' : null);
             if (monthName) {
-                eventSummary[monthName].revenue += (Number(ev.totalRevenue) || 0);
-                eventSummary[monthName].expense += (Number(ev.totalExpense) || 0);
+                const amount = Number(d.dailyWage || d.dutyAmount || 0);
+                eventSummary[monthName].revenue += amount;
+                if (!isFleet) eventSummary[monthName].expense += amount;
             }
-        });
+        };
+
+        eventFleetDuties.forEach(d => processDuty(d, true));
+        eventExtDuties.forEach(d => processDuty(d, false));
+
+        // If duties are empty, fallback to Event document revenue if present
+        if (eventSummary.march.revenue === 0 && eventSummary.april.revenue === 0) {
+            allEvents.forEach(ev => {
+                const evDate = DateTime.fromJSDate(ev.date).setZone('Asia/Kolkata');
+                const monthName = evDate.month === 3 ? 'march' : (evDate.month === 4 ? 'april' : null);
+                if (monthName) {
+                    eventSummary[monthName].revenue += (Number(ev.totalRevenue) || 0);
+                    eventSummary[monthName].expense += (Number(ev.totalExpense) || 0);
+                }
+            });
+        }
 
         // Calculate specific car efficiency
         const carInsights = vehicles.map(v => {
