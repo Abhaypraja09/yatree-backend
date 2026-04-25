@@ -528,7 +528,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             recentAdvances,
             allLoans,
             recentAllowances,
-            monthlyParking
+            recentParking
         ] = await Promise.all([
             Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean(),
             Attendance.find({ company: userCompanyId, date: istNow.toFormat('yyyy-MM-dd') }).populate('driver').lean(),
