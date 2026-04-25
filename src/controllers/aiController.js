@@ -718,11 +718,20 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             isOutsideCar: true
         }).lean();
 
-        let totalOutsideCarsAmount = 0;
-        outsideCars.forEach(v => {
+        let totalOutsideCarsBuy = 0;
+        let totalOutsideCarsSell = 0;
+        const currentMonthOutside = outsideCars.filter(v => {
             const datePart = v.carNumber?.split('#')[1];
-            if (datePart && datePart >= startOfMonthStr && datePart <= endOfMonthStr) {
-                totalOutsideCarsAmount += (Number(v.dutyAmount) || 0);
+            return datePart && datePart >= startOfMonthStr && datePart <= endOfMonthStr;
+        });
+
+        currentMonthOutside.forEach(v => {
+            const amount = Number(v.dutyAmount) || 0;
+            if (v.transactionType === 'Sell') {
+                totalOutsideCarsSell += amount;
+            } else {
+                // Default is 'Buy' or 'Duty' (which counts as Buy payout)
+                totalOutsideCarsBuy += amount;
             }
         });
 
@@ -765,8 +774,9 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     staffCount: staff.length
                 },
                 outsideCarsSummary: {
-                    totalAmount: totalOutsideCarsAmount,
-                    outsideCarsCount: outsideCars.filter(v => v.carNumber?.split('#')[1] >= startOfMonthStr).length
+                    totalBuyAmount: totalOutsideCarsBuy,
+                    totalSellAmount: totalOutsideCarsSell,
+                    outsideCarsCount: currentMonthOutside.length
                 }
             },
             history90Days: {
@@ -804,10 +814,11 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         2. Distinguish between DRIVER salary (driverSalarySummary) and STAFF salary (staffSalarySummary).
         3. If the user asks for "Staff salary", use the staffSalarySummary value (Total Gross).
         4. If the user asks for "Driver salary" or just "Salary" in fleet context, use driverSalarySummary.
-        5. If the user asks for "Outside Cars" or "Partner Duties", use outsideCarsSummary.
-        6. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
-        7. Use professional and helpful tone.
-        8. Use the same language (Hindi/English) as the user's question.`;
+        5. If the user asks for "Outside Cars", "Partner Duties", or "BUY/SELL", use outsideCarsSummary.
+        6. If "BUY" is asked, use totalBuyAmount. If "SELL" is asked, use totalSellAmount.
+        7. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
+        8. Use professional and helpful tone.
+        9. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
