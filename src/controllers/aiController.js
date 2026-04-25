@@ -940,6 +940,13 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 const allowanceTotal = driverAtt.reduce((sum, a) => sum + (Number(a.punchOut?.allowanceTA) || 0), 0);
                 const bonusTotal = driverAtt.reduce((sum, a) => sum + (Number(a.outsideTrip?.bonusAmount) || 0), 0);
 
+                // Calculate Loans and Advances
+                const driverLoans = (allLoans || []).filter(l => l.driver?.toString() === dId && l.status === 'Active');
+                const driverAdvances = (recentAdvances || []).filter(adv => 
+                    adv.driver?.toString() === dId && 
+                    !/Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/i.test(adv.remark || '')
+                );
+
                 return {
                     name: d.name,
                     isFreelancer: d.isFreelancer,
@@ -947,7 +954,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     totalParking: driverParkingTotal,
                     totalNightStay: nightStayTotal,
                     totalSDRBonus: allowanceTotal,
-                    totalExtraAllowances: bonusTotal
+                    totalExtraAllowances: bonusTotal,
+                    activeLoans: driverLoans.length,
+                    totalLoanAmount: driverLoans.reduce((s, l) => s + (Number(l.totalAmount) || 0), 0),
+                    pendingAdvances: driverAdvances.reduce((s, a) => s + (Number(a.amount) || 0), 0)
                 };
             }),
             recentActivity: [
@@ -995,7 +1005,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         STRICT RULES:
         1. Tone: Professional, respectful, and helpful (like ChatGPT).
         2. Brevity: Be concise but thorough. Do not over-explain.
-        3. Autonomy: Analyze all provided JSON fields (e.g., totalSDRBonus, totalNightStay, totalParking) to answer specific fleet questions.
+        3. Autonomy: Analyze all provided JSON fields (e.g., activeLoans, pendingAdvances, totalSDRBonus, totalNightStay, totalParking) to answer specific fleet questions.
         4. History: For any previous month, check "monthlyHistory" and "historicalAttendance".
         5. Attendance: For "Yesterday" or "Kal", use "yesterdayActive".
         6. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
