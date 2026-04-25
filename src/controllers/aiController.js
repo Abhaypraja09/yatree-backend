@@ -511,6 +511,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         const istNow = DateTime.now().setZone('Asia/Kolkata');
         const ninetyDaysAgo = istNow.minus({ days: 90 }).toJSDate();
         const startOfMonth = istNow.startOf('month').toJSDate();
+        const startOfMonthStr = istNow.startOf('month').toFormat('yyyy-MM-dd');
+        const endOfMonthStr = istNow.endOf('month').toFormat('yyyy-MM-dd');
 
         // --- DEEP ANALYTICAL DATA FETCHING ---
         const [
@@ -637,12 +639,12 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         const staff = await User.find({ company: userCompanyId, role: 'Staff' }).lean();
         const staffAttendance = await StaffAttendance.find({
             company: userCompanyId,
-            date: { $gte: startOfMonth, $lte: endOfMonth }
+            date: { $gte: startOfMonthStr, $lte: endOfMonthStr }
         }).lean();
         const staffLeaves = await LeaveRequest.find({
             company: userCompanyId,
             status: 'Approved',
-            endDate: { $gte: startOfMonth }
+            endDate: { $gte: startOfMonthStr }
         }).lean();
 
         let totalStaffGross = 0;
@@ -673,10 +675,11 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
 
             // Paid Sundays (Simplified: assume all Sundays paid if active)
             let paidSundays = 0;
-            let d = istNow.startOf('month');
-            while (d.month === istNow.month) {
-                if (d.weekday === 7) paidSundays++;
-                d = d.plus({ days: 1 });
+            let checkD = istNow.startOf('month');
+            const currentMonth = istNow.month;
+            while (checkD.month === currentMonth) {
+                if (checkD.weekday === 7) paidSundays++;
+                checkD = checkD.plus({ days: 1 });
             }
 
             const earnedDays = presentDays + approvedLeaveDays + paidSundays;
