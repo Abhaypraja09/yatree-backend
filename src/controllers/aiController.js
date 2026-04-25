@@ -712,6 +712,20 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             totalStaffGross += Math.round(finalSalary);
         }
 
+        // --- OUTSIDE CARS (PARTNER DUTIES) CALCULATION ---
+        const outsideCars = await Vehicle.find({
+            company: userCompanyId,
+            isOutsideCar: true
+        }).lean();
+
+        let totalOutsideCarsAmount = 0;
+        outsideCars.forEach(v => {
+            const datePart = v.carNumber?.split('#')[1];
+            if (datePart && datePart >= startOfMonthStr && datePart <= endOfMonthStr) {
+                totalOutsideCarsAmount += (Number(v.dutyAmount) || 0);
+            }
+        });
+
         // Calculate specific car efficiency
         const carInsights = vehicles.map(v => {
             const vId = v._id?.toString();
@@ -749,6 +763,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 staffSalarySummary: {
                     totalGross: totalStaffGross,
                     staffCount: staff.length
+                },
+                outsideCarsSummary: {
+                    totalAmount: totalOutsideCarsAmount,
+                    outsideCarsCount: outsideCars.filter(v => v.carNumber?.split('#')[1] >= startOfMonthStr).length
                 }
             },
             history90Days: {
@@ -786,9 +804,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         2. Distinguish between DRIVER salary (driverSalarySummary) and STAFF salary (staffSalarySummary).
         3. If the user asks for "Staff salary", use the staffSalarySummary value (Total Gross).
         4. If the user asks for "Driver salary" or just "Salary" in fleet context, use driverSalarySummary.
-        5. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
-        6. Use professional and helpful tone.
-        7. Use the same language (Hindi/English) as the user's question.`;
+        5. If the user asks for "Outside Cars" or "Partner Duties", use outsideCarsSummary.
+        6. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
+        7. Use professional and helpful tone.
+        8. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
