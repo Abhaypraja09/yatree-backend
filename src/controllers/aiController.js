@@ -862,7 +862,6 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         });
 
         // Insights for Final Response
-        const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
         const insights = {
             fleetSummary: {
                 totalOwned: vehicles.length,
@@ -871,6 +870,28 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 last7DaysAttendance,
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length
             },
+            allVehicles: carInsights.map(c => ({
+                car: c.carNumber,
+                model: c.model,
+                status: vehicles.find(v => v.carNumber === c.carNumber)?.status || 'Active',
+                fuel: c.totalFuel,
+                maint: c.totalMaintenance,
+                km: c.totalKm,
+                days: c.daysRunning
+            })),
+            allDrivers: drivers.map(d => {
+                const dId = d._id.toString();
+                // We'll just give a summary of their current month financial state
+                return {
+                    name: d.name,
+                    isFreelancer: d.isFreelancer,
+                    status: d.status || 'Active'
+                };
+            }),
+            recentActivity: [
+                ...recentFuel.slice(0, 15).map(f => ({ type: 'Fuel', car: vehicles.find(v => v._id?.toString() === f.vehicle?.toString())?.carNumber, amount: f.amount, date: f.date })),
+                ...recentMaintenance.slice(0, 15).map(m => ({ type: 'Maint', car: vehicles.find(v => v._id?.toString() === m.vehicle?.toString())?.carNumber, amount: m.amount, date: m.billDate, desc: m.description }))
+            ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 30),
             currentMonth: {
                 month: istNow.toFormat('MMMM'),
                 fuelSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.fuel || 0,
