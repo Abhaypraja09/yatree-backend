@@ -862,6 +862,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         });
 
         // Insights for Final Response
+        const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
         const insights = {
             fleetSummary: {
                 totalOwned: vehicles.length,
