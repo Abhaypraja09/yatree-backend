@@ -690,9 +690,16 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 insights.currentMonthStats.driverSalarySummary.totalEMI;
         }
 
-        const finalPrompt = `Analyze this fleet data and give a business report.
-        Data: ${JSON.stringify(insights)}
-        Question: ${question}`;
+        const finalPrompt = `You are the "HAND MATH AI Fleet Assistant". 
+        Based on this fleet data: ${JSON.stringify(insights)}
+        
+        Task: Answer the user's specific question: "${question}"
+        
+        STRICT RULES:
+        1. Be very concise and direct.
+        2. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
+        3. Use professional and helpful tone.
+        4. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
