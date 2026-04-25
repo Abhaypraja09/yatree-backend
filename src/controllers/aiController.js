@@ -996,10 +996,14 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         2. Brevity: Be concise but thorough. Do not over-explain unless requested.
         3. History: For any month (e.g. Feb, March, April), check "monthlyHistory" for financials and "historicalAttendance" for duty counts.
         4. Attendance: For "Yesterday" or "Kal", use "yesterdayActive". For other specific dates, check "historicalAttendance.daily".
-        5. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
-        6. Partner Duties: Use outsideCarsBuy for 'BUY' and outsideCarsSell for 'SELL'.
-        7. Language: Always respond in the same language as the user (Hindi/English).
-        8. Accuracy: Only state what is in the data. If data is missing for a specific date, mention it politely.`;
+        5. Terminology: 
+           - "SDR" = Same Day Return Bonus (check currentMonthAllowances).
+           - "Night amount" / "Night Stay" = (check currentMonthNightStay).
+           - "Parking" = Toll & Parking (check currentMonthParking).
+        6. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
+        7. Partner Duties: Use outsideCarsBuy for 'BUY' and outsideCarsSell for 'SELL'.
+        8. Language: Always respond in the same language as the user (Hindi/English).
+        9. Accuracy: Only state what is in the data. If data is missing for a specific date, mention it politely.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
