@@ -13,6 +13,8 @@ const Attendance = require('../models/Attendance');
 const Parking = require('../models/Parking');
 const Loan = require('../models/Loan');
 const Allowance = require('../models/Allowance');
+const StaffAttendance = require('../models/StaffAttendance');
+const LeaveRequest = require('../models/LeaveRequest');
 require('dotenv').config();
 // Last Updated: 2026-04-25 12:38 PM - AI Controller Sync
 
@@ -631,6 +633,57 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             });
         });
 
+        // --- STAFF SALARY CALCULATION ---
+        const staff = await User.find({ company: userCompanyId, role: 'Staff' }).lean();
+        const staffAttendance = await StaffAttendance.find({
+            company: userCompanyId,
+            date: { $gte: startOfMonth, $lte: endOfMonth }
+        }).lean();
+        const staffLeaves = await LeaveRequest.find({
+            company: userCompanyId,
+            status: 'Approved',
+            endDate: { $gte: startOfMonth }
+        }).lean();
+
+        let totalStaffGross = 0;
+        const totalDaysInMonth = istNow.daysInMonth;
+
+        staff.forEach(s => {
+            const sId = s._id.toString();
+            const myAtt = staffAttendance.filter(a => a.staff?.toString() === sId);
+            const myLeaves = staffLeaves.filter(l => l.staff?.toString() === sId);
+
+            let presentDays = 0;
+            myAtt.forEach(a => {
+                if (a.status === 'present') presentDays++;
+                else if (a.status === 'half-day') presentDays += 0.5;
+            });
+
+            // Approved leaves in this month
+            let approvedLeaveDays = 0;
+            myLeaves.forEach(l => {
+                let d = DateTime.fromFormat(l.startDate, 'yyyy-MM-dd');
+                const end = DateTime.fromFormat(l.endDate, 'yyyy-MM-dd');
+                while (d <= end) {
+                    const dStr = d.toFormat('yyyy-MM-dd');
+                    if (dStr >= startOfMonth && dStr <= endOfMonth) approvedLeaveDays++;
+                    d = d.plus({ days: 1 });
+                }
+            });
+
+            // Paid Sundays (Simplified: assume all Sundays paid if active)
+            let paidSundays = 0;
+            let d = istNow.startOf('month');
+            while (d.month === istNow.month) {
+                if (d.weekday === 7) paidSundays++;
+                d = d.plus({ days: 1 });
+            }
+
+            const earnedDays = presentDays + approvedLeaveDays + paidSundays;
+            const finalSalary = (earnedDays / totalDaysInMonth) * (s.salary || 0);
+            totalStaffGross += Math.round(finalSalary);
+        });
+
         // Calculate specific car efficiency
         const carInsights = vehicles.map(v => {
             const vId = v._id?.toString();
@@ -664,6 +717,10 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                     totalAdvances: totalAdvances,
                     totalEMI,
                     netPayable: totalGrossSalary - totalAdvances - totalEMI
+                },
+                staffSalarySummary: {
+                    totalGross: totalStaffGross,
+                    staffCount: staff.length
                 }
             },
             history90Days: {
@@ -698,9 +755,12 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         
         STRICT RULES:
         1. Be very concise and direct.
-        2. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
-        3. Use professional and helpful tone.
-        4. Use the same language (Hindi/English) as the user's question.`;
+        2. Distinguish between DRIVER salary (driverSalarySummary) and STAFF salary (staffSalarySummary).
+        3. If the user asks for "Staff salary", use the staffSalarySummary value (Total Gross).
+        4. If the user asks for "Driver salary" or just "Salary" in fleet context, use driverSalarySummary.
+        5. ONLY answer what is asked. Do not provide a long business report unless the user asks for "report" or "analysis".
+        6. Use professional and helpful tone.
+        7. Use the same language (Hindi/English) as the user's question.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
