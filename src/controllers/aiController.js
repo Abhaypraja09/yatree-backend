@@ -635,79 +635,82 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             });
         });
 
-        // --- STAFF SALARY CALCULATION ---
-        const staff = await User.find({ company: userCompanyId, role: 'Staff' }).lean();
-        const staffAttendance = await StaffAttendance.find({
-            company: userCompanyId,
-            date: { $gte: startOfMonthStr, $lte: endOfMonthStr }
-        }).lean();
-        const staffLeaves = await LeaveRequest.find({
-            company: userCompanyId,
-            status: 'Approved',
-            endDate: { $gte: startOfMonthStr }
-        }).lean();
-
+        // --- STAFF SALARY CALCULATION (Matched with adminController logic) ---
+        const staff = await User.find({ company: userCompanyId, role: 'Staff', status: 'active' }).lean();
+        const istToday = istNow.toFormat('yyyy-MM-dd');
+        
         let totalStaffGross = 0;
-        const totalDaysInMonth = istNow.daysInMonth;
 
-        staff.forEach(s => {
-            const sId = s._id.toString();
-            const myAtt = staffAttendance.filter(a => a.staff?.toString() === sId);
-            const myLeaves = staffLeaves.filter(l => l.staff?.toString() === sId);
+        for (const s of staff) {
+            // Determine cycle dates like adminController.js
+            const joiningDate = s.joiningDate ? new Date(s.joiningDate) : new Date(s.createdAt);
+            const joinDay = DateTime.fromJSDate(joiningDate).setZone('Asia/Kolkata').day;
+            
+            let cycleStartDT = DateTime.fromObject({ year: istNow.year, month: istNow.month, day: joinDay }, { zone: 'Asia/Kolkata' });
+            if (cycleStartDT.month !== istNow.month) cycleStartDT = cycleStartDT.set({ day: 0 });
 
+            if (istNow.day < joinDay) {
+                cycleStartDT = cycleStartDT.minus({ months: 1 });
+            }
+            const cycleEndDT = cycleStartDT.plus({ months: 1 }).minus({ days: 1 });
+
+            const cycleStart = cycleStartDT.toFormat('yyyy-MM-dd');
+            const cycleEnd = cycleEndDT.toFormat('yyyy-MM-dd');
+
+            // Fetch data for this specific cycle
+            const [myAtt, myLeaves] = await Promise.all([
+                StaffAttendance.find({ staff: s._id, date: { $gte: cycleStart, $lte: cycleEnd } }).lean(),
+                LeaveRequest.find({ staff: s._id, status: 'Approved', endDate: { $gte: cycleStart } }).lean()
+            ]);
+
+            let totalDaysInCycle = 0;
             let presentDays = 0;
-            myAtt.forEach(a => {
-                if (a.status === 'present') presentDays++;
-                else if (a.status === 'half-day') presentDays += 0.5;
-            });
-
-            // Approved leaves in this month
             let approvedLeaveDays = 0;
-            myLeaves.forEach(l => {
-                let d = DateTime.fromFormat(l.startDate, 'yyyy-MM-dd');
-                const end = DateTime.fromFormat(l.endDate, 'yyyy-MM-dd');
-                while (d <= end) {
-                    const dStr = d.toFormat('yyyy-MM-dd');
-                    if (dStr >= startOfMonthStr && dStr <= endOfMonthStr) approvedLeaveDays++;
-                    d = d.plus({ days: 1 });
-                }
-            });
-
-            // Paid Sundays (Accurate Logic: Sunday is paid only if no unapproved absence in 6 days prior)
             let paidSundays = 0;
-            let checkSun = istNow.startOf('month');
-            const currentMonth = istNow.month;
-            const todayStr = istNow.toFormat('yyyy-MM-dd');
 
-            while (checkSun.month === currentMonth) {
-                if (checkSun.weekday === 7) {
-                    const sunStr = checkSun.toFormat('yyyy-MM-dd');
+            let d = cycleStartDT;
+            while (d <= cycleEndDT) {
+                const dStr = d.toFormat('yyyy-MM-dd');
+                totalDaysInCycle++;
+                
+                const isPastOrToday = dStr <= istToday;
+                const isSunday = d.weekday === 7;
+                const exist = myAtt.find(a => a.date === dStr);
+                const onApprovedLeave = myLeaves.some(l => dStr >= l.startDate && dStr <= l.endDate);
+
+                if (exist) {
+                    if (exist.status === 'present') presentDays++;
+                    else if (exist.status === 'half-day') presentDays += 0.5;
+                } else if (onApprovedLeave) {
+                    approvedLeaveDays++;
+                }
+
+                if (isSunday) {
+                    // Sunday pay logic
                     let weekAbsence = false;
-                    
-                    // Check 6 days before Sunday
-                    let preD = checkSun.minus({ days: 6 });
-                    while (preD < checkSun) {
-                        const pStr = preD.toFormat('yyyy-MM-dd');
-                        if (pStr >= startOfMonthStr && pStr <= endOfMonthStr && pStr <= todayStr) {
-                            const hasAtt = myAtt.some(a => a.date === pStr);
-                            const hasL = myLeaves.some(l => pStr >= l.startDate && pStr <= l.endDate);
-                            if (!hasAtt && !hasL) {
+                    let checkD = d.minus({ days: 6 });
+                    while (checkD < d) {
+                        const cStr = checkD.toFormat('yyyy-MM-dd');
+                        if (cStr >= cycleStart && cStr <= cycleEnd) {
+                            const hasAtt = myAtt.find(a => a.date === cStr);
+                            const hasL = myLeaves.some(l => cStr >= l.startDate && cStr <= l.endDate);
+                            if (!hasAtt && !hasL && cStr <= istToday) {
                                 weekAbsence = true;
                                 break;
                             }
                         }
-                        preD = preD.plus({ days: 1 });
+                        checkD = checkD.plus({ days: 1 });
                     }
-
                     if (!weekAbsence) paidSundays++;
                 }
-                checkSun = checkSun.plus({ days: 1 });
+
+                d = d.plus({ days: 1 });
             }
 
             const earnedDays = presentDays + approvedLeaveDays + paidSundays;
-            const finalSalary = (earnedDays / totalDaysInMonth) * (s.salary || 0);
+            const finalSalary = (earnedDays / totalDaysInCycle) * (s.salary || 0);
             totalStaffGross += Math.round(finalSalary);
-        });
+        }
 
         // Calculate specific car efficiency
         const carInsights = vehicles.map(v => {
