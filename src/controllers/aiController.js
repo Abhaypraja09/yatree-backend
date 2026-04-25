@@ -840,26 +840,38 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         eventFleetHistory.forEach(d => processEventDuty(d, true));
         eventExtHistory.forEach(d => processEventDuty(d, false));
 
+        // --- HISTORICAL ATTENDANCE AGGREGATION (Last 180 Days) ---
+        const attendanceHistory = await Attendance.aggregate([
+            {
+                $match: {
+                    company: new mongoose.Types.ObjectId(userCompanyId),
+                    date: { $gte: sixMonthsAgo.toFormat('yyyy-MM-dd') }
+                }
+            },
+            {
+                $group: {
+                    _id: "$date",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const dailyCounts = {};
+        attendanceHistory.forEach(a => { dailyCounts[a._id] = a.count; });
+
+        // Group into monthly attendance totals
+        const monthlyAttendanceHistory = {};
+        attendanceHistory.forEach(a => {
+            const mKey = DateTime.fromFormat(a._id, 'yyyy-MM-dd').toFormat('MMMM').toLowerCase();
+            monthlyAttendanceHistory[mKey] = (monthlyAttendanceHistory[mKey] || 0) + a.count;
+        });
+
         // --- DAILY ATTENDANCE SUMMARY (Last 7 Days) ---
         const last7DaysAttendance = {};
         for (let i = 0; i < 7; i++) {
             const dateStr = istNow.minus({ days: i }).toFormat('yyyy-MM-dd');
-            last7DaysAttendance[dateStr] = 0;
+            last7DaysAttendance[dateStr] = dailyCounts[dateStr] || 0;
         }
-
-        // We need historical attendance (monthlyAttendance might only be current month)
-        // Let's fetch the last 7 days specifically to be sure
-        const sevenDaysAgo = istNow.minus({ days: 7 }).toFormat('yyyy-MM-dd');
-        const histAttendance = await Attendance.find({
-            company: userCompanyId,
-            date: { $gte: sevenDaysAgo }
-        }).lean();
-
-        histAttendance.forEach(a => {
-            if (last7DaysAttendance[a.date] !== undefined) {
-                last7DaysAttendance[a.date]++;
-            }
-        });
 
         // Insights for Final Response
         const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
@@ -867,9 +879,13 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             fleetSummary: {
                 totalOwned: vehicles.length,
                 activeToday: attendanceToday.length,
-                yesterdayActive: last7DaysAttendance[istNow.minus({ days: 1 }).toFormat('yyyy-MM-dd')] || 0,
+                yesterdayActive: dailyCounts[istNow.minus({ days: 1 }).toFormat('yyyy-MM-dd')] || 0,
                 last7DaysAttendance,
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length
+            },
+            historicalAttendance: {
+                daily: dailyCounts,
+                monthly: monthlyAttendanceHistory
             },
             allVehicles: carInsights.map(c => ({
                 car: c.carNumber,
@@ -932,8 +948,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         STRICT RULES:
         1. Tone: Professional, respectful, and helpful (like ChatGPT).
         2. Brevity: Be concise but thorough. Do not over-explain unless requested.
-        3. History: For any month (e.g. Feb, March, April), check "monthlyHistory".
-        4. Attendance: For "Yesterday" or "Kal", use "yesterdayActive". For other recent days, check "last7DaysAttendance".
+        3. History: For any month (e.g. Feb, March, April), check "monthlyHistory" for financials and "historicalAttendance" for duty counts.
+        4. Attendance: For "Yesterday" or "Kal", use "yesterdayActive". For other specific dates, check "historicalAttendance.daily".
         5. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
         6. Partner Duties: Use outsideCarsBuy for 'BUY' and outsideCarsSell for 'SELL'.
         7. Language: Always respond in the same language as the user (Hindi/English).
