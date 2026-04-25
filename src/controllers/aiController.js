@@ -571,7 +571,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             const dId = driver._id.toString();
             const driverAtt = monthlyAttendance.filter(a => a.driver?.toString() === dId);
             const dName = driver.name?.trim().toLowerCase();
-            const dParking = (monthlyParking || []).filter(p =>
+            const dParking = (recentParking || []).filter(p =>
                 p.driverId?.toString() === dId ||
                 (p.driver?.trim().toLowerCase() === dName && !p.driverId)
             );
