@@ -15,6 +15,7 @@ const Loan = require('../models/Loan');
 const Allowance = require('../models/Allowance');
 const StaffAttendance = require('../models/StaffAttendance');
 const LeaveRequest = require('../models/LeaveRequest');
+const Event = require('../models/Event');
 require('dotenv').config();
 // Last Updated: 2026-04-25 12:38 PM - AI Controller Sync
 
