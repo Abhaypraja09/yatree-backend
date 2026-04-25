@@ -793,37 +793,51 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             };
         });
 
+        // --- MONTHLY FINANCIAL SUMMARY (March & April) ---
+        const monthlyFinancials = {
+            march: { fuel: 0, maintenance: 0, events: 0, driverSalary: 0 },
+            april: { fuel: 0, maintenance: 0, events: 0, driverSalary: 0 }
+        };
+
+        // Fuel
+        allFuel90.forEach(f => {
+            const m = DateTime.fromJSDate(f.date).setZone('Asia/Kolkata').month;
+            if (m === 3) monthlyFinancials.march.fuel += (Number(f.amount) || 0);
+            if (m === 4) monthlyFinancials.april.fuel += (Number(f.amount) || 0);
+        });
+
+        // Maintenance
+        allMaint90.forEach(m => {
+            const mon = DateTime.fromJSDate(m.billDate).setZone('Asia/Kolkata').month;
+            if (mon === 3) monthlyFinancials.march.maintenance += (Number(m.amount) || 0);
+            if (mon === 4) monthlyFinancials.april.maintenance += (Number(m.amount) || 0);
+        });
+
+        // Events (Using our previous eventSummary)
+        monthlyFinancials.march.events = eventSummary.march.revenue;
+        monthlyFinancials.april.events = eventSummary.april.revenue;
+
+        // Insights for Final Response
+        const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
         const insights = {
             fleetSummary: {
                 totalOwned: vehicles.length,
                 activeToday: attendanceToday.length,
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length
             },
-            currentMonthStats: {
-                totalFuelSpend: recentFuel.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
-                totalMaintenanceSpend: filteredRecentMaint.reduce((acc, m) => acc + (Number(m.amount) || 0), 0),
-                fuelRecordsCount: recentFuel.length,
-                maintenanceRecordsCount: filteredRecentMaint.length,
-                driverSalarySummary: {
-                    grossSalary: totalGrossSalary,
-                    totalAdvances: totalAdvances,
-                    totalEMI,
-                    netPayable: totalGrossSalary - totalAdvances - totalEMI
-                },
-                staffSalarySummary: {
-                    totalGross: totalStaffGross,
-                    staffCount: staff.length
-                },
-                outsideCarsSummary: {
-                    totalBuyAmount: totalOutsideCarsBuy,
-                    totalSellAmount: totalOutsideCarsSell,
-                    outsideCarsCount: currentMonthOutside.length
-                },
-                eventSummary
+            currentMonth: {
+                fuelSpend: monthlyFinancials.april.fuel,
+                maintenanceSpend: monthlyFinancials.april.maintenance,
+                driverNetPayable: totalDriverNet,
+                staffTotalGross: totalStaffGross,
+                outsideCarsBuy: totalOutsideCarsBuy,
+                outsideCarsSell: totalOutsideCarsSell,
+                eventRevenue: eventSummary.april.revenue
             },
+            monthlyBreakdown: monthlyFinancials,
             history90Days: {
                 totalFuelSpend: allFuel90.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
-                totalMaintenanceSpend: filtered90Maint.reduce((acc, m) => acc + (Number(m.amount) || 0), 0)
+                totalMaintenanceSpend: allMaint90.reduce((acc, m) => acc + (Number(m.amount) || 0), 0)
             },
             topMaintenanceCars: carInsights
                 .filter(c => c.totalMaintenance > 0)
