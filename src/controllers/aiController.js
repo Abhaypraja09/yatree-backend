@@ -14,6 +14,7 @@ const Parking = require('../models/Parking');
 const Loan = require('../models/Loan');
 const Allowance = require('../models/Allowance');
 require('dotenv').config();
+// Last Updated: 2026-04-25 12:38 PM - AI Controller Sync
 
 // Clean API Key from ENV (Remove spaces)
 const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim();
