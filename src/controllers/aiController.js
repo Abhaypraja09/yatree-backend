@@ -840,6 +840,20 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         eventFleetHistory.forEach(d => processEventDuty(d, true));
         eventExtHistory.forEach(d => processEventDuty(d, false));
 
+        // --- HISTORICAL PARKING AGGREGATION (Last 180 Days) ---
+        const parkingHistory = await Parking.find({
+            company: userCompanyId,
+            date: { $gte: sixMonthsAgo.toJSDate() }
+        }).lean();
+
+        // Add Parking to monthlyFinancials
+        parkingHistory.forEach(p => {
+            const mKey = DateTime.fromJSDate(p.date).setZone('Asia/Kolkata').toFormat('MMMM').toLowerCase();
+            if (monthlyFinancials[mKey]) {
+                monthlyFinancials[mKey].parking = (monthlyFinancials[mKey].parking || 0) + (Number(p.amount) || 0);
+            }
+        });
+
         // --- HISTORICAL ATTENDANCE AGGREGATION (Last 180 Days) ---
         // Count UNIQUE drivers per day using aggregation
         const attendanceHistory = await Attendance.aggregate([
@@ -908,12 +922,16 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             })),
             allDrivers: drivers.map(d => {
                 const dId = d._id.toString();
-                // Calculate their specific parking/toll total for current month
+                const userName = d.name.toLowerCase();
+
+                // Calculate their specific parking/toll total for current month (Robust Match)
                 const driverParkingTotal = recentParking
-                    .filter(p => 
-                        (p.driverId && p.driverId.toString() === dId) || 
-                        (p.driver && p.driver.trim().toLowerCase() === d.name.trim().toLowerCase())
-                    )
+                    .filter(p => {
+                        const idMatch = p.driverId && p.driverId.toString() === dId;
+                        const nameInDB = (p.driver || '').toLowerCase();
+                        const nameMatch = nameInDB.includes(userName) || userName.includes(nameInDB);
+                        return idMatch || (nameInDB && nameMatch);
+                    })
                     .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
                 return {
