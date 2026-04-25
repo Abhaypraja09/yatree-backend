@@ -20,9 +20,10 @@ const API_KEY = (process.env.GOOGLE_AI_API_KEY || '').trim();
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 const modelsToTry = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-pro"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+    "gemini-pro-latest"
 ];
 
 // --- FALLBACK LOGIC FOR GOOGLE API FAILURE ---
@@ -671,7 +672,14 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             topMaintenanceCars: carInsights
                 .filter(c => c.totalMaintenance > 0)
                 .sort((a, b) => b.totalMaintenance - a.totalMaintenance)
-                .slice(0, 3)
+                .slice(0, 3),
+            vehicleSummaries: carInsights.map(c => ({
+                car: c.carNumber,
+                fuel: c.totalFuel,
+                maint: c.totalMaintenance,
+                km: c.totalKm,
+                days: c.daysRunning
+            }))
         };
 
         // Calculate final net payable for summary
@@ -717,9 +725,19 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
 - Monthly EMI: ₹${salary.totalEMI.toLocaleString()}
 - **Net Payable: ₹${salary.netPayable.toLocaleString()}**` : '';
 
+            const specificCarQuery = question.match(/\d{4}/);
+            let carInfo = '';
+            if (specificCarQuery) {
+                const foundCar = insights.vehicleSummaries.find(s => s.car.includes(specificCarQuery[0]));
+                if (foundCar) {
+                    carInfo = `\n**Specific Insight for ${foundCar.car}:**\n- April Fuel: ₹${foundCar.fuel.toLocaleString()}\n- April Maintenance: ₹${foundCar.maint.toLocaleString()}\n- Distance: ${foundCar.km} KM over ${foundCar.days} active days.`;
+                }
+            }
+
             responseText = `📊 **Fleet Performance Report (Local Engine)**
             
 I am currently in basic analysis mode. Here is the summary for the **Current Month**:
+${carInfo}
 
 **Fleet Summary:**
 - Total Vehicles: ${insights.fleetSummary.totalOwned}
