@@ -793,30 +793,52 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             };
         });
 
-        // --- MONTHLY FINANCIAL SUMMARY (March & April) ---
-        const monthlyFinancials = {
-            march: { fuel: 0, maintenance: 0, events: 0, driverSalary: 0 },
-            april: { fuel: 0, maintenance: 0, events: 0, driverSalary: 0 }
+        // --- DYNAMIC MONTHLY FINANCIAL BREAKDOWN (Last 180 Days) ---
+        const sixMonthsAgo = DateTime.now().setZone('Asia/Kolkata').minus({ days: 180 }).startOf('day');
+        const monthlyFinancials = {};
+
+        // Helper to ensure month entry exists
+        const ensureMonth = (monthKey) => {
+            if (!monthlyFinancials[monthKey]) {
+                monthlyFinancials[monthKey] = { fuel: 0, maintenance: 0, events: 0, driverSalary: 0 };
+            }
         };
 
-        // Fuel
-        allFuel90.forEach(f => {
-            const m = DateTime.fromJSDate(f.date).setZone('Asia/Kolkata').month;
-            if (m === 3) monthlyFinancials.march.fuel += (Number(f.amount) || 0);
-            if (m === 4) monthlyFinancials.april.fuel += (Number(f.amount) || 0);
+        // 1. Process All Fuel (from allFuel90 which we will rename to allFuelHistory)
+        const allFuelHistory = await Fuel.find({ company: userCompanyId, date: { $gte: sixMonthsAgo.toJSDate() } }).lean();
+        allFuelHistory.forEach(f => {
+            const monthKey = DateTime.fromJSDate(f.date).setZone('Asia/Kolkata').toFormat('MMMM').toLowerCase();
+            ensureMonth(monthKey);
+            monthlyFinancials[monthKey].fuel += (Number(f.amount) || 0);
         });
 
-        // Maintenance (Applying the same Filter for Driver Services)
-        const filteredAllMaint90 = filterMaint(allMaint90);
-        filteredAllMaint90.forEach(m => {
-            const mon = DateTime.fromJSDate(m.billDate).setZone('Asia/Kolkata').month;
-            if (mon === 3) monthlyFinancials.march.maintenance += (Number(m.amount) || 0);
-            if (mon === 4) monthlyFinancials.april.maintenance += (Number(m.amount) || 0);
+        // 2. Process All Maintenance (Filtered)
+        const allMaintHistory = await Maintenance.find({ company: userCompanyId, billDate: { $gte: sixMonthsAgo.toJSDate() } }).lean();
+        const filteredMaintHistory = filterMaint(allMaintHistory);
+        filteredMaintHistory.forEach(m => {
+            const monthKey = DateTime.fromJSDate(m.billDate).setZone('Asia/Kolkata').toFormat('MMMM').toLowerCase();
+            ensureMonth(monthKey);
+            monthlyFinancials[monthKey].maintenance += (Number(m.amount) || 0);
         });
 
-        // Events (Using our previous eventSummary)
-        monthlyFinancials.march.events = eventSummary.march.revenue;
-        monthlyFinancials.april.events = eventSummary.april.revenue;
+        // 3. Process Events
+        const [eventFleetHistory, eventExtHistory] = await Promise.all([
+            Attendance.find({ company: userCompanyId, eventId: { $exists: true }, date: { $gte: sixMonthsAgo.toFormat('yyyy-MM-dd') } }).lean(),
+            Vehicle.find({ company: userCompanyId, isOutsideCar: true, eventId: { $exists: true } }).lean()
+        ]);
+
+        const processEventDuty = (d, isFleet) => {
+            const dateStr = d.date || d.carNumber?.split('#')[1];
+            if (!dateStr) return;
+            const dt = DateTime.fromFormat(dateStr.substring(0, 10), 'yyyy-MM-dd');
+            if (dt < sixMonthsAgo) return;
+            const monthKey = dt.toFormat('MMMM').toLowerCase();
+            ensureMonth(monthKey);
+            const amount = Number(d.dailyWage || d.dutyAmount || 0);
+            monthlyFinancials[monthKey].events += amount;
+        };
+        eventFleetHistory.forEach(d => processEventDuty(d, true));
+        eventExtHistory.forEach(d => processEventDuty(d, false));
 
         // Insights for Final Response
         const totalDriverNet = totalGrossSalary - totalAdvances - totalEMI;
@@ -827,18 +849,19 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length
             },
             currentMonth: {
-                fuelSpend: monthlyFinancials.april.fuel,
-                maintenanceSpend: monthlyFinancials.april.maintenance,
+                month: istNow.toFormat('MMMM'),
+                fuelSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.fuel || 0,
+                maintenanceSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.maintenance || 0,
                 driverNetPayable: totalDriverNet,
                 staffTotalGross: totalStaffGross,
                 outsideCarsBuy: totalOutsideCarsBuy,
                 outsideCarsSell: totalOutsideCarsSell,
-                eventRevenue: eventSummary.april.revenue
+                eventRevenue: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.events || 0
             },
-            monthlyBreakdown: monthlyFinancials,
-            history90Days: {
-                totalFuelSpend: allFuel90.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
-                totalMaintenanceSpend: allMaint90.reduce((acc, m) => acc + (Number(m.amount) || 0), 0)
+            monthlyHistory: monthlyFinancials,
+            historyStats: {
+                totalFuel180Days: allFuelHistory.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
+                totalMaintenance180Days: filteredMaintHistory.reduce((acc, m) => acc + (Number(m.amount) || 0), 0)
             },
             topMaintenanceCars: carInsights
                 .filter(c => c.totalMaintenance > 0)
@@ -854,23 +877,21 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         };
 
         // --- FINAL PROMPT ---
-        const finalPrompt = `You are the "Autonomous AI Fleet Intelligence". 
-        Based on this fleet data: ${JSON.stringify(insights)}
+        const finalPrompt = `You are the "Autonomous AI Fleet Intelligence", a premium and highly capable fleet management assistant. 
+        Your goal is to provide precise, professional, and respectful answers based on the system data.
         
-        Task: Answer the user's specific question: "${question}"
+        Data Context: ${JSON.stringify(insights)}
+        
+        Task: Answer the user's question: "${question}"
         
         STRICT RULES:
-        1. Be very concise and direct.
-        2. Distinguish between DRIVER salary (driverNetPayable) and STAFF salary (staffTotalGross).
-        3. For monthly queries (e.g. March), check monthlyBreakdown.
-        4. If the user asks for "March Maintenance", use monthlyBreakdown.march.maintenance.
-        5. If the user asks for "March Fuel", use monthlyBreakdown.march.fuel.
-        6. If the user asks for "March Event", use monthlyBreakdown.march.events.
-        7. If "BUY" is asked for partner duties, use outsideCarsBuy.
-        8. If "SELL" is asked, use outsideCarsSell.
-        9. ONLY answer what is asked. Do not provide a long business report unless asked.
-        10. Use professional tone.
-        11. Use the same language (Hindi/English) as the user's question.`;
+        1. Tone: Professional, respectful, and helpful (like ChatGPT).
+        2. Brevity: Be concise but thorough. Do not over-explain unless requested.
+        3. History: For any month (e.g. Feb, March, April), check "monthlyHistory".
+        4. Categories: Distinguish between Driver Net Salary (driverNetPayable) and Staff Salary (staffTotalGross).
+        5. Partner Duties: Use outsideCarsBuy for 'BUY' and outsideCarsSell for 'SELL'.
+        6. Language: Always respond in the same language as the user (Hindi/English).
+        7. Accuracy: Only state what is in the data. If data is missing for a month, mention it politely.`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {
