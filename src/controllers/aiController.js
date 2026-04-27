@@ -71,9 +71,15 @@ STRICT RULES:
 - LANGUAGE MATCH: Respond in the SAME language as the user's query. If the user asks in Hindi, respond in Hindi. If the user asks in English, respond in English.
 - DATA ONLY: Use ONLY the provided real-time data for the internal fleet.
 - OWNED FLEET ONLY: Do NOT count "Outside Cars" or "Event Cars" as part of the company's own fleet. Only focus on internal vehicles for expiry and costs.
-
-- FINANCIAL TERMS: When discussing salaries, always distinguish between "Gross Liability" (Total earned by drivers) and "Net Payable" (Actual payout after deducting Advances and Loan EMIs). The dashboard "Monthly Payroll" shows the Net Payable.
-- EXPENSE SEPARATION: STRICTLY differentiate between "Parking" (recentActivity.parking), "Fastag" (vehicleExpenses.fastagThisMonth), and "Border Tax" (vehicleExpenses.borderTaxThisMonth). DO NOT combine them. DO NOT call Fastag "Parking".
+- FINANCIAL DEFINITIONS:
+  * "Salary" or "Gross Liability" = Total money earned by the driver this month (e.g., ₹14,230).
+  * "Advances" = Money already taken by the driver in advance (e.g., ₹16,570). This is a DEDUCTION.
+  * "Loan EMI" = Monthly loan repayment. This is a DEDUCTION.
+  * "Net Payable" = Total Earned - Advances - Loan EMI.
+- SALARY QUERIES: If a user asks about a driver's salary, you MUST provide the full breakdown: 
+  "Gross Salary (Total Earned): ₹X, Advances: ₹Y, Loan EMI: ₹Z, Net Payable: ₹A".
+  NEVER call the "Advances" amount the "Salary".
+- EXPENSE SEPARATION: STRICTLY differentiate between "Parking" (recentActivity.parking), "Fastag" (vehicleExpenses.fastagThisMonth), "Border Tax" (vehicleExpenses.borderTaxThisMonth), and "Car Wash" (vehicleExpenses.washThisMonth). DO NOT combine them. DO NOT call Fastag "Parking".
 - NO ASSUMPTIONS: Do NOT guess or generate fake numbers. If data is missing, say "Data not available".
 - Keep responses short, clear, and business-focused. Avoid long explanations.
 
@@ -153,7 +159,7 @@ const processAIQuery = asyncHandler(async (req, res) => {
         ] = await Promise.all([
             Vehicle.find({ company: userCompanyId }).lean(),
             User.find({ company: userCompanyId, role: 'Driver' }).lean(),
-            Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').lean(),
+            Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').populate('vehicle').populate('eventId').lean(),
             Fuel.find({ company: userCompanyId, status: 'pending' }).populate('vehicle').lean(),
             Parking.find({ company: userCompanyId, status: 'pending' }).populate('driverId').lean(),
             Advance.find({ company: userCompanyId, status: 'pending' }).populate('driver').lean(),
@@ -245,16 +251,16 @@ const processAIQuery = asyncHandler(async (req, res) => {
             return {
                 driverId: dId,
                 name: d.name,
-                totalEarned,
-                totalAdvances,
+                grossSalary: totalEarned,
+                advances: totalAdvances,
                 totalEMI,
                 netPayable: totalEarned - totalAdvances - totalEMI
             };
         });
 
-        const totalSalaryLiability = driverSalaries.reduce((sum, d) => sum + d.totalEarned, 0);
+        const totalSalaryLiability = driverSalaries.reduce((sum, d) => sum + d.grossSalary, 0);
         const totalNetPayable = driverSalaries.reduce((sum, d) => sum + d.netPayable, 0);
-        const totalAdvancesSum = driverSalaries.reduce((sum, d) => sum + d.totalAdvances, 0);
+        const totalAdvancesSum = driverSalaries.reduce((sum, d) => sum + d.advances, 0);
         const totalEMISum = driverSalaries.reduce((sum, d) => sum + d.totalEMI, 0);
 
         dataContext.fleetFinance = {
@@ -279,7 +285,15 @@ const processAIQuery = asyncHandler(async (req, res) => {
             totalCars: vehicles.length,
             runningCars: attendanceToday.filter(a => a.status === 'incomplete').length,
             maintenanceCars: vehicles.filter(v => v.status === 'Maintenance').length,
-            driversOnDuty: attendanceToday.length
+            driversOnDuty: attendanceToday.length,
+            driversOnDutyDetails: attendanceToday.map(a => ({
+                name: a.driver?.name,
+                carNumber: a.vehicle?.carNumber,
+                pickUp: a.pickUpLocation,
+                drop: a.dropLocation,
+                event: a.eventId?.name,
+                status: a.status
+            }))
         };
 
         dataContext.financials = {
@@ -289,8 +303,10 @@ const processAIQuery = asyncHandler(async (req, res) => {
             totalLoanEMI: driverSalaries.reduce((sum, d) => sum + (d.totalEMI || 0), 0)
         };
 
-        const recentFuel = await Fuel.find({ company: userCompanyId }).sort({ date: -1 }).limit(15).lean();
-        const recentMaintenance = await Maintenance.find({ company: userCompanyId }).sort({ billDate: -1 }).limit(15).lean();
+        const monthlyFuel = await Fuel.find({ company: userCompanyId, date: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean();
+        const recentFuel = [...monthlyFuel].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 15);
+        const monthlyMaintenance = await Maintenance.find({ company: userCompanyId, billDate: { $gte: istNow.startOf('month').toJSDate(), $lte: istNow.endOf('month').toJSDate() } }).lean();
+        const recentMaintenance = [...monthlyMaintenance].sort((a, b) => new Date(b.billDate) - new Date(a.billDate)).slice(0, 15);
         const recentParking = await Parking.find({ company: userCompanyId }).sort({ date: -1 }).limit(15).lean();
         const monthlyBorderTax = await BorderTax.find({ company: userCompanyId, date: { $gte: startOfMonth, $lte: endOfMonth } }).lean();
 
@@ -301,10 +317,32 @@ const processAIQuery = asyncHandler(async (req, res) => {
                 return fDate.getMonth() === istNow.month - 1 && fDate.getFullYear() === istNow.year;
             });
             
+            const vWash = monthlyMaintenance.filter(m => 
+                m.vehicle?.toString() === v._id.toString() && 
+                (m.category?.toLowerCase().includes('wash') || m.description?.toLowerCase().includes('wash'))
+            );
+            
+            const vAtt = monthlyAttendance.filter(a => a.driver && a.vehicle?.toString() === v._id.toString());
+            const vDrivers = [...new Set(vAtt.map(a => drivers.find(d => d._id.toString() === a.driver?.toString())?.name).filter(Boolean))];
+
+            const vFuel = monthlyFuel.filter(f => f.vehicle?.toString() === v._id.toString());
+            const vFuelDist = vFuel.reduce((sum, f) => sum + (Number(f.distance) || 0), 0);
+            const vAttDist = vAtt.reduce((acc, a) => {
+                if (a.punchIn?.km && a.punchOut?.km) {
+                    const dist = a.punchOut.km - a.punchIn.km;
+                    return acc + (dist > 0 ? dist : 0);
+                }
+                return acc;
+            }, 0);
+
             return {
                 carNumber: v.carNumber,
+                drivers: vDrivers,
+                totalKm: vFuelDist > 0 ? vFuelDist : (vAttDist > 0 ? vAttDist : vAtt.reduce((sum, a) => sum + (Number(a.totalKM) || 0), 0)),
+                fuelThisMonth: vFuel.reduce((sum, f) => sum + (Number(f.amount) || 0), 0),
                 borderTaxThisMonth: vBorderTaxes.reduce((sum, b) => sum + (Number(b.amount) || 0), 0),
-                fastagThisMonth: vFastags.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
+                fastagThisMonth: vFastags.reduce((sum, f) => sum + (Number(f.amount) || 0), 0),
+                washThisMonth: vWash.reduce((sum, w) => sum + (Number(w.amount) || 0), 0)
             };
         });
 
@@ -402,8 +440,8 @@ const getAIBriefing = asyncHandler(async (req, res) => {
     ] = await Promise.all([
         Vehicle.find({ company: userCompanyId }).lean(),
         User.find({ company: userCompanyId, role: { $in: ['Driver', 'Staff', 'Executive'] } }).lean(),
-        Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').lean(),
-        Attendance.find({ company: userCompanyId, date: yesterdayStr }).populate('driver').lean(),
+        Attendance.find({ company: userCompanyId, date: todayStr }).populate('driver').populate('vehicle').lean(),
+        Attendance.find({ company: userCompanyId, date: yesterdayStr }).populate('driver').populate('vehicle').lean(),
         Fuel.find({ company: userCompanyId, createdAt: { $gte: istNow.startOf('day').toJSDate() } }).lean(),
         Attendance.find({ company: userCompanyId, 'pendingExpenses.status': 'pending' }).lean(),
         StaffAttendance.find({ company: userCompanyId, date: todayStr }).populate('staff').lean(),
@@ -435,7 +473,7 @@ const getAIBriefing = asyncHandler(async (req, res) => {
         slotBriefing = `
         MORNING BRIEFING (9AM - 12PM):
         - TOTAL DRIVERS: ${internalDrivers.length} (Internal), ${freelancers.length} (Freelancers).
-        - ON DUTY NOW: ${todayOnDutyDrivers.length} Drivers are running.
+        - ON DUTY NOW: ${todayOnDutyDrivers.length} Drivers are running (${todayOnDutyDrivers.map(a => `${a.driver?.name} [${a.vehicle?.carNumber || 'No Car'}]`).join(', ')}).
         - ABSENTEES TODAY: Total ${absentDrivers.length} drivers have NOT punched in yet.
         - STAFF STATUS: ${todayOnDutyStaff.length} staff members punched in out of ${staff.length}.
         - ABSENT STAFF: ${(() => {
@@ -578,7 +616,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             monthlyBorderTax
         ] = await Promise.all([
             Vehicle.find({ company: userCompanyId, isOutsideCar: { $ne: true } }).lean(),
-            Attendance.find({ company: userCompanyId, date: istNow.toFormat('yyyy-MM-dd') }).populate('driver').lean(),
+            Attendance.find({ company: userCompanyId, date: istNow.toFormat('yyyy-MM-dd') }).populate('driver').populate('vehicle').lean(),
             Fuel.find({ company: userCompanyId, date: { $gte: startOfMonth } }).lean(),
             Maintenance.find({ company: userCompanyId, billDate: { $gte: startOfMonth } }).lean(),
             User.find({ company: userCompanyId, role: 'Driver' }).lean(),
@@ -595,14 +633,23 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         console.log(`[AI-ANALYZE] Data Fetched: ${vehicles.length} vehicles, ${recentFuel.length} fuel records, ${recentMaintenance.length} maintenance records`);
 
         // --- FILTER MAINTENANCE (Exclude Driver Services like Wash, Cleaning) ---
-        const serviceRegex = /wash|washing|cleaning|tissue|water|mask|sanitizer|kapda|puncture/i;
+        const extraServiceRegex = /wash|washing|cleaning|tissue|water|mask|sanitizer|kapda|puncture/i;
+        const washRegex = /wash|washing|cleaning/i;
+
         const filterMaint = (recs) => recs.filter(r => {
             const searchStr = `${r.maintenanceType || ''} ${r.category || ''} ${r.description || ''}`.toLowerCase();
-            return !serviceRegex.test(searchStr);
+            return !extraServiceRegex.test(searchStr);
+        });
+
+        const filterWash = (recs) => recs.filter(r => {
+            const searchStr = `${r.maintenanceType || ''} ${r.category || ''} ${r.description || ''}`.toLowerCase();
+            return washRegex.test(searchStr);
         });
 
         const filteredRecentMaint = filterMaint(recentMaintenance);
         const filtered90Maint = filterMaint(allMaint90);
+
+        const driversOnDutyNames = attendanceToday.map(a => a.driver?.name).filter(Boolean);
 
         // --- CALCULATE INTERNAL DRIVER SALARY (Match Dashboard Exactly) ---
         const internalDrivers = drivers.filter(d => !d.isFreelancer);
@@ -611,6 +658,7 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         let totalGrossSalary = 0;
         let totalAdvances = 0;
         let totalEMI = 0;
+        const driverSalaryDetails = [];
 
         const currentMonth = istNow.month;
         const currentYear = istNow.year;
@@ -662,25 +710,37 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 adv.driver?.toString() === dId &&
                 !/Auto Generated|Daily Salary|Manual Duty Salary|Freelancer Daily Salary/i.test(adv.remark || '')
             );
-            totalAdvances += driverAdv.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+            const driverAdvAmt = driverAdv.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+            totalAdvances += driverAdvAmt;
 
             // 3. EMI (Strict tenure and start date matching)
             const driverLoans = (allLoans || []).filter(l => l.driver?.toString() === dId);
             const currentPeriod = istNow.startOf('month');
             
+            let driverEMIAmt = 0;
             driverLoans.forEach(loan => {
                 const repayment = (loan.repayments || []).find(r => r.month === currentMonth && r.year === currentYear);
                 if (repayment) {
-                    totalEMI += (Number(repayment.amount) || 0);
+                    driverEMIAmt += (Number(repayment.amount) || 0);
                 } else if (loan.status === 'Active' && loan.startDate && (loan.remainingAmount > 0)) {
                     const loanStart = DateTime.fromJSDate(loan.startDate).setZone('Asia/Kolkata').startOf('month');
                     const monthsDiff = Math.floor(currentPeriod.diff(loanStart, 'months').months + 0.05);
                     const tenure = parseInt(loan.tenureMonths, 10) || (loan.monthlyEMI > 0 ? Math.round(loan.totalAmount / loan.monthlyEMI) : 12);
 
                     if (monthsDiff >= 0 && monthsDiff < tenure) {
-                        totalEMI += (Number(loan.monthlyEMI) || 0);
+                        driverEMIAmt += (Number(loan.monthlyEMI) || 0);
                     }
                 }
+            });
+            totalEMI += driverEMIAmt;
+
+            driverSalaryDetails.push({
+                driverId: dId,
+                name: driver.name,
+                grossLiability: driverEarned,
+                advances: driverAdvAmt,
+                emi: driverEMIAmt,
+                netPayable: driverEarned - driverAdvAmt - driverEMIAmt
             });
         });
 
@@ -831,13 +891,23 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             const vMaint = filteredRecentMaint.filter(m => m.vehicle?.toString() === vId);
             const vAtt = monthlyAttendance.filter(a => a.vehicle?.toString() === vId);
 
+            const fuelDist = vFuel.reduce((acc, f) => acc + (Number(f.distance) || 0), 0);
+            const attDist = vAtt.reduce((acc, a) => {
+                if (a.punchIn?.km && a.punchOut?.km) {
+                    const dist = a.punchOut.km - a.punchIn.km;
+                    return acc + (dist > 0 ? dist : 0);
+                }
+                return acc;
+            }, 0);
+
             return {
                 carNumber: v.carNumber,
                 model: v.model || 'N/A',
                 totalFuel: vFuel.reduce((acc, f) => acc + (Number(f.amount) || 0), 0),
                 totalMaintenance: vMaint.reduce((acc, m) => acc + (Number(m.amount) || 0), 0),
                 daysRunning: vAtt.length,
-                totalKm: vAtt.reduce((acc, a) => acc + (Number(a.totalKM) || 0), 0)
+                totalKm: fuelDist > 0 ? fuelDist : (attDist > 0 ? attDist : vAtt.reduce((acc, a) => acc + (Number(a.totalKM) || 0), 0)),
+                drivers: [...new Set(vAtt.map(a => drivers.find(d => d._id.toString() === a.driver?.toString())?.name).filter(Boolean))]
             };
         });
 
@@ -951,6 +1021,14 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
             fleetSummary: {
                 totalOwned: vehicles.length,
                 activeToday: uniqueDriversToday,
+                driversOnDutyDetails: attendanceToday.map(a => ({
+                    name: a.driver?.name,
+                    carNumber: a.vehicle?.carNumber,
+                    pickUp: a.pickUpLocation,
+                    drop: a.dropLocation,
+                    event: a.eventId?.name,
+                    status: a.status
+                })),
                 yesterdayActive: dailyCounts[istNow.minus({ days: 1 }).toFormat('yyyy-MM-dd')] || 0,
                 last7DaysAttendance,
                 maintenanceMode: vehicles.filter(v => v.status === 'Maintenance').length,
@@ -977,7 +1055,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 fuel: c.totalFuel,
                 maint: c.totalMaintenance,
                 km: c.totalKm,
-                days: c.daysRunning
+                days: c.daysRunning,
+                drivers: c.drivers
             })),
             allDrivers: drivers.map(d => {
                 const dId = d._id.toString();
@@ -1041,7 +1120,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                             const aDate = new Date(a.date);
                             return aDate.getMonth() === istNow.month - 1 && aDate.getFullYear() === istNow.year;
                         })
-                        .reduce((s, a) => s + (Number(a.amount) || 0), 0)
+                        .reduce((s, a) => s + (Number(a.amount) || 0), 0),
+                    salaryInfo: driverSalaryDetails.find(s => s.driverId === dId) || { grossLiability: 0, netPayable: 0, advances: 0, emi: 0 }
                 };
             }),
             recentActivity: [
@@ -1050,12 +1130,20 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 ...recentParking.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 25).map(p => ({ type: 'Parking/Toll', driver: drivers.find(d => d._id?.toString() === p.driverId?.toString())?.name || p.driver, car: vehicles.find(v => v._id?.toString() === p.vehicle?.toString())?.carNumber, amount: p.amount, date: p.date, desc: p.remarks }))
             ].sort((a, b) => new Date(b.date) - new Date(a.date)),
             currentDate: istNow.toFormat('yyyy-MM-dd'),
-            currentMonth: {
+            currentMonthStats: {
                 name: istNow.toFormat('MMMM'),
-                fuelSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.fuel || 0,
-                maintenanceSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.maintenance || 0,
+                totalFuelSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.fuel || 0,
+                fuelRecordsCount: recentFuel.length,
+                totalMaintenanceSpend: monthlyFinancials[istNow.toFormat('MMMM').toLowerCase()]?.maintenance || 0,
+                maintenanceRecordsCount: recentMaintenance.length,
                 totalParkingSpend: recentParking.reduce((acc, p) => acc + (Number(p.amount) || 0), 0),
-                driverNetPayable: totalDriverNet,
+                driverSalarySummary: {
+                    grossSalary: totalGrossSalary,
+                    totalAdvances: totalAdvances,
+                    totalEMI: totalEMI,
+                    netPayable: totalDriverNet,
+                    individualDetails: driverSalaryDetails
+                },
                 staffTotalGross: totalStaffGross,
                 outsideCarsBuy: totalOutsideCarsBuy,
                 outsideCarsSell: totalOutsideCarsSell,
@@ -1085,12 +1173,15 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
                 });
                 const vFuelRecords = recentFuel.filter(f => f.vehicle?.toString() === v._id.toString());
                 const vMaintRecords = recentMaintenance.filter(m => m.vehicle?.toString() === v._id.toString());
+                const vWashRecords = filterWash(vMaintRecords);
+                
                 return {
                     carNumber: v.carNumber,
                     fuelThisMonth: vFuelRecords.reduce((sum, f) => sum + (Number(f.amount) || 0), 0),
-                    maintenanceThisMonth: vMaintRecords.reduce((sum, m) => sum + (Number(m.amount) || 0), 0),
+                    maintenanceThisMonth: filterMaint(vMaintRecords).reduce((sum, m) => sum + (Number(m.amount) || 0), 0),
                     borderTaxThisMonth: vBorderTaxes.reduce((sum, b) => sum + (Number(b.amount) || 0), 0),
-                    fastagThisMonth: vFastags.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
+                    fastagThisMonth: vFastags.reduce((sum, f) => sum + (Number(f.amount) || 0), 0),
+                    washThisMonth: vWashRecords.reduce((sum, w) => sum + (Number(w.amount) || 0), 0)
                 };
             })
         };
@@ -1108,8 +1199,8 @@ const analyzeFleetPerformance = asyncHandler(async (req, res) => {
         2. Brevity: Answer ONLY what is asked.
         3. No Filler: Do not provide bullet points for everything in the JSON. Extract only the relevant values.
         4. Accuracy: Match the current month's figures with the dashboard.
-        5. Expense Separation: STRICTLY differentiate between "Parking" (recentActivity.parking), "Fastag" (vehicleExpenses.fastagThisMonth), and "Border Tax" (vehicleExpenses.borderTaxThisMonth). DO NOT call Fastag "Parking".
-        6. Language: Response must be in the same language as the user (Hindi/English).`;
+        6. Expense Separation: STRICTLY differentiate between "Parking" (recentActivity.parking), "Fastag" (vehicleExpenses.fastagThisMonth), "Border Tax" (vehicleExpenses.borderTaxThisMonth), and "Car Wash" (vehicleExpenses.washThisMonth). DO NOT call Fastag "Parking".
+        7. Language: Response must be in the same language as the user (Hindi/English).`;
 
         let responseText = "";
         for (const modelName of modelsToTry) {

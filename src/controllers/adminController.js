@@ -4676,51 +4676,44 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 d = d.plus({ days: 1 });
             }
 
-            // Sunday logic
+            // Sunday logic - DISABLED as per user request to remove Sunday Bonus
             let paidSundays = 0;
             let unpaidSundays = 0;
             sundays.forEach(sun => {
-                const sunDT = DateTime.fromISO(sun.date);
-                let weekAbsence = false;
-                let checkD = sunDT.minus({ days: 6 });
-                while (checkD < sunDT) {
-                    const cStr = checkD.toFormat('yyyy-MM-dd');
-                    if (cStr >= cycleStart && cStr <= cycleEnd) {
-                        const hasAtt = staffAttMap[cStr];
-                        const hasL = myLeaves.some(l => cStr >= l.startDate && cStr <= l.endDate);
-                        if (!hasAtt && !hasL && cStr <= todayStr) {
-                            weekAbsence = true;
-                            break;
-                        }
-                    }
-                    checkD = checkD.plus({ days: 1 });
-                }
-                if (!weekAbsence) {
-                    paidSundays++;
-                    sun.earned = true;
-                } else {
-                    unpaidSundays++;
-                }
+                unpaidSundays++;
+                sun.earned = false;
             });
 
             const baseSalary = s.salary || 0;
             const earnedDays = presentDays + approvedLeaveDays + paidSundays;
             const finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
+            
+            const perDaySalary = Math.round(baseSalary / totalDaysInCycle);
+            const extraLeaves = unapprovedAbsences;
+            const deduction = extraLeaves * perDaySalary;
 
             return {
                 staffId: s._id,
                 name: s.name,
                 designation: s.designation,
                 baseSalary,
+                salary: baseSalary, // Alias for frontend
                 presentDays,
                 approvedLeaveDays,
                 unapprovedAbsences,
+                extraLeaves, // Added for frontend
+                leavesTaken: unapprovedAbsences + approvedLeaveDays, // Total away days
                 paidSundays,
                 unpaidSundays,
+                sundayBonus: 0, // Removed as requested
+                sundaysWorked: 0, 
+                deduction, // Added for frontend
                 totalDaysInCycle,
                 earnedDays,
                 finalSalary: Math.round(finalSalary),
-                perDaySalary: Math.round(baseSalary / totalDaysInCycle),
+                perDaySalary,
+                workingDaysPassed: totalDaysInCycle - sundays.length,
+                sundaysPassed: sundays.length,
                 attendanceData: fullCycleAttendance,
                 sundaysReport: sundays,
                 cycleStart,
