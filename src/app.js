@@ -64,43 +64,38 @@ app.get('/api/db-check', async (req, res) => {
 const distPath = path.resolve(__dirname, '../dist');
 const finalPath = distPath;
 
-console.log('--- SERVER DEPLOYMENT INFO ---');
-console.log('Current Dir:', __dirname);
-console.log('Serving Frontend From:', finalPath);
-console.log('------------------------------');
-
 // Serve uploads folder
 const uploadsPath = path.resolve(__dirname, '../uploads');
 if (!fs.existsSync(uploadsPath)) {
     fs.mkdirSync(uploadsPath, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsPath, {
-    maxAge: '7d' // Cache uploaded files for 7 days
-}));
+app.use('/uploads', express.static(uploadsPath, { maxAge: '7d' }));
 
-// Serve static assets (JS, CSS, images) with long-term caching
-// Safe because Vite adds content hash to filenames (e.g. index-CA8Jt-iv.js)
+// Serve static assets (JS, CSS) with long-term caching
 app.use('/assets', express.static(path.join(finalPath, 'assets'), {
-    maxAge: '1y', // Cache for 1 year — safe due to hash in filename
+    maxAge: '1y',
     immutable: true
 }));
 
-// Serve other static files (logos, icons) with moderate caching
+// Serve all other static files from dist root (logos, icons, manifest.json)
 app.use(express.static(finalPath, {
-    maxAge: '1h',
-    etag: true,
-    index: false // Don't auto-serve index.html here, we handle it below
+    maxAge: '1d',
+    etag: true
 }));
 
-// Catch-all for React/Vite routing — NO cache on index.html
+// Catch-all for React/Vite routing
 app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.includes('.')) {
+    // API requests should already be handled, but safety first
+    if (req.path.startsWith('/api')) {
+        return next();
+    }
+
+    // If it's a file request (contains a dot) and reached here, it means the file wasn't found in dist
+    if (req.path.includes('.') && !req.path.endsWith('.html')) {
         return next();
     }
 
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
     res.sendFile(path.join(finalPath, 'index.html'), (err) => {
         if (err) {
             res.status(500).send('<h1>Server is Live</h1><p>Frontend files are not found in the dist folder. Please check deployment.</p>');
