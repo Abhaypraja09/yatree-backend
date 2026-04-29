@@ -24,15 +24,15 @@ const hasModuleAccess = (user, moduleKey, subKey = null) => {
     if (!user) return false;
     if (user.role === 'Admin' || user.role === 'SuperAdmin') return true;
     if (user.role !== 'Executive') return false;
-    
+
     // Safety for missing permissions
     if (!user.permissions) return false;
-    
+
     const perm = user.permissions[moduleKey];
     if (perm === undefined || perm === null) return false;
-    
+
     if (typeof perm === 'boolean') return perm;
-    
+
     if (typeof perm === 'object') {
         if (perm.all === true) return true;
         if (subKey) return !!perm[subKey];
@@ -603,7 +603,8 @@ const getAllDrivers = asyncHandler(async (req, res) => {
 
         const driverQuery = {
             ...req.tenantFilter,
-            role: 'Driver'
+            role: 'Driver',
+            status: { $ne: 'deleted' }
         };
         if (req.query.isFreelancer !== undefined) {
             driverQuery.isFreelancer = isFreelancerQuery;
@@ -1039,7 +1040,12 @@ const deleteDriver = asyncHandler(async (req, res) => {
         if (driver.assignedVehicle) {
             await Vehicle.findByIdAndUpdate(driver.assignedVehicle, { currentDriver: null });
         }
-        await User.deleteOne({ _id: driver._id });
+
+        // Soft delete: update status instead of deleting the record
+        // This preserves historical data linked to the driver ID
+        driver.status = 'deleted';
+        await driver.save();
+
         // Clear dashboard cache on mutation
         DASHBOARD_CACHE.clear();
         res.json({ message: 'Driver removed successfully' });
@@ -3756,7 +3762,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driverQuery.isFreelancer = { $ne: true };
     }
 
-    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled').lean();
+    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary status overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled').lean();
     if (!drivers.length) return [];
 
     const driverIds = drivers.map(d => d._id);
@@ -3988,16 +3994,37 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                     totalRecovered: allTimeRecovered,
                     pending: allTimeGiven - allTimeRecovered
                 },
-                activeLoans: activeLoansInfo
+                activeLoans: activeLoansInfo,
+                status: d.status
             };
         } catch (err) {
             console.error(`[getDriverSalarySummaryInternal] Error for driver ${d._id}:`, err);
             return null;
         }
-    }).filter(s => s !== null);
+    });
 
+    const validSummaries = summaries.filter(s => {
+        if (s === null) return false;
+        
+        const status = s.status || 'active';
+        const hasCurrentActivity = s.workingDays > 0 || s.totalEarned > 0 || s.totalAdvances > 0 || s.totalEMI > 0;
+        const hasDailyWage = s.dailyWage && s.dailyWage > 0;
 
-    return summaries;
+        // 1. Permanent Junk Filter: Hide anything with dummy mobile '0000000000' and no daily wage
+        // This removes the "Suresh Kumar Patel" duplicates once and for all.
+        if (s.mobile === '0000000000' && !hasDailyWage) return false;
+
+        // 2. Hide deleted drivers UNLESS they have activity IN THIS MONTH
+        // This preserves the ability to see old duties for real drivers who were deleted.
+        if (status === 'deleted' && !hasCurrentActivity) return false;
+        
+        // 3. Hide active drivers with no activity AND no daily wage (ghost entries)
+        if (status !== 'deleted' && !hasCurrentActivity && !hasDailyWage) return false;
+        
+        return true;
+    });
+
+    return validSummaries;
 };
 
 // @desc    Get Salary Summary for all drivers in a company
@@ -4687,7 +4714,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             const baseSalary = s.salary || 0;
             const earnedDays = presentDays + approvedLeaveDays + paidSundays;
             const finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
-            
+
             const perDaySalary = Math.round(baseSalary / totalDaysInCycle);
             const extraLeaves = unapprovedAbsences;
             const deduction = extraLeaves * perDaySalary;
@@ -4706,7 +4733,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                 paidSundays,
                 unpaidSundays,
                 sundayBonus: 0, // Removed as requested
-                sundaysWorked: 0, 
+                sundaysWorked: 0,
                 deduction, // Added for frontend
                 totalDaysInCycle,
                 earnedDays,
@@ -4733,8 +4760,8 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 // @access  Private/AdminOrExecutive
 const getPendingLeaveRequests = asyncHandler(async (req, res) => {
     const leaves = await LeaveRequest.find({ company: req.params.companyId, status: 'Pending' })
-    .populate('staff', 'name mobile')
-    .lean();
+        .populate('staff', 'name mobile')
+        .lean();
     res.json(leaves);
 });
 
