@@ -45,4 +45,8 @@ const leaveRequestSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Indexes for faster reporting and management
+leaveRequestSchema.index({ company: 1, status: 1, endDate: 1 });
+leaveRequestSchema.index({ staff: 1, startDate: 1 });
+
 module.exports = mongoose.model('LeaveRequest', leaveRequestSchema);

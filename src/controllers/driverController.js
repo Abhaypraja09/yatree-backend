@@ -594,7 +594,13 @@ const getDriverLedger = async (req, res) => {
         const parkingFilter = {
             $or: [
                 { driverId: driverId },
-                { driver: { $regex: new RegExp(`^${req.user.name}$`, 'i') } }
+                { 
+                    driver: { $regex: new RegExp(`^${req.user.name}$`, 'i') },
+                    $or: [
+                        { driverId: { $exists: false } },
+                        { driverId: null }
+                    ]
+                }
             ],
             serviceType: { $ne: 'car_service' }
         };
