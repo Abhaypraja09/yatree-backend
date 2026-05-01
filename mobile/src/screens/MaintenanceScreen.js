@@ -83,6 +83,15 @@ const MaintenanceScreen = () => {
         }
     };
 
+    const shiftMonth = (amount) => {
+        let newMonth = selectedMonth + amount;
+        let newYear = selectedYear;
+        if (newMonth < 1) { newMonth = 12; newYear--; }
+        if (newMonth > 12) { newMonth = 1; newYear++; }
+        setSelectedMonth(newMonth);
+        setSelectedYear(newYear);
+    };
+
     useEffect(() => {
         fetchData();
     }, [selectedCompany, selectedMonth, selectedYear]);
@@ -118,7 +127,11 @@ const MaintenanceScreen = () => {
     const monthsArr = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
     const filteredRecords = useMemo(() => {
+        const serviceRegex = /wash|puncture|puncher|other service|wiring|radiator|checkup|top-up|kapda|coolant|tissue|water|cleaning|mask|sanitizer/i;
         return records.filter(r => {
+            const searchStr = `${r.maintenanceType || ''} ${r.category || ''} ${r.description || ''}`.toLowerCase();
+            if (serviceRegex.test(searchStr)) return false;
+
             const matchesSearch = (r.vehicle?.carNumber?.toLowerCase()?.includes(searchTerm.toLowerCase())) ||
                                 (r.maintenanceType?.toLowerCase()?.includes(searchTerm.toLowerCase())) ||
                                 (r.garageName?.toLowerCase()?.includes(searchTerm.toLowerCase()));
@@ -129,9 +142,21 @@ const MaintenanceScreen = () => {
 
     const [expandedMaster, setExpandedMaster] = useState(null);
 
+    const filteredMaster = useMemo(() => {
+        if (!aggData) return [];
+        return aggData.filter(v => 
+            (v.carNumber?.toLowerCase()?.includes(searchTerm.toLowerCase())) ||
+            (v.model?.toLowerCase()?.includes(searchTerm.toLowerCase()))
+        );
+    }, [aggData, searchTerm]);
+
     const MasterRow = ({ item }) => {
         const isExp = expandedMaster === item.carNumber;
-        const vehicleRecords = item.maintenance?.records || item.maintenance?.recs || [];
+        const serviceRegex = /wash|puncture|puncher|other service|wiring|radiator|checkup|top-up|kapda|coolant|tissue|water|cleaning|mask|sanitizer/i;
+        const vehicleRecords = (item.maintenance?.records || item.maintenance?.recs || []).filter(r => {
+            const searchStrRec = `${r.maintenanceType || ''} ${r.category || ''} ${r.description || ''}`.toLowerCase();
+            return !serviceRegex.test(searchStrRec);
+        });
         
         return (
             <TouchableOpacity 
@@ -157,6 +182,9 @@ const MaintenanceScreen = () => {
                         <View style={styles.mGrid}>
                             {MAINTENANCE_TYPES.map(type => {
                                 const searchStr = type.toLowerCase().replace(' system', '').trim();
+                                
+                                if (serviceRegex.test(searchStr)) return null;
+
                                 const amount = vehicleRecords
                                     .filter(r => (r.maintenanceType || '').toLowerCase().includes(searchStr))
                                     .reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -198,7 +226,6 @@ const MaintenanceScreen = () => {
                 <View style={styles.cPill}><Settings size={12} color="rgba(255,255,255,0.4)" /><Text style={styles.cPillT}>{item.currentKm || 0} KM</Text></View>
                 <View style={styles.cPill}><MapPin size={12} color="rgba(255,255,255,0.4)" /><Text style={styles.cPillT}>{item.garageName || 'External'}</Text></View>
             </View>
-            {item.description ? <Text style={styles.cDesc} numberOfLines={2}>{item.description}</Text> : null}
             <View style={styles.cFoot}>
                 <View style={{flexDirection:'row', gap: 15}}>
                     <TouchableOpacity onPress={() => { setEditingId(item._id); setFormData({...item, vehicleId: item.vehicle?._id || item.vehicle}); setBillPhoto(item.billPhoto ? `/${item.billPhoto}` : null); setShowModal(true); }}>
@@ -247,9 +274,13 @@ const MaintenanceScreen = () => {
                     <Search size={18} color="rgba(255,255,255,0.2)" />
                     <TextInput style={styles.si} placeholder="Filter records..." placeholderTextColor="rgba(255,255,255,0.2)" value={searchTerm} onChangeText={setSearchTerm} />
                 </View>
-                <TouchableOpacity style={styles.filterBtn} onPress={() => Alert.alert('Period', 'Select Month', monthsArr.map((m,i)=>({text:m, onPress:()=>setSelectedMonth(i+1)})))}>
-                    <Calendar size={18} color="#fbbf24" />
-                </TouchableOpacity>
+                <View style={styles.monthNav}>
+                    <TouchableOpacity onPress={() => shiftMonth(-1)} style={styles.navBtn}><ChevronLeft size={18} color="#fbbf24" /></TouchableOpacity>
+                    <TouchableOpacity style={styles.filterBtn} onPress={() => Alert.alert('Period', 'Select Month', monthsArr.map((m,i)=>({text:m, onPress:()=>setSelectedMonth(i+1)})))}>
+                        <Text style={styles.monthT}>{monthsArr[selectedMonth-1]} {selectedYear}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => shiftMonth(1)} style={styles.navBtn}><ChevronRight size={18} color="#fbbf24" /></TouchableOpacity>
+                </View>
             </View>
 
             {activeTab === 'history' && (
@@ -267,9 +298,9 @@ const MaintenanceScreen = () => {
 
             {loading ? <View style={styles.center}><ActivityIndicator color="#fbbf24" size="large"/></View> : (
                 <FlatList
-                    data={activeTab === 'history' ? filteredRecords : activeTab === 'master' ? aggData : pendingExpenses}
+                    data={activeTab === 'history' ? filteredRecords : activeTab === 'master' ? filteredMaster : pendingExpenses}
                     renderItem={({ item }) => activeTab === 'master' ? <MasterRow item={item} /> : <MaintenanceCard item={item} isPending={activeTab==='pending'} />}
-                    keyExtractor={item => item._id}
+                    keyExtractor={item => item._id || item.carNumber}
                     contentContainerStyle={styles.list}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} tintColor="#fbbf24" />}
                 />
@@ -318,7 +349,6 @@ const MaintenanceScreen = () => {
                 </View>
             </Modal>
 
-            {/* MAINTENANCE DOSSIER DETAIL MODAL */}
             <Modal visible={!!detailRecord} animationType="slide" transparent>
                 <View style={styles.detailOverlay}>
                     <View style={styles.detailContent}>
@@ -400,7 +430,10 @@ const styles = StyleSheet.create({
     subControls: { flexDirection: 'row', paddingHorizontal: 25, gap: 10, marginBottom: 15 },
     searchBar: { flex: 1, height: 52, backgroundColor: '#161B2A', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
     si: { flex: 1, marginLeft: 10, color: 'white', fontWeight: '600' },
-    filterBtn: { width: 52, height: 52, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center' },
+    monthNav: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161B2A', borderRadius: 18, height: 52, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden' },
+    navBtn: { width: 40, height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.02)' },
+    filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 15, height: '100%', justifyContent: 'center' },
+    monthT: { color: 'white', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
     catScroll: { marginBottom: 20 },
     catBtn: { paddingHorizontal: 20, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center' },
     catBtnA: { backgroundColor: 'rgba(251, 191, 36, 0.1)' },

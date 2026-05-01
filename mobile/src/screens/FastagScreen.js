@@ -119,6 +119,15 @@ const FastagScreen = () => {
         }, 0);
     }, [vehicles, selectedMonth, selectedYear]);
 
+    const shiftMonth = (amount) => {
+        let newMonth = selectedMonth + amount;
+        let newYear = selectedYear;
+        if (newMonth < 0) { newMonth = 11; newYear--; }
+        if (newMonth > 11) { newMonth = 0; newYear++; }
+        setSelectedMonth(newMonth);
+        setSelectedYear(newYear);
+    };
+
     const filteredVehicles = useMemo(() => {
         return vehicles.filter(v => 
             v.displayCarNumber.toLowerCase().includes(searchTerm.toLowerCase())
@@ -228,9 +237,13 @@ const FastagScreen = () => {
                         onChangeText={setSearchTerm}
                     />
                 </View>
-                <TouchableOpacity style={styles.filterBtn} onPress={() => Alert.alert('History Range', 'Select Period', months.map((m, i) => ({ text: m, onPress: () => setSelectedMonth(i) })))}>
-                    <Calendar size={20} color="#fbbf24" />
-                </TouchableOpacity>
+                <View style={styles.monthNav}>
+                    <TouchableOpacity onPress={() => shiftMonth(-1)} style={styles.navBtn}><ChevronLeft size={18} color="#fbbf24" /></TouchableOpacity>
+                    <TouchableOpacity style={styles.filterBtn} onPress={() => Alert.alert('History Range', 'Select Period', months.map((m, i) => ({ text: m, onPress: () => setSelectedMonth(i) })))}>
+                        <Text style={styles.monthT}>{months[selectedMonth].substring(0,3)} {selectedYear}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => shiftMonth(1)} style={styles.navBtn}><ChevronRight size={18} color="#fbbf24" /></TouchableOpacity>
+                </View>
             </View>
 
             {loading ? (
@@ -317,7 +330,10 @@ const styles = StyleSheet.create({
     controlsRow: { flexDirection: 'row', paddingHorizontal: 25, gap: 12, marginBottom: 20 },
     searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#161B2A', height: 54, borderRadius: 18, paddingHorizontal: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
     si: { flex: 1, marginLeft: 10, color: 'white', fontWeight: '600' },
-    filterBtn: { width: 54, height: 54, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.03)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    monthNav: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161B2A', borderRadius: 18, height: 54, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden' },
+    navBtn: { width: 40, height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.02)' },
+    filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 15, height: '100%', justifyContent: 'center' },
+    monthT: { color: 'white', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
     list: { paddingHorizontal: 25, paddingBottom: 120 },
     vWrapper: { marginBottom: 15 },
     vCard: { backgroundColor: '#161B2A', borderRadius: 24, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
