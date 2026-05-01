@@ -42,7 +42,7 @@ const getDriverDashboard = async (req, res) => {
     const activeShifts = await Attendance.find({
         status: 'incomplete',
         company: companyId,
-        driver: { $ne: req.user._id }
+        driver: { $ne: req.user._id }, createdAt: { $gt: new Date(Date.now() - 48 * 60 * 60 * 1000) }
         // Removed 'date: today' because a vehicle shouldn't be reused if ANY incomplete shift exists
     }).select('vehicle');
     const occupiedVehicleIds = activeShifts.map(a => a.vehicle.toString());

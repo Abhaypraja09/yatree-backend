@@ -689,63 +689,57 @@ const getAllVehicles = asyncHandler(async (req, res) => {
             .populate('currentDriver', 'name mobile isFreelancer')
             .sort({ carNumber: 1 });
 
+        // 🚀 HIGH-PERFORMANCE HEALING: Batch all checks to avoid N+1 queries
+        const activeDriverIds = vehicles.filter(v => v.currentDriver).map(v => v.currentDriver._id || v.currentDriver);
+        
+        // Fetch all potential freelancers and attendance in parallel
+        const [onDutyFreelancers, currentDrivers, activeAtt] = await Promise.all([
+            User.find({ ...req.tenantFilter, isFreelancer: true, tripStatus: 'active' }),
+            User.find({ _id: { $in: activeDriverIds } }),
+            Attendance.find({ ...req.tenantFilter, status: 'incomplete' })
+        ]);
+
+        const driverMap = new Map(currentDrivers.map(d => [d._id.toString(), d]));
+        const attMap = new Map(activeAtt.map(a => [`${a.driver}_${a.vehicle}`, a]));
+
         // Sync orphans: find freelance drivers who are 'active' but their vehicle is not linked
-        const onDutyFreelancers = await User.find({
-            ...req.tenantFilter,
-            isFreelancer: true,
-            tripStatus: 'active'
-        });
+        const healingOps = [];
         for (const drv of onDutyFreelancers) {
             const vIndex = vehicles.findIndex(v => v._id.toString() === drv.assignedVehicle?.toString());
             if (vIndex !== -1 && !vehicles[vIndex].currentDriver) {
-                // Healing: Update DB and memory
-                await Vehicle.findByIdAndUpdate(drv.assignedVehicle, { currentDriver: drv._id });
-                // Re-fetch or manually update object for response
-                const updatedV = await Vehicle.findById(drv.assignedVehicle).populate('currentDriver', 'name mobile isFreelancer');
-                vehicles[vIndex] = updatedV;
+                healingOps.push(Vehicle.findByIdAndUpdate(drv.assignedVehicle, { currentDriver: drv._id }));
+                vehicles[vIndex].currentDriver = drv;
             }
         }
 
-        // Backward Healing: Clear currentDriver if driver is no longer active OR has no active attendance
-        // IMPORTANT: Only heal if there's no incomplete attendance (to avoid race conditions right after punch-in)
+        // Backward Healing: Clear currentDriver if driver is no longer active
         for (let i = 0; i < vehicles.length; i++) {
             const v = vehicles[i];
-            if (v.currentDriver) {
-                const drv = await User.findById(v.currentDriver);
-                if (!drv) {
-                    // Driver deleted — safe to clear
-                    await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
+            const driverId = v.currentDriver?._id?.toString() || v.currentDriver?.toString();
+            if (!driverId) continue;
+
+            const drv = driverMap.get(driverId);
+            const hasAtt = attMap.get(`${driverId}_${v._id}`);
+
+            if (!drv) {
+                healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
+                v.currentDriver = null;
+            } else if (drv.tripStatus !== 'active') {
+                if (!hasAtt) {
+                    healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
                     v.currentDriver = null;
-                } else if (drv.tripStatus !== 'active') {
-                    // Driver is not active — check for incomplete attendance before clearing
-                    const hasActiveAttendance = await Attendance.findOne({
-                        driver: drv._id,
-                        vehicle: v._id,
-                        status: 'incomplete'
-                    });
-                    if (!hasActiveAttendance) {
-                        // Safe to clear — no active duty
-                        await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
-                        v.currentDriver = null;
-                    } else {
-                        // Driver has an active attendance — fix tripStatus instead
-                        await User.findByIdAndUpdate(drv._id, { tripStatus: 'active', assignedVehicle: v._id });
-                    }
-                } else if (drv.assignedVehicle?.toString() !== v._id.toString()) {
-                    // Driver is 'active' but assigned to a different vehicle — check attendance
-                    const hasActiveAttendance = await Attendance.findOne({
-                        driver: drv._id,
-                        vehicle: v._id,
-                        status: 'incomplete'
-                    });
-                    if (!hasActiveAttendance) {
-                        // No active duty on this vehicle — safe to clear
-                        await Vehicle.findByIdAndUpdate(v._id, { currentDriver: null });
-                        v.currentDriver = null;
-                    }
+                } else {
+                    healingOps.push(User.findByIdAndUpdate(drv._id, { tripStatus: 'active', assignedVehicle: v._id }));
+                }
+            } else if (drv.assignedVehicle?.toString() !== v._id.toString()) {
+                if (!hasAtt) {
+                    healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
+                    v.currentDriver = null;
                 }
             }
         }
+
+        if (healingOps.length > 0) await Promise.all(healingOps);
         return vehicles;
     };
 
