@@ -21,7 +21,7 @@ const attendanceSchema = new mongoose.Schema({
         ref: 'Event'
     },
     date: {
-        type: String, // format: YYYY-MM-DD for easier querying per day
+        type: String,
         required: true
     },
     punchIn: {
