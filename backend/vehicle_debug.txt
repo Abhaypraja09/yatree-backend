@@ -1,0 +1,82 @@
+Connected
+Vehicle details:
+{
+  "_id": "6982efaa508a22188c618879",
+  "carNumber": "RJ-27-TA-9821",
+  "model": "Innova Crysta",
+  "permitType": "State Only",
+  "company": "6982e8b7d0b069a49db197b9",
+  "currentDriver": "69a27969780f9f08d60bdb5c",
+  "status": "active",
+  "carType": "SUV",
+  "isOutsideCar": false,
+  "dutyAmount": 0,
+  "fastagNumber": "RJ-27-TA-9821",
+  "fastagBank": "IDFC First Bank",
+  "fastagBalance": 0,
+  "documents": [
+    {
+      "documentType": "RC",
+      "imageUrl": "https://res.cloudinary.com/doaymwjki/image/upload/v1770192967/taxi-fleet-crm/documents/document-1770192963286-48873290.jpg",
+      "expiryDate": "2035-11-25T00:00:00.000Z",
+      "_id": "69830048c5acc94a85cd7cdb",
+      "id": "69830048c5acc94a85cd7cdb"
+    },
+    {
+      "documentType": "INSURANCE",
+      "imageUrl": "https://res.cloudinary.com/doaymwjki/image/upload/v1770194230/taxi-fleet-crm/documents/document-1770194225914-417797832.jpg",
+      "expiryDate": "2026-07-28T00:00:00.000Z",
+      "_id": "69830537c5acc94a85cd7d96",
+      "id": "69830537c5acc94a85cd7d96"
+    },
+    {
+      "documentType": "PUC",
+      "imageUrl": "https://res.cloudinary.com/doaymwjki/image/upload/v1770194374/taxi-fleet-crm/documents/document-1770194369246-370607866.jpg",
+      "expiryDate": "2026-10-24T00:00:00.000Z",
+      "_id": "698305c6c5acc94a85cd7da9",
+      "id": "698305c6c5acc94a85cd7da9"
+    },
+    {
+      "documentType": "FITNESS",
+      "imageUrl": "https://res.cloudinary.com/doaymwjki/image/upload/v1770194447/taxi-fleet-crm/documents/document-1770194442899-671054199.jpg",
+      "expiryDate": "2027-08-21T00:00:00.000Z",
+      "_id": "6983060fc5acc94a85cd7dbe",
+      "id": "6983060fc5acc94a85cd7dbe"
+    },
+    {
+      "documentType": "PERMIT",
+      "imageUrl": "https://res.cloudinary.com/doaymwjki/image/upload/v1770194498/taxi-fleet-crm/documents/document-1770194494518-495233601.jpg",
+      "expiryDate": "2028-07-24T00:00:00.000Z",
+      "_id": "69830643c5acc94a85cd7dd5",
+      "id": "69830643c5acc94a85cd7dd5"
+    }
+  ],
+  "fastagHistory": [],
+  "createdAt": "2026-02-04T07:05:14.330Z",
+  "updatedAt": "2026-03-05T03:50:09.689Z",
+  "__v": 5,
+  "lastOdometer": 163648,
+  "documentStatuses": [
+    {
+      "documentType": "RC",
+      "status": "Valid"
+    },
+    {
+      "documentType": "INSURANCE",
+      "status": "Valid"
+    },
+    {
+      "documentType": "PUC",
+      "status": "Valid"
+    },
+    {
+      "documentType": "FITNESS",
+      "status": "Valid"
+    },
+    {
+      "documentType": "PERMIT",
+      "status": "Valid"
+    }
+  ],
+  "id": "6982efaa508a22188c618879"
+}

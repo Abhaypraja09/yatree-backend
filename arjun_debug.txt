@@ -1,0 +1,34 @@
+Connected
+Arjun User details:
+{
+  "shiftTiming": {
+    "end": "18:00",
+    "start": "09:00"
+  },
+  "officeLocation": {
+    "radius": 200
+  },
+  "joiningDate": null,
+  "_id": "698b1364c64b8814fd74c43e",
+  "name": "Arjun Bhat",
+  "mobile": "9950496159",
+  "username": "Arjun",
+  "licenseNumber": "",
+  "password": "$2a$10$lsSBF/zfw4yl21DQ.K2.WeM7/yWGK9fyIkJll4Cals1.jl9HxRo/C",
+  "role": "Driver",
+  "company": "6982e8b7d0b069a49db197b9",
+  "assignedVehicle": "6982efaa508a22188c618879",
+  "status": "active",
+  "isFreelancer": false,
+  "tripStatus": "active",
+  "dailyWage": 400,
+  "documents": [],
+  "createdAt": "2026-02-10T11:15:48.026Z",
+  "updatedAt": "2026-03-05T04:17:01.257Z",
+  "__v": 0,
+  "salary": 0,
+  "monthlyLeaveAllowance": 4,
+  "staffType": "Company",
+  "documentStatuses": [],
+  "id": "698b1364c64b8814fd74c43e"
+}

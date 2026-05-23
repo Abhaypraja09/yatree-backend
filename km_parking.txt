@@ -1,0 +1,17 @@
+Date: 2026-02-01, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-02, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-03, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-04, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-05, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-07, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-08, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-09, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 492
+Date: 2026-02-10, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 499
+Date: 2026-02-11, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 500
+Date: 2026-02-12, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 500
+Date: 2026-02-13, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 0
+Date: 2026-02-14, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 500
+Date: 2026-02-16, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 500
+Date: 2026-02-17, In: 0, Out: 0, Diff: 0, TotalKM: 0, Parking: 499
+Date: 2026-02-18, In: 189840, Out: 189895, Diff: 55, TotalKM: 55, Parking: 0
+Date: 2026-02-19, In: 189895, Out: 190013, Diff: 118, TotalKM: 118, Parking: 140

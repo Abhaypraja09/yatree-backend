@@ -1,0 +1,33 @@
+Connected
+Amrit User details:
+{
+  "shiftTiming": {
+    "start": "09:00",
+    "end": "18:00"
+  },
+  "officeLocation": {
+    "radius": 200
+  },
+  "_id": "69a27969780f9f08d60bdb5c",
+  "name": "Amrit",
+  "mobile": "8890485792",
+  "licenseNumber": "",
+  "role": "Driver",
+  "salary": 0,
+  "company": "6982e8b7d0b069a49db197b9",
+  "assignedVehicle": null,
+  "status": "active",
+  "isFreelancer": true,
+  "tripStatus": "approved",
+  "dailyWage": 600,
+  "monthlyLeaveAllowance": 4,
+  "joiningDate": null,
+  "documents": [],
+  "createdAt": "2026-02-28T05:13:13.486Z",
+  "updatedAt": "2026-03-04T16:10:00.137Z",
+  "__v": 0,
+  "freelancerReview": "",
+  "staffType": "Company",
+  "documentStatuses": [],
+  "id": "69a27969780f9f08d60bdb5c"
+}

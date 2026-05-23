@@ -1,0 +1,32 @@
+Connected
+Found 17 Freelancers:
+Name: Devdutt, Status: active, TripStatus: approved, ID: 698ebfdcd37ecf4d836c2e2e
+Name: Bharat ji, Status: active, TripStatus: approved, ID: 699159b6299bae4be5c7c94a
+Name: Davi Shing, Status: active, TripStatus: approved, ID: 699549d034e8f95692526f1c
+Name: Ashish, Status: active, TripStatus: approved, ID: 6995abc52f7bf7e6777aa9dd
+Name: Suresh Lohar, Status: active, TripStatus: approved, ID: 6998279b6f8002d28fc5c03f
+Name: Ganpat, Status: active, TripStatus: approved, ID: 699aed740d2028fe3b12f53a
+Name: Vijay Latta, Status: active, TripStatus: approved, ID: 699d1bdb4925275aa704da4b
+Name: Shanti nath, Status: active, TripStatus: approved, ID: 699d36c174cf79dcd51721c8
+Name: Khagendra Lohar, Status: active, TripStatus: approved, ID: 699d391574cf79dcd51729fb
+Name: Vinay, Status: active, TripStatus: approved, ID: 699fed712cf5846a8e505228
+Name: Yashwant , Status: active, TripStatus: approved, ID: 69a12fae288fdbd3957a41ed
+Name: Amrit, Status: active, TripStatus: approved, ID: 69a27969780f9f08d60bdb5c
+Name: Arjun Garg, Status: active, TripStatus: approved, ID: 69a532dfbf7d8c97913319d3
+Name: Abhay, Status: active, TripStatus: approved, ID: 69a5466ed85b27dfa272f1af
+Name: Mukesh Radisson Green, Status: active, TripStatus: approved, ID: 69a54d131f20bbe39f60e4a7
+Name: Dilip, Status: active, TripStatus: approved, ID: 69a6f85c7009273aa2a8d72f
+Name: Harish, Status: active, TripStatus: approved, ID: 69a6fa0ed480c1282430c4c3
+Found 12 Permanent Drivers:
+Name: Suresh Patel, Status: active, TripStatus: approved, ID: 698abf58f2e4d5f19c74f951
+Name: Abhay, Status: active, TripStatus: approved, ID: 698b03eb6bd90f103e7c9abc
+Name: Arjun Bhat, Status: active, TripStatus: active, ID: 698b1364c64b8814fd74c43e
+Name: Shanti Lal , Status: active, TripStatus: completed, ID: 698c194a4cb760fe54596a58
+Name: Bharat , Status: active, TripStatus: completed, ID: 698eaa23bea42eb7a4577d0d
+Name: Shailendra, Status: active, TripStatus: completed, ID: 69915f7538b3cc58c9461524
+Name: Rahul Kumar garg , Status: active, TripStatus: completed, ID: 6991747beb964ccc30d4cbb7
+Name: Kailash Bhatt, Status: active, TripStatus: approved, ID: 699296b6a94eda1844b175db
+Name: Piyush Menaria, Status: active, TripStatus: completed, ID: 6993281b2ce72b5bec5721ce
+Name: Heeralal, Status: active, TripStatus: completed, ID: 69933e036f40c333b8171806
+Name: Gopal Audichiy, Status: active, TripStatus: completed, ID: 6993463109a83283ae7365ae
+Name: Satish Kumar, Status: active, TripStatus: completed, ID: 699350b7aa4e75678f588786

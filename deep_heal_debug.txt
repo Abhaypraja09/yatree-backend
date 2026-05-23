@@ -1,0 +1,5 @@
+Connected
+Deep Healing Driver Kailash Bhatt: Clearing assignedVehicle 699344ff09a83283ae736482 (Status: approved)
+Deep Healing Driver Abhay: Clearing assignedVehicle 6982f192508a22188c6188d5 (Status: approved)
+Deep Healing Driver Arjun Bhat: Clearing assignedVehicle 6982f662508a22188c6189c5 (Status: completed)
+Deep Heal complete

@@ -1,0 +1,25 @@
+{
+    "short_name": "LogKaro",
+    "name": "LogKaro Fleet CRM",
+    "description": "Professional Taxi & Fleet Management CRM",
+    "icons": [
+        {
+            "src": "/logos.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any"
+        },
+        {
+            "src": "/logos.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "maskable"
+        }
+    ],
+    "start_url": "/admin",
+    "scope": "/",
+    "display": "standalone",
+    "theme_color": "#080c14",
+    "background_color": "#080c14",
+    "orientation": "portrait"
+}

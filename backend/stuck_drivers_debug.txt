@@ -1,0 +1,6 @@
+Connected
+Checking 29 drivers...
+Stuck Driver (Has Vehicle but Not Active): Arjun Bhat (ID: 698b1364c64b8814fd74c43e, Status: completed)
+Stuck Driver (Has Vehicle but Not Active): Kailash Bhatt (ID: 699296b6a94eda1844b175db, Status: approved)
+Stuck Driver (Has Vehicle but Not Active): Abhay (ID: 69a5466ed85b27dfa272f1af, Status: approved)
+Done
