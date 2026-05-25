@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from '../api/axios';
 import { Plus, Search, Trash2, User as UserIcon, Users, X, CheckCircle, AlertCircle, LogIn, LogOut, Car, Filter, Download, Phone, Edit2, IndianRupee, Calendar, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Camera, Image as ImageIcon, Eye, TrendingUp, History, Fuel, MapPin, FileText, RefreshCw, ZapOff, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import { useTheme } from '../context/ThemeContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import SEO from '../components/SEO';
@@ -229,7 +229,7 @@ const Freelancers = () => {
         document.head.appendChild(style);
         return () => document.head.removeChild(style);
     }, []);
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const [drivers, setDrivers] = useState([]);
     const [allDrivers, setAllDrivers] = useState([]); // Includes both regular and freelancers
     const [vehicles, setVehicles] = useState([]);
@@ -531,7 +531,7 @@ const Freelancers = () => {
             );
             setAttendance(freelancerAttendance);
         } catch (err) { console.error('fetchAttendance error:', err?.response?.status, err?.response?.config?.url || err.message); }
-    }, [selectedCompany, fromDate, toDate]);
+    }, [selectedCompany, fromDate, toDate, refreshTrigger]);
 
     const fetchAdvances = useCallback(async () => {
         if (!selectedCompany?._id) return;
@@ -607,7 +607,7 @@ const Freelancers = () => {
     };
 
     const fetchFreelancers = useCallback(async () => {
-        if (!selectedCompany?._id) return;
+        if (!selectedCompany, refreshTrigger?._id) return;
         setLoading(true);
         try {
             const userInfo = JSON.parse(localStorage.getItem('userInfo'));
@@ -671,7 +671,7 @@ const Freelancers = () => {
             fetchVehicles();
             fetchEvents();
         }
-    }, [selectedCompany, fetchFreelancers, fetchVehicles, fetchEvents]);
+    }, [selectedCompany, fetchFreelancers, fetchVehicles, fetchEvents, refreshTrigger]);
 
     // Filtered Data Effect (Company or Date changes)
     useEffect(() => {
@@ -679,7 +679,7 @@ const Freelancers = () => {
             fetchAttendance();
             fetchAdvances();
         }
-    }, [selectedCompany, fromDate, toDate, fetchAttendance, fetchAdvances, activeTab]);
+    }, [selectedCompany, fromDate, toDate, fetchAttendance, fetchAdvances, activeTab, refreshTrigger]);
 
 
     const handleQuickExpenseSubmit = async (e) => {

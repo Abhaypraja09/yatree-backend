@@ -8,7 +8,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import * as XLSX from 'xlsx-js-style';
 import PremiumDateInput from '../components/common/PremiumDateInput';
@@ -23,7 +23,7 @@ import {
 } from '../utils/istUtils';
 
 const EventManagement = () => {
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const location = useLocation();
     const [events, setEvents] = useState([]); // This will store ONLY events for CURRENT tab for easier usage in existing map
     const [allMasterEvents, setAllMasterEvents] = useState([]); // This will store ALL events for counts
@@ -174,7 +174,7 @@ const EventManagement = () => {
             fetchVehicles();
             fetchMasterVehicles();
         }
-    }, [selectedCompany, fromDate, toDate, statusTab]);
+    }, [selectedCompany, fromDate, toDate, statusTab, refreshTrigger]);
 
     // ── AI AGENT SEARCH INTEGRATION ──
     useEffect(() => {

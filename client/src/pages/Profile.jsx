@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import axios from '../api/axios';
 import { 
     User, Lock, CreditCard, Shield, ChevronRight, CheckCircle2, 
@@ -16,7 +16,7 @@ const Profile = () => {
     const { user, updateUser } = useAuth();
     const { theme } = useTheme();
     const { t } = useLanguage();
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     
     const [activeTab, setActiveTab] = useState('account');
     const [loading, setLoading] = useState(false);

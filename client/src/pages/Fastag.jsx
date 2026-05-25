@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from '../api/axios';
 import { Search, CreditCard, Plus, X, CheckCircle, AlertCircle, Download, History, Zap, Car, Filter, ArrowUpRight, ArrowDownLeft, ChevronDown, Calendar as CalendarIcon, ChevronRight, Wallet, Edit2, Trash2 } from 'lucide-react';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import SEO from '../components/SEO';
 import * as XLSX from 'xlsx-js-style';
 import { todayIST, formatDateIST, nowIST } from '../utils/istUtils';
 
 const Fastag = () => {
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const location = useLocation();
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -62,7 +62,7 @@ const Fastag = () => {
     const [editingEntryId, setEditingEntryId] = useState(null);
 
     useEffect(() => {
-        if (selectedCompany) {
+        if (selectedCompany, refreshTrigger) {
             fetchVehicles();
         }
     }, [selectedCompany]);

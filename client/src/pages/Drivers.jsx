@@ -4,7 +4,7 @@ import axios from '../api/axios';
 import { Plus, Minus, Search, Filter, MoreVertical, Trash2, Edit2, ShieldAlert, User as UserIcon, Users, Clock, FileText, CheckCircle, XCircle, Briefcase, IndianRupee, Eye, X, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import {
@@ -83,7 +83,7 @@ const Drivers = ({ isSubComponent = false }) => {
     }, []);
     const navigate = useNavigate();
     const location = useLocation();
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const [drivers, setDrivers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -185,7 +185,7 @@ const Drivers = ({ isSubComponent = false }) => {
     const getToday = () => getLocalYYYYMMDD();
 
     const fetchVehicles = async () => {
-        if (!selectedCompany?._id) return;
+        if (!selectedCompany, refreshTrigger?._id) return;
         try {
             const userInfo = JSON.parse(localStorage.getItem('userInfo'));
             const { data } = await axios.get(`/api/admin/vehicles/${selectedCompany._id}?usePagination=false&type=fleet`, {

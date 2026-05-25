@@ -5,7 +5,7 @@ import { Plus, Search, Trash2, Car, X, Save, ChevronLeft, ChevronRight, Calendar
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import PremiumDateInput from '../components/common/PremiumDateInput';
@@ -13,7 +13,7 @@ import { todayIST, toISTDateString, firstDayOfMonthIST, formatDateIST, nowIST } 
 
 const OutsideCars = () => {
     const { theme } = useTheme();
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -109,7 +109,7 @@ const OutsideCars = () => {
     });
 
     useEffect(() => {
-        if (selectedCompany) {
+        if (selectedCompany, refreshTrigger) {
             fetchOutsideVehicles();
         }
     }, [selectedCompany]);

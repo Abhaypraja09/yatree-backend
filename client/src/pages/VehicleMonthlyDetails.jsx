@@ -21,7 +21,7 @@ import {
     CarFrontIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import {
     todayIST,
@@ -33,7 +33,7 @@ import {
 
 const VehicleMonthlyDetails = () => {
     const location = useLocation();
-    const { selectedCompany } = useCompany();
+        const { refreshTrigger } = useRefresh();
     const [month, setMonth] = useState(new Date().getMonth() < 3 ? 'All' : new Date().getMonth() + 1); // Default to 'All' if entering from previous year context or specific month
     const [year, setYear] = useState(new Date().getMonth() < 3 ? new Date().getFullYear() - 1 : new Date().getFullYear());
     const [data, setData] = useState([]);
@@ -49,7 +49,7 @@ const VehicleMonthlyDetails = () => {
         if (selectedCompany) {
             fetchData();
         }
-    }, [selectedCompany, month, year]);
+    }, [selectedCompany, month, year, refreshTrigger]);
 
     useEffect(() => {
         // Auto-Reset when navigating to this page - FY Aware
