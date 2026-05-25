@@ -9,11 +9,13 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCompany } from '../context/CompanyContext';
+import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST, nowIST, toISTDateString } from '../utils/istUtils';
 
 const CarUtility = () => {
     const { selectedCompany } = useCompany();
+    const { refreshTrigger } = useRefresh();
     const location = useLocation();
     const [vehicles, setVehicles] = useState([]);
     const [allBorderEntries, setAllBorderEntries] = useState([]);
@@ -51,7 +53,7 @@ const CarUtility = () => {
 
     useEffect(() => {
         if (selectedCompany) fetchAllData();
-    }, [selectedCompany]);
+    }, [selectedCompany, refreshTrigger]);
 
     // ── AI AGENT SEARCH INTEGRATION ──
     useEffect(() => {
@@ -507,7 +509,6 @@ const CarUtility = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
                         </motion.div>
                     ) : (
                         <motion.div

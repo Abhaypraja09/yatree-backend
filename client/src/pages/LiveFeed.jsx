@@ -11,6 +11,7 @@ import { useCompany } from '../context/CompanyContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import {
     todayIST,
@@ -106,6 +107,7 @@ const LiveFeed = () => {
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const { selectedCompany, selectedDate, setSelectedDate } = useCompany();
+    const { refreshTrigger } = useRefresh();
     const [stats, setStats] = useState(null);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -181,7 +183,6 @@ const LiveFeed = () => {
         setLoading(true);
         fetchFeed();
         fetchEvents();
-        const interval = setInterval(() => fetchFeed(false), 3 * 60 * 1000); // 3 min refresh
 
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') {
@@ -190,10 +191,9 @@ const LiveFeed = () => {
         };
         document.addEventListener('visibilitychange', handleVisibility);
         return () => {
-            clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibility);
         };
-    }, [selectedCompany, selectedDate]);
+    }, [selectedCompany, selectedDate, refreshTrigger]);
 
     // ── AI AGENT SEARCH INTEGRATION ──
     useEffect(() => {

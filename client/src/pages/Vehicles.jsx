@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCompany } from '../context/CompanyContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST } from '../utils/istUtils';
 
@@ -13,6 +14,7 @@ const Vehicles = () => {
     const { theme } = useTheme();
     const { user } = useAuth();
     const { selectedCompany } = useCompany();
+    const { refreshTrigger } = useRefresh();
     const location = useLocation();
     const [vehicles, setVehicles] = useState([]);
     const [drivers, setDrivers] = useState([]);
@@ -59,7 +61,7 @@ const Vehicles = () => {
             fetchDrivers();
             fetchAlerts();
         }
-    }, [selectedCompany]);
+    }, [selectedCompany, refreshTrigger]);
 
     const fetchVehicles = async () => {
         if (!selectedCompany?._id) return;

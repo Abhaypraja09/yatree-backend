@@ -4,6 +4,7 @@ import axios from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
+import { useRefresh } from '../context/RefreshContext';
 import {
     Users, Plus, Search, Clock, MapPin, User, MoreVertical, IndianRupee, Calendar, Download, X,
     ChevronLeft, ChevronRight, UserPlus, Eye, Trash2, Filter, ArrowUpRight, ArrowDownLeft,
@@ -23,6 +24,7 @@ import { DateTime } from 'luxon';
 
 const Staff = () => {
     const { theme } = useTheme();
+    const { refreshTrigger } = useRefresh();
     useEffect(() => {
         const style = document.createElement('style');
         style.textContent = `
@@ -219,7 +221,7 @@ const Staff = () => {
         if (staffList.length === 0 && view !== 'list') {
             fetchStaff();
         }
-    }, [selectedCompany?._id, view, fromDate, toDate, selectedMonth, selectedYear, selectedDay, isRange]);
+    }, [selectedCompany?._id, view, fromDate, toDate, selectedMonth, selectedYear, selectedDay, isRange, refreshTrigger]);
 
     const fetchAllLeaves = async () => {
         if (!selectedCompany?._id) return;
