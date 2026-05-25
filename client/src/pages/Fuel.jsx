@@ -87,7 +87,7 @@ const CameraModal = ({ onCapture, onClose }) => {
 };
 
 const FuelPage = () => {
-    const { theme } = useTheme();
+    const { isDark } = useTheme();
     const { selectedCompany } = useCompany();
     const getImageUrl = (path) => {
         if (!path) return '';

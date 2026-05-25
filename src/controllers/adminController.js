@@ -5015,16 +5015,10 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     let earnedDaysCalc = totalDaysInCycle - extraLeaves;
 
                     if (s.staffType === 'Fixed') {
-                        const elapsedDaysInCycle = workingDaysPassed + sundaysPassed + sundaysWorked;
                         deduction = 0;
                         extraLeaves = 0;
-                        earnedDaysCalc = elapsedDaysInCycle;
-                        
-                        if (elapsedDaysInCycle >= totalDaysInCycle || elapsedDaysInCycle >= 30) {
-                            totalEarned = s.salary;
-                        } else {
-                            totalEarned = Math.round(elapsedDaysInCycle * perDaySalary);
-                        }
+                        earnedDaysCalc = totalDaysInCycle || 30; // Show full month days
+                        totalEarned = s.salary; // Always full salary for fixed
                     }
 
                     const finalSalary = Math.max(0, Math.round(totalEarned - totalAdvances - totalPayments));
