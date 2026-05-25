@@ -4,7 +4,6 @@ import axios from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
-import { useRefresh } from '../context/RefreshContext';
 import {
     Users, Plus, Search, Clock, MapPin, User, MoreVertical, IndianRupee, Calendar, Download, X,
     ChevronLeft, ChevronRight, UserPlus, Eye, Trash2, Filter, ArrowUpRight, ArrowDownLeft,
@@ -24,7 +23,6 @@ import { DateTime } from 'luxon';
 
 const Staff = () => {
     const { theme } = useTheme();
-    const { refreshTrigger } = useRefresh();
     useEffect(() => {
         const style = document.createElement('style');
         style.textContent = `
@@ -221,7 +219,7 @@ const Staff = () => {
         if (staffList.length === 0 && view !== 'list') {
             fetchStaff();
         }
-    }, [selectedCompany?._id, view, fromDate, toDate, selectedMonth, selectedYear, selectedDay, isRange, refreshTrigger]);
+    }, [selectedCompany?._id, view, fromDate, toDate, selectedMonth, selectedYear, selectedDay, isRange]);
 
     const fetchAllLeaves = async () => {
         if (!selectedCompany?._id) return;
@@ -2921,7 +2919,7 @@ const Staff = () => {
                                                 style={{ background: 'rgba(255,255,255,0.04)', height: '58px', borderRadius: '18px', paddingLeft: '20px', fontSize: '15px' }}
                                             >
                                                 <option value="" style={{ background: '#0B1121' }}>Identify staff member...</option>
-                                                {staffList.map(s => <option key={s._id} value={s._id} style={{ background: '#0B1121' }}>{s.name}</option>)}
+                                                {staffList.filter(s => s.status !== 'blocked').map(s => <option key={s._id} value={s._id} style={{ background: '#0B1121' }}>{s.name}</option>)}
                                             </select>
                                         </div>
                                     </div>
@@ -3068,7 +3066,7 @@ const Staff = () => {
                                             style={{ height: '54px', background: 'rgba(255,255,255,0.05)' }}
                                         >
                                             <option value="" style={{ background: '#0f172a' }}>Select personnel...</option>
-                                            {staffList.map(s => (
+                                            {staffList.filter(s => s.status !== 'blocked').map(s => (
                                                 <option key={s._id} value={s._id} style={{ background: '#0f172a' }}>{s.name} ({s.designation})</option>
                                             ))}
                                         </select>

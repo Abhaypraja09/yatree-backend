@@ -3703,6 +3703,17 @@ const getAdvances = asyncHandler(async (req, res) => {
     
     if (isStaffAdvance === 'true') {
         query.isStaffAdvance = true;
+        // Exclude blocked staff from payroll advances
+        const activeStaff = await User.find({ company: companyId, role: 'Staff', status: 'active' }).select('_id');
+        const activeStaffIds = activeStaff.map(s => s._id.toString());
+        if (staffId) {
+            if (!activeStaffIds.includes(staffId.toString())) {
+                return res.json([]);
+            }
+            query.staff = staffId;
+        } else {
+            query.staff = { $in: activeStaffIds };
+        }
     } else if (isStaffAdvance === 'false') {
         query.isStaffAdvance = { $ne: true };
     }
@@ -5015,10 +5026,21 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     let earnedDaysCalc = totalDaysInCycle - extraLeaves;
 
                     if (s.staffType === 'Fixed') {
+                        // For Fixed staff, they get paid for all days passed in the active cycle so far (punch in or not),
+                        // or full salary if the cycle is completed / query is for a past month.
+                        const daysPassedInCycle = Math.min(totalDaysInCycle, (workingDaysPassed + sundaysPassed + sundaysWorked));
                         deduction = 0;
                         extraLeaves = 0;
-                        earnedDaysCalc = totalDaysInCycle || 30; // Show full month days
-                        totalEarned = s.salary; // Always full salary for fixed
+                        
+                        // If it's a past month (i.e., cycle end date is in the past), give full salary/days
+                        const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > cEnd;
+                        if (isPastCycle) {
+                            earnedDaysCalc = totalDaysInCycle || 30;
+                            totalEarned = s.salary;
+                        } else {
+                            earnedDaysCalc = daysPassedInCycle;
+                            totalEarned = Math.round(daysPassedInCycle * perDaySalary);
+                        }
                     }
 
                     const finalSalary = Math.max(0, Math.round(totalEarned - totalAdvances - totalPayments));
@@ -6637,13 +6659,18 @@ const getSalaryPayments = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Month and year are required' });
     }
 
+    // Exclude payments for blocked staff
+    const activeStaff = await User.find({ company: companyId, role: 'Staff', status: 'active' }).select('_id');
+    const activeStaffIds = activeStaff.map(s => s._id.toString());
+    
     const payments = await StaffSalaryPayment.find({ 
         company: companyId, 
         month: parseInt(month), 
         year: parseInt(year) 
     }).lean();
     
-    res.json(payments);
+    const filteredPayments = payments.filter(p => p.staff && activeStaffIds.includes(p.staff.toString()));
+    res.json(filteredPayments);
 });
 
 module.exports = {
