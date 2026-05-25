@@ -4721,6 +4721,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
             const allStaff = await User.find({ 
                 company: companyId, 
                 role: 'Staff', 
+                status: 'active',
                 ...(targetStaffId && { _id: targetStaffId }) 
             }).select('name mobile salary monthlyLeaveAllowance joiningDate createdAt designation staffType').lean();
 
