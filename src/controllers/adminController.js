@@ -4993,12 +4993,12 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
                     // Final check for "ghost" employees who haven't worked at all
                     let effectiveCurrentCycleLeavesUsed = currentCycleLeavesUsed;
-                    if (presentDays === 0) {
+                    if (presentDays === 0 && s.staffType !== 'Fixed') {
                         effectiveCurrentCycleLeavesUsed = 0;
                     }
 
                     const perDaySalary = Math.round(s.salary / 30);
-                    const deduction = Math.round(extraLeaves * perDaySalary);
+                    let deduction = Math.round(extraLeaves * perDaySalary);
                     
                     // Calculate Advances for this staff in this period
                     const staffAdvances = allAdvances.filter(adv => 
@@ -5011,7 +5011,16 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     const staffPayments = allPayments.filter(p => p.staff?.toString() === s._id.toString());
                     const totalPayments = staffPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-                    const totalEarned = Math.round((presentDays + effectiveCurrentCycleLeavesUsed) * perDaySalary);
+                    let totalEarned = Math.round((presentDays + effectiveCurrentCycleLeavesUsed) * perDaySalary);
+                    let earnedDaysCalc = totalDaysInCycle - extraLeaves;
+
+                    if (s.staffType === 'Fixed') {
+                        deduction = 0;
+                        totalEarned = s.salary;
+                        extraLeaves = 0;
+                        earnedDaysCalc = totalDaysInCycle > 0 ? totalDaysInCycle : 30; // Full days
+                    }
+
                     const finalSalary = Math.max(0, Math.round(totalEarned - totalAdvances - totalPayments));
 
                     return {
@@ -5040,7 +5049,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         cycleStart: cycleStartStr,
                         cycleEnd: cycleEndStr,
                         monthLabel: cStart.isValid ? cStart.toLocaleString({ month: 'long', year: 'numeric' }) : '',
-                        earnedDays: totalDaysInCycle - extraLeaves
+                        earnedDays: earnedDaysCalc
                     };
                 } catch (err) {
                     console.error(`[StaffReport] Error processing staff ${s._id}:`, err);
