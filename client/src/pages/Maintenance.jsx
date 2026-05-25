@@ -34,7 +34,7 @@ import {
     X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST, nowIST, formatDateTimeIST } from '../utils/istUtils';
@@ -69,7 +69,7 @@ const NEXT_SERVICE_TYPES = [
 
 const Maintenance = () => {
     const { theme } = useTheme();
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const [records, setRecords] = useState([]);
     const [vehicles, setVehicles] = useState([]);
@@ -217,7 +217,7 @@ const Maintenance = () => {
             fetchDrivers();
             if (viewMode === 'super') fetchAggregatedData();
         }
-    }, [selectedCompany, selectedMonth, selectedYear, viewMode, refreshTrigger]);
+    }, [selectedCompany, selectedMonth, selectedYear, viewMode]);
 
     const fetchAggregatedData = async () => {
         if (!selectedCompany?._id) return;

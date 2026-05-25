@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import AttendanceModal from '../components/reports/AttendanceModal';
@@ -221,7 +221,7 @@ const LoadingRow = ({ cols }) => (
 const Reports = ({ isSubComponent = false }) => {
     const { theme } = useTheme();
     const { user } = useAuth();
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
 
     const userRole = user?.role?.toLowerCase() || '';
@@ -402,7 +402,7 @@ const Reports = ({ isSubComponent = false }) => {
     }, [activeTabs]);
     */
 
-    useEffect(() => { if (selectedCompany) fetchReports(); }, [selectedCompany, fromDate, toDate, activeTabs, refreshTrigger]);
+    useEffect(() => { if (selectedCompany) fetchReports(); }, [selectedCompany, fromDate, toDate, activeTabs]);
 
     const fetchReports = async () => {
         if (!selectedCompany) return;

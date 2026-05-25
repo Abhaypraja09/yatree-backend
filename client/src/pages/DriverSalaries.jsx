@@ -9,7 +9,7 @@ import {
     AlertCircle, Edit2, Download, Trash2, Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import SEO from '../components/SEO';
 import {
     todayIST,
@@ -21,7 +21,7 @@ import {
 import PremiumDateInput from '../components/common/PremiumDateInput';
 
 const DriverSalaries = ({ isSubComponent = false }) => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     useEffect(() => {
         const style = document.createElement('style');
         style.textContent = `
@@ -189,7 +189,7 @@ const DriverSalaries = ({ isSubComponent = false }) => {
             fetchLoans();
             fetchAllowances();
         }
-    }, [selectedCompany, month, year, refreshTrigger]);
+    }, [selectedCompany, month, year]);
 
     useEffect(() => {
         if (loanFormData.totalAmount && loanFormData.tenureMonths) {

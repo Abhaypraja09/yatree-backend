@@ -18,14 +18,14 @@ import {
     IndianRupee
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import SEO from '../components/SEO';
 import { todayIST, toISTDateString, formatDateIST, nowIST } from '../utils/istUtils';
 import { ChevronLeft, ChevronRight, ShoppingCart, TrendingUp } from 'lucide-react';
 import PremiumDateInput from '../components/common/PremiumDateInput';
 
 const ActiveLogs = () => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const [logs, setLogs] = useState([]);
     const [vehicles, setVehicles] = useState([]);
@@ -100,7 +100,7 @@ const ActiveLogs = () => {
             fetchLogs();
             fetchVehiclesAndDrivers();
         }
-    }, [selectedCompany, fromDate, toDate, refreshTrigger]);
+    }, [selectedCompany, fromDate, toDate]);
 
 
     const fetchLogs = async () => {

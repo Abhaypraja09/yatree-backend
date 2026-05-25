@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from '../api/axios';
 import { ShieldAlert, Upload, CheckCircle, AlertCircle, Calendar as CalendarIcon, Search, ChevronDown, ChevronRight, Car, Plus, Trash2, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { useLocation } from 'react-router-dom';
 import SEO from '../components/SEO';
 import PremiumDateInput from '../components/common/PremiumDateInput';
 import { todayIST, nowIST, formatDateIST } from '../utils/istUtils';
 
 const BorderTax = () => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const [vehicles, setVehicles] = useState([]);
     const [drivers, setDrivers] = useState([]);
@@ -72,7 +72,7 @@ const BorderTax = () => {
     };
 
     useEffect(() => {
-        if (selectedCompany, refreshTrigger) {
+        if (selectedCompany) {
             fetchData();
             fetchEntries();
         }

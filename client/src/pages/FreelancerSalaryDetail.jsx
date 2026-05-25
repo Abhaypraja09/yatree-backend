@@ -4,14 +4,14 @@ import axios from '../api/axios';
 import { ArrowLeft, Car, ParkingSquare, Wallet, TrendingDown, IndianRupee, Plus, X, User, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SEO from '../components/SEO';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { formatDateIST, toISTDateString, todayIST } from '../utils/istUtils';
 
 const FreelancerSalaryDetail = () => {
     const { driverId } = useParams();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
 
     const urlMonth = parseInt(searchParams.get('month')) || new Date().getMonth() + 1;
     const urlYear = parseInt(searchParams.get('year')) || new Date().getFullYear();

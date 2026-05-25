@@ -24,12 +24,12 @@ import {
     Briefcase
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST } from '../utils/istUtils';
 
 const Warranties = () => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const [warranties, setWarranties] = useState([]);
     const [vehicles, setVehicles] = useState([]);
@@ -111,7 +111,7 @@ const Warranties = () => {
     }, [location.pathname, location.key]);
 
     useEffect(() => {
-        if (selectedCompany, refreshTrigger) {
+        if (selectedCompany) {
             fetchData();
         }
     }, [selectedCompany]);

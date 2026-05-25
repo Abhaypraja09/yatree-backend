@@ -26,7 +26,7 @@ import {
     ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST, nowIST, formatDateTimeIST } from '../utils/istUtils';
 import ParkingModal from '../components/ParkingModal';
@@ -39,7 +39,7 @@ const Chip = ({ label, value, color }) => (
 );
 
 const DriverServices = () => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const [records, setRecords] = useState([]);
     const [vehicles, setVehicles] = useState([]);
     const [drivers, setDrivers] = useState([]);
@@ -182,7 +182,7 @@ const DriverServices = () => {
             fetchVehicles();
             fetchDrivers();
         }
-    }, [selectedCompany, selectedMonth, selectedYear, startDate, endDate, filterMode, refreshTrigger]);
+    }, [selectedCompany, selectedMonth, selectedYear, startDate, endDate, filterMode]);
 
     const fetchRecords = async () => {
         if (!selectedCompany?._id) return;

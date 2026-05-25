@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from '../api/axios';
 import { Search, Plus, X, CheckCircle, AlertCircle, IndianRupee, Calendar, User, FileText, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import SEO from '../components/SEO';
 import PremiumDateInput from '../components/common/PremiumDateInput';
@@ -15,7 +15,7 @@ import {
 } from '../utils/istUtils';
 
 const Advances = () => {
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const [advances, setAdvances] = useState([]);
     const [salarySummary, setSalarySummary] = useState([]);
@@ -134,7 +134,7 @@ const Advances = () => {
         if (selectedCompany) {
             fetchData();
         }
-    }, [selectedCompany, selectedMonth, selectedYear, refreshTrigger]);
+    }, [selectedCompany, selectedMonth, selectedYear]);
 
     const fetchData = async () => {
         if (!selectedCompany?._id) return;

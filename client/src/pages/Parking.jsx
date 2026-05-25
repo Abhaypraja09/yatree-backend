@@ -6,7 +6,7 @@ import {
     MapPin, Plus, PlusCircle, Search, Trash2, Calendar, History, Car, User, Shield, FileSpreadsheet, Edit, IndianRupee, Eye, X, Image as ImageIcon, Camera, ChevronDown, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import PremiumDateInput from '../components/common/PremiumDateInput';
@@ -92,7 +92,7 @@ const CameraModal = ({ onCapture, onClose }) => {
 
 const ParkingPage = () => {
     const { theme } = useTheme();
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const location = useLocation();
     const getImageUrl = (path) => {
         if (!path) return '';
@@ -204,7 +204,7 @@ const ParkingPage = () => {
             fetchDrivers();
             fetchVehicles();
         }
-    }, [selectedCompany, fromDate, toDate, refreshTrigger]);
+    }, [selectedCompany, fromDate, toDate]);
 
     useEffect(() => {
         if (activeTab === 'parking') {

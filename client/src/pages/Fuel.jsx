@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRefresh } from '../context/RefreshContext';
+import { useCompany } from '../context/CompanyContext';
 import { useTheme } from '../context/ThemeContext';
 import SEO from '../components/SEO';
 import PremiumDateInput from '../components/common/PremiumDateInput';
@@ -88,7 +88,7 @@ const CameraModal = ({ onCapture, onClose }) => {
 
 const FuelPage = () => {
     const { theme } = useTheme();
-        const { refreshTrigger } = useRefresh();
+    const { selectedCompany } = useCompany();
     const getImageUrl = (path) => {
         if (!path) return '';
         if (path.startsWith('http')) {
@@ -211,7 +211,7 @@ const FuelPage = () => {
             fetchPendingEntries();
             fetchDrivers();
         }
-    }, [selectedCompany, fromDate, toDate, refreshTrigger]);
+    }, [selectedCompany, fromDate, toDate]);
 
     const fetchPendingEntries = async () => {
         if (!selectedCompany?._id) return;
