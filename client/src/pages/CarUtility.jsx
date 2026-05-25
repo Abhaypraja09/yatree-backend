@@ -348,14 +348,19 @@ const CarUtility = () => {
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
                         >
-                            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', gap: '20px', flexWrap: 'wrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div style={{ width: 'clamp(40px,10vw,50px)', height: 'clamp(40px,10vw,50px)', background: 'var(--primary)', borderRadius: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', boxShadow: '0 10px 20px rgba(14, 165, 233, 0.2)' }}>
-                                        <Wrench size={24} color="white" />
+                            <header className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', padding: '20px 0 30px', gap: '20px', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                    <div style={{ width: '52px', height: '52px', background: 'linear-gradient(135deg, var(--primary), var(--secondary, var(--primary)))', borderRadius: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', boxShadow: '0 10px 20px rgba(14, 165, 233, 0.2)', flexShrink: 0 }}>
+                                        <Wrench size={24} color="black" />
                                     </div>
                                     <div>
-                                        <h1 style={{ margin: 0, fontSize: 'clamp(24px, 5vw, 32px)', fontWeight: '900', letterSpacing: '-1px' }}>Fleet <span className="theme-gradient-text">Utility</span></h1>
-                                        <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.4)', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Operational Maintenance & Expense</p>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary)', boxShadow: '0 0 8px var(--primary)' }}></div>
+                                            <span style={{ fontSize: '10px', fontWeight: '900', color: 'rgba(255,255,255,0.4)', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Fleet Operations</span>
+                                        </div>
+                                        <h1 style={{ color: 'white', fontSize: '28px', fontWeight: '950', margin: 0, letterSpacing: '-1px', lineHeight: 1 }}>
+                                            Car <span className="theme-gradient-text">Utility</span>
+                                        </h1>
                                     </div>
                                 </div>
 
@@ -447,11 +452,10 @@ const CarUtility = () => {
                                 <input type="text" placeholder="Search by vehicle number..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="input-field" style={{ paddingLeft: '45px', marginBottom: 0 }} />
                             </div>
 
-                            <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                                <div className="table-responsive-wrapper">
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <div className="table-responsive-wrapper" style={{ borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(15, 23, 42, 0.4)' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0' }}>
                                         <thead>
-                                            <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                            <tr style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)' }}>
                                                 <th style={{ padding: '20px 30px', textAlign: 'left', fontSize: '11px', fontWeight: '900', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Car size={14} /> Vehicle</div></th>
                                                 <th style={{ padding: '20px 30px', textAlign: 'right', fontSize: '11px', fontWeight: '900', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}><CreditCard size={14} /> Fastag (M)</div></th>
                                                 <th style={{ padding: '20px 30px', textAlign: 'right', fontSize: '11px', fontWeight: '900', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}><Shield size={14} /> Border (M)</div></th>
@@ -518,10 +522,10 @@ const CarUtility = () => {
                                 </button>
                             </nav>
 
-                            <div style={{ background: 'rgba(255, 255, 255, 0.02)', borderRadius: '35px', border: '1px solid rgba(255,255,255,0.05)', padding: '40px', marginBottom: '40px' }}>
+                            <div className="glass-card" style={{ background: 'rgba(15, 23, 42, 0.4)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)', padding: '40px', marginBottom: '40px' }}>
                                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '25px' }}>
-                                        <div style={{ width: '80px', height: '80px', borderRadius: '24px', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 15px 35px rgba(14, 165, 233, 0.3)' }}><Car size={40} color="white" /></div>
+                                        <div style={{ width: '80px', height: '80px', borderRadius: '24px', background: 'linear-gradient(135deg, var(--primary), var(--secondary, var(--primary)))', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 15px 35px rgba(14, 165, 233, 0.3)' }}><Car size={40} color="black" /></div>
                                         <div>
                                             <h2 style={{ margin: 0, fontSize: '36px', fontWeight: '1000' }}>{detailVehicle?.carNumber}</h2>
                                             <div style={{ display: 'flex', gap: '15px', marginTop: '5px' }}>
@@ -687,7 +691,7 @@ const CarUtility = () => {
 };
 
 const DetailStat = ({ label, val, icon: Icon, col, isDark, desc }) => (
-    <div style={{ padding: '25px', background: isDark ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '25px', display: 'flex', alignItems: 'center', gap: '20px' }}>
+    <div className="glass-card" style={{ padding: '25px', background: isDark ? 'rgba(16, 185, 129, 0.05)' : 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '25px', display: 'flex', alignItems: 'center', gap: '20px' }}>
         <div style={{ width: '50px', height: '50px', borderRadius: '15px', background: `${col}15`, color: col, display: 'flex', justifyContent: 'center', alignItems: 'center' }}><Icon size={22} /></div>
         <div>
             <div style={{ fontSize: '11px', fontWeight: '900', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{label}</div>
@@ -698,7 +702,7 @@ const DetailStat = ({ label, val, icon: Icon, col, isDark, desc }) => (
 );
 
 const SummaryStat = ({ label, val, col, icon: Icon, isDark, desc }) => (
-    <div style={{ 
+    <div className="glass-card" style={{ 
         padding: '24px', 
         background: isDark ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05))' : 'rgba(15, 23, 42, 0.6)', 
         border: '1px solid rgba(255, 255, 255, 0.06)', 
