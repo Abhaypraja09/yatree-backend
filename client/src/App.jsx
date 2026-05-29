@@ -5,9 +5,7 @@ import { CompanyProvider, useCompany } from './context/CompanyContext';
 import { LanguageProvider } from './context/LanguageContext';
 // Last Updated: 2026-04-25 12:39 PM - Frontend Sync
 import { ThemeProvider } from './context/ThemeContext';
-import { RefreshProvider } from './context/RefreshContext';
 import Sidebar from './components/Sidebar';
-import AIChatAgent from './components/AIChatAgent';
 import ThemeSwitcher from './components/common/ThemeSwitcher';
 
 // Lazy load pages
@@ -96,7 +94,6 @@ const AdminLayout = ({ children }) => {
           {children}
         </div>
       </main>
-      <AIChatAgent />
 
       <style>{`
         @media (max-width: 1024px) {
@@ -187,7 +184,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/bridge" element={<Bridge />} />
-              <Route path="/admin/*" element={<ProtectedRoute role="Admin"><CompanyProvider><RefreshProvider><AdminLayout><AdminRoutes /></AdminLayout></RefreshProvider></CompanyProvider></ProtectedRoute>} />
+              <Route path="/admin/*" element={<ProtectedRoute role="Admin"><CompanyProvider><AdminLayout><AdminRoutes /></AdminLayout></CompanyProvider></ProtectedRoute>} />
               <Route path="/driver/*" element={<ProtectedRoute role="Driver"><DriverPortal /></ProtectedRoute>} />
               <Route path="/staff/*" element={<ProtectedRoute role="Staff"><StaffPortal /></ProtectedRoute>} />
               <Route path="/" element={<Navigate to="/login" />} />
