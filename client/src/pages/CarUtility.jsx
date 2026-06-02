@@ -475,31 +475,6 @@ const CarUtility = () => {
                             </div>
                         </div>
 
-                        {/* Segmented View Mode Toggle: History vs Master */}
-                        <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.05)', height: '44px' }}>
-                            <button
-                                onClick={() => { setViewMode('history'); setDetailVehicleId(null); }}
-                                style={{
-                                    padding: '0 16px', borderRadius: '10px', border: 'none',
-                                    background: viewMode === 'history' ? (theme.primary || '#fbbf24') : 'transparent',
-                                    color: viewMode === 'history' ? 'black' : 'rgba(255,255,255,0.4)',
-                                    fontSize: '12px', fontWeight: '900', cursor: 'pointer', transition: '0.3s', display: 'flex', alignItems: 'center', gap: '6px'
-                                }}
-                            >
-                                <History size={14} /> History
-                            </button>
-                            <button
-                                onClick={() => { setViewMode('fleet'); setDetailVehicleId(null); }}
-                                style={{
-                                    padding: '0 16px', borderRadius: '10px', border: 'none',
-                                    background: viewMode === 'fleet' ? (theme.primary || '#fbbf24') : 'transparent',
-                                    color: viewMode === 'fleet' ? 'black' : 'rgba(255,255,255,0.4)',
-                                    fontSize: '12px', fontWeight: '900', cursor: 'pointer', transition: '0.3s', display: 'flex', alignItems: 'center', gap: '6px'
-                                }}
-                            >
-                                <Zap size={14} /> Master
-                            </button>
-                        </div>
 
                         {/* Quick Add Button */}
                         <button 

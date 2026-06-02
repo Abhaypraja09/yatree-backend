@@ -885,6 +885,10 @@ const getAllVehicles = asyncHandler(async (req, res) => {
         query.isOutsideCar = { $ne: true };
     }
 
+    if (req.query.includeBlocked !== 'true') {
+        query.status = { $in: ['active', 'Active', 'Present'] };
+    }
+
     const { from, to } = req.query;
     if (from && to) {
         // For outside cars, filtering by createdAt usually means the duty date
@@ -6352,8 +6356,32 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         };
     });
 
+    const finalVehicleDetails = vehicleDetails.filter(v => {
+        const vehicleInfo = vehicles.find(veh => veh._id.toString() === v.vehicleId);
+        if (!vehicleInfo) return false;
+        
+        // Always show active vehicles
+        if (vehicleInfo.status === 'active' || vehicleInfo.status === 'Active') {
+            return true;
+        }
+
+        // For blocked/inactive vehicles, ONLY show if they have ANY data in the current month
+        const hasData = v.fuel.count > 0 || 
+                        v.fastag.count > 0 || 
+                        v.borderTax.count > 0 || 
+                        v.maintenance.count > 0 || 
+                        v.parking.count > 0 || 
+                        v.services.wash.count > 0 || 
+                        v.services.puncture.count > 0 ||
+                        v.driverSalary > 0 || 
+                        v.totalDistance > 0 ||
+                        (v.driverBreakdown && v.driverBreakdown.length > 0);
+
+        return hasData;
+    });
+
     res.json({
-        vehicles: vehicleDetails,
+        vehicles: finalVehicleDetails,
         summary: {
             totalSalary: totalStaffEarnings + totalFreelancerEarnings,
             staffSalary: totalStaffEarnings,
@@ -6616,8 +6644,8 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             return new Date(bLastTime) - new Date(aLastTime);
         });
 
-    // Only show IDLE vehicles if they are NOT inactive/blocked
-    const unusedVehiclesFeed = allMappedVehicles.filter(v => v.status === 'Idle' && v.vehicleStatus !== 'inactive');
+    // Only show IDLE vehicles if they are active
+    const unusedVehiclesFeed = allMappedVehicles.filter(v => v.status === 'Idle' && (v.vehicleStatus === 'active' || v.vehicleStatus === 'Active'));
 
     const finalResponse = {
         date: targetDate,

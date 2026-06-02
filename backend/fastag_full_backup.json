@@ -1,0 +1,1468 @@
+{
+  "6982ef26508a22188c61886a": {
+    "carNumber": "RJ-27-TA-9836",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd4afe738d15fbc0369c7",
+        "id": "69fdd4afe738d15fbc0369c7"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-31T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis ",
+        "receiptPhoto": "",
+        "_id": "69fdd4f07b755a5380982ec5",
+        "id": "69fdd4f07b755a5380982ec5"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-17T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd55a7b755a5380983120",
+        "id": "69fdd55a7b755a5380983120"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-20T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd5c07b755a5380983387",
+        "id": "69fdd5c07b755a5380983387"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-02-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd6c97b755a5380983602",
+        "id": "69fdd6c97b755a5380983602"
+      },
+      {
+        "amount": 600,
+        "date": "2026-03-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed840bf3e5c1adc94cc51",
+        "id": "69fed840bf3e5c1adc94cc51"
+      },
+      {
+        "amount": 600,
+        "date": "2026-03-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed854214b55a239869d9f",
+        "id": "69fed854214b55a239869d9f"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-30T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed86f214b55a23986a186",
+        "id": "69fed86f214b55a23986a186"
+      },
+      {
+        "amount": 200,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779345717/taxi-fleet-crm/documents/receiptPhoto-1779345716122-776548345.jpg",
+        "_id": "6a0ea9361827a161cc8f978d",
+        "id": "6a0ea9361827a161cc8f978d"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779434751/taxi-fleet-crm/documents/receiptPhoto-1779434750370-949300177.jpg",
+        "_id": "6a100500a8b4f9e3e64a9d0a",
+        "id": "6a100500a8b4f9e3e64a9d0a"
+      },
+      {
+        "amount": 100,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via HDFC YD",
+        "receiptPhoto": "",
+        "_id": "6a100566a8b4f9e3e64a9e1b",
+        "id": "6a100566a8b4f9e3e64a9e1b"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517331/taxi-fleet-crm/documents/receiptPhoto-1779517330734-152470069.jpg",
+        "_id": "6a1147948072fe01867fba3c",
+        "id": "6a1147948072fe01867fba3c"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-25T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779866508/taxi-fleet-crm/documents/receiptPhoto-1779866507321-58012504.jpg",
+        "_id": "6a169b70dbd52b1e9676a6d0",
+        "id": "6a169b70dbd52b1e9676a6d0"
+      }
+    ]
+  },
+  "6982efaa508a22188c618879": {
+    "carNumber": "RJ-27-TA-9821",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd35a21e701283d3e3788",
+        "id": "69fdd35a21e701283d3e3788"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-10T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Rahul sir ",
+        "receiptPhoto": "",
+        "_id": "69fedcb5214b55a23986e23d",
+        "id": "69fedcb5214b55a23986e23d"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fedce8214b55a23986e7cf",
+        "id": "69fedce8214b55a23986e7cf"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-16T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fedd19214b55a23986eeae",
+        "id": "69fedd19214b55a23986eeae"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-19T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fedd57214b55a23986f36b",
+        "id": "69fedd57214b55a23986f36b"
+      },
+      {
+        "amount": 800,
+        "date": "2026-03-26T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fede29214b55a23987008b",
+        "id": "69fede29214b55a23987008b"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-01T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fede42214b55a239870331",
+        "id": "69fede42214b55a239870331"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fede66214b55a2398705d9",
+        "id": "69fede66214b55a2398705d9"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-20T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fede74214b55a239870883",
+        "id": "69fede74214b55a239870883"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fede8e214b55a239870b2f",
+        "id": "69fede8e214b55a239870b2f"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-20T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779248393/taxi-fleet-crm/documents/receiptPhoto-1779248391883-855948821.jpg",
+        "_id": "6a0d2d099d2f25741b49eb77",
+        "id": "6a0d2d099d2f25741b49eb77"
+      },
+      {
+        "amount": 300,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "Cash",
+        "remarks": "Paid via Kavish Personal",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779345604/taxi-fleet-crm/documents/receiptPhoto-1779345602369-529754383.jpg",
+        "_id": "6a0ea8c51827a161cc8f956e",
+        "id": "6a0ea8c51827a161cc8f956e"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779345669/taxi-fleet-crm/documents/receiptPhoto-1779345668126-907486407.jpg",
+        "_id": "6a0ea9061827a161cc8f967f",
+        "id": "6a0ea9061827a161cc8f967f"
+      }
+    ]
+  },
+  "6982f04e508a22188c618897": {
+    "carNumber": "RJ-27-TB-0160",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-16T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fddfb77b755a53809840ea",
+        "id": "69fddfb77b755a53809840ea"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fddfd07b755a5380984353",
+        "id": "69fddfd07b755a5380984353"
+      },
+      {
+        "amount": 300,
+        "date": "2026-01-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fddfe77b755a53809845b3",
+        "id": "69fddfe77b755a53809845b3"
+      },
+      {
+        "amount": 300,
+        "date": "2026-02-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde0127b755a5380984a85",
+        "id": "69fde0127b755a5380984a85"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde0277b755a5380984ce9",
+        "id": "69fde0277b755a5380984ce9"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-01T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed733270bd4029d5aea67",
+        "id": "69fed733270bd4029d5aea67"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed75d270bd4029d5aef92",
+        "id": "69fed75d270bd4029d5aef92"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-01T00:00:00.000Z",
+        "method": "Cash",
+        "remarks": "Cash Paid ",
+        "receiptPhoto": "",
+        "_id": "69fed78b270bd4029d5af280",
+        "id": "69fed78b270bd4029d5af280"
+      },
+      {
+        "amount": 700,
+        "date": "2026-04-09T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed7ab270bd4029d5af516",
+        "id": "69fed7ab270bd4029d5af516"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-09T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed7b9270bd4029d5af7ae",
+        "id": "69fed7b9270bd4029d5af7ae"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed7c9270bd4029d5afa6e",
+        "id": "69fed7c9270bd4029d5afa6e"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517389/taxi-fleet-crm/documents/receiptPhoto-1779517387974-49630140.jpg",
+        "_id": "6a1147ce8072fe01867fc0ef",
+        "id": "6a1147ce8072fe01867fc0ef"
+      }
+    ]
+  },
+  "6982f192508a22188c6188d5": {
+    "carNumber": "RJ-27-PB-5054",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd0f521a6df823eab58bd",
+        "id": "69fdd0f521a6df823eab58bd"
+      },
+      {
+        "amount": 700,
+        "date": "2026-02-10T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd14d21a6df823eab5b19",
+        "id": "69fdd14d21a6df823eab5b19"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-02-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd2bc21e701283d3e2e2e",
+        "id": "69fdd2bc21e701283d3e2e2e"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd2d921e701283d3e3083",
+        "id": "69fdd2d921e701283d3e3083"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-02-25T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd30021e701283d3e32da",
+        "id": "69fdd30021e701283d3e32da"
+      },
+      {
+        "amount": 800,
+        "date": "2026-02-28T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd31421e701283d3e3533",
+        "id": "69fdd31421e701283d3e3533"
+      },
+      {
+        "amount": 600,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fec91496d05aaee01f704d",
+        "id": "69fec91496d05aaee01f704d"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fec936d96f8b6dd10ac818",
+        "id": "69fec936d96f8b6dd10ac818"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-14T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fec947d96f8b6dd10acab2",
+        "id": "69fec947d96f8b6dd10acab2"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fec95bd96f8b6dd10acd35",
+        "id": "69fec95bd96f8b6dd10acd35"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fec983d96f8b6dd10ad04f",
+        "id": "69fec983d96f8b6dd10ad04f"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-31T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fec9b7a9fe62d02d9e4364",
+        "id": "69fec9b7a9fe62d02d9e4364"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-04-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69feca05a9fe62d02d9e4ac2",
+        "id": "69feca05a9fe62d02d9e4ac2"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-06T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Kavish Sir ",
+        "receiptPhoto": "",
+        "_id": "69feca1fa9fe62d02d9e4d4d",
+        "id": "69feca1fa9fe62d02d9e4d4d"
+      },
+      {
+        "amount": 700,
+        "date": "2026-04-08T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69feca65a9fe62d02d9e503a",
+        "id": "69feca65a9fe62d02d9e503a"
+      },
+      {
+        "amount": 700,
+        "date": "2026-04-15T00:00:00.000Z",
+        "method": "Cash",
+        "remarks": "Cash Paid ",
+        "receiptPhoto": "",
+        "_id": "69fecc6fa9fe62d02d9e6a64",
+        "id": "69fecc6fa9fe62d02d9e6a64"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-16T00:00:00.000Z",
+        "method": "Cash",
+        "remarks": "Cash Paid",
+        "receiptPhoto": "",
+        "_id": "69fecca6a9fe62d02d9e6f16",
+        "id": "69fecca6a9fe62d02d9e6f16"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-20T00:00:00.000Z",
+        "method": "Cash",
+        "remarks": "Paid Cash",
+        "receiptPhoto": "",
+        "_id": "69fecdf8a9fe62d02d9e806f",
+        "id": "69fecdf8a9fe62d02d9e806f"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-04-20T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fece1aa9fe62d02d9e830f",
+        "id": "69fece1aa9fe62d02d9e830f"
+      },
+      {
+        "amount": 600,
+        "date": "2026-04-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fece2fa9fe62d02d9e85a6",
+        "id": "69fece2fa9fe62d02d9e85a6"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fece45a9fe62d02d9e883f",
+        "id": "69fece45a9fe62d02d9e883f"
+      },
+      {
+        "amount": 900,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517300/taxi-fleet-crm/documents/receiptPhoto-1779517299347-984819292.jpg",
+        "_id": "6a1147758072fe01867fb719",
+        "id": "6a1147758072fe01867fb719"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-24T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779621171/taxi-fleet-crm/documents/receiptPhoto-1779621170324-945476389.jpg",
+        "_id": "6a12dd34546a6bf10bb2af1c",
+        "id": "6a12dd34546a6bf10bb2af1c"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-05-24T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779621204/taxi-fleet-crm/documents/receiptPhoto-1779621203876-677780726.jpg",
+        "_id": "6a12dd55546a6bf10bb2b269",
+        "id": "6a12dd55546a6bf10bb2b269"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-05-26T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid Via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779783895/taxi-fleet-crm/documents/receiptPhoto-1779783893793-126489412.jpg",
+        "_id": "6a1558d7fa815e75210ade93",
+        "id": "6a1558d7fa815e75210ade93"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779959504/taxi-fleet-crm/documents/receiptPhoto-1779959502489-394910420.jpg",
+        "_id": "6a1806b421aed0d3468531d8",
+        "id": "6a1806b421aed0d3468531d8"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1780037398/taxi-fleet-crm/documents/receiptPhoto-1780037397051-264804812.jpg",
+        "_id": "6a1937064bb1ad72399a7139",
+        "id": "6a1937064bb1ad72399a7139"
+      }
+    ]
+  },
+  "6982f29e508a22188c6188f2": {
+    "carNumber": "RJ-27-TA-8946",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-05-01T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777612425/taxi-fleet-crm/documents/receiptPhoto-1777612423166-348714250.jpg",
+        "_id": "69f4368a488f5ffe2dd03f6e",
+        "id": "69f4368a488f5ffe2dd03f6e"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fefaea305d798036cff6d5",
+        "id": "69fefaea305d798036cff6d5"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fefb59305d798036cff98d",
+        "id": "69fefb59305d798036cff98d"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fefbac305d798036cfff00",
+        "id": "69fefbac305d798036cfff00"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fefbc1305d798036d001bc",
+        "id": "69fefbc1305d798036d001bc"
+      },
+      {
+        "amount": 600,
+        "date": "2026-04-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fefbd5305d798036d0047a",
+        "id": "69fefbd5305d798036d0047a"
+      },
+      {
+        "amount": 700,
+        "date": "2026-05-17T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778995963/taxi-fleet-crm/documents/receiptPhoto-1778995961532-726689760.jpg",
+        "_id": "6a0952fba5ac04b874311afb",
+        "id": "6a0952fba5ac04b874311afb"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517450/taxi-fleet-crm/documents/receiptPhoto-1779517449253-626243026.jpg",
+        "_id": "6a11480b8072fe01867fc74a",
+        "id": "6a11480b8072fe01867fc74a"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-26T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779783856/taxi-fleet-crm/documents/receiptPhoto-1779783855504-94819779.jpg",
+        "_id": "6a155897fa815e75210ad7ff",
+        "id": "6a155897fa815e75210ad7ff"
+      }
+    ]
+  },
+  "6982f300508a22188c618901": {
+    "carNumber": "RJ-27-TA-7073",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-03-12T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee71143faaada6219c5a0",
+        "id": "69fee71143faaada6219c5a0"
+      },
+      {
+        "amount": 600,
+        "date": "2026-03-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee72143faaada6219c852",
+        "id": "69fee72143faaada6219c852"
+      }
+    ]
+  },
+  "6982f366508a22188c61891f": {
+    "carNumber": "RJ-27-TA-6113",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-05-01T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis ",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777612329/taxi-fleet-crm/documents/receiptPhoto-1777612326699-135590290.jpg",
+        "_id": "69f43629488f5ffe2dd03d22",
+        "id": "69f43629488f5ffe2dd03d22"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777707400/taxi-fleet-crm/documents/receiptPhoto-1777707397684-954900696.jpg",
+        "_id": "69f5a989bebef4616e451e5d",
+        "id": "69f5a989bebef4616e451e5d"
+      },
+      {
+        "amount": 700,
+        "date": "2026-05-04T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777873111/taxi-fleet-crm/documents/receiptPhoto-1777873109350-3578484.jpg",
+        "_id": "69f830d897427a355080a89c",
+        "id": "69f830d897427a355080a89c"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis ",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777956649/taxi-fleet-crm/documents/receiptPhoto-1777956647044-757857629.jpg",
+        "_id": "69f97729b60c219a4c7c07b7",
+        "id": "69f97729b60c219a4c7c07b7"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-16T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde2027b755a538098627d",
+        "id": "69fde2027b755a538098627d"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde2387b755a53809864eb",
+        "id": "69fde2387b755a53809864eb"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde24c7b755a538098675b",
+        "id": "69fde24c7b755a538098675b"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde2617b755a53809869cd",
+        "id": "69fde2617b755a53809869cd"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-14T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde27c7b755a5380986c41",
+        "id": "69fde27c7b755a5380986c41"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-02-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde2907b755a5380986eb7",
+        "id": "69fde2907b755a5380986eb7"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-02-24T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde29b7b755a538098712f",
+        "id": "69fde29b7b755a538098712f"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-29T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee5c9214b55a2398720a7",
+        "id": "69fee5c9214b55a2398720a7"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee5d9214b55a23987235b",
+        "id": "69fee5d9214b55a23987235b"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee5f0214b55a239872611",
+        "id": "69fee5f0214b55a239872611"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee608214b55a2398728c9",
+        "id": "69fee608214b55a2398728c9"
+      },
+      {
+        "amount": 700,
+        "date": "2026-04-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee61d214b55a239872b83",
+        "id": "69fee61d214b55a239872b83"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778683485/taxi-fleet-crm/documents/receiptPhoto-1778683484376-444452271.jpg",
+        "_id": "6a048e5ec5abcf1c380ced07",
+        "id": "6a048e5ec5abcf1c380ced07"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778905595/taxi-fleet-crm/documents/receiptPhoto-1778905594028-458800868.jpg",
+        "_id": "6a07f1fc3d6fb8beee1bb463",
+        "id": "6a07f1fc3d6fb8beee1bb463"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-20T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779250267/taxi-fleet-crm/documents/receiptPhoto-1779250265811-737164526.jpg",
+        "_id": "6a0d345b0c2f5188ac14d73d",
+        "id": "6a0d345b0c2f5188ac14d73d"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-21T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779346441/taxi-fleet-crm/documents/receiptPhoto-1779346439950-183860899.jpg",
+        "_id": "6a0eac0a1827a161cc8f98a6",
+        "id": "6a0eac0a1827a161cc8f98a6"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517425/taxi-fleet-crm/documents/receiptPhoto-1779517423232-930314541.jpg",
+        "_id": "6a1147f18072fe01867fc427",
+        "id": "6a1147f18072fe01867fc427"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-24T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779621104/taxi-fleet-crm/documents/receiptPhoto-1779621102510-552218809.jpg",
+        "_id": "6a12dcf1546a6bf10bb2abd1",
+        "id": "6a12dcf1546a6bf10bb2abd1"
+      }
+    ]
+  },
+  "6982f3b2508a22188c61892e": {
+    "carNumber": "RJ-27-TA-6168",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-03-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee67d43faaada6219bd86",
+        "id": "69fee67d43faaada6219bd86"
+      },
+      {
+        "amount": 800,
+        "date": "2026-03-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee6dc43faaada6219c2f0",
+        "id": "69fee6dc43faaada6219c2f0"
+      }
+    ]
+  },
+  "6982f51f508a22188c61894c": {
+    "carNumber": "RJ-27-TB-1370",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde0577b755a5380984f4a",
+        "id": "69fde0577b755a5380984f4a"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-01-03T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde06e7b755a53809851ad",
+        "id": "69fde06e7b755a53809851ad"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-14T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde0e47b755a5380985412",
+        "id": "69fde0e47b755a5380985412"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-14T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde0f27b755a5380985679",
+        "id": "69fde0f27b755a5380985679"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee580214b55a239871b49",
+        "id": "69fee580214b55a239871b49"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-16T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee58b214b55a239871df5",
+        "id": "69fee58b214b55a239871df5"
+      }
+    ]
+  },
+  "6982f54e508a22188c61895b": {
+    "carNumber": "RJ-27-TA-9053",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-05-06T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778041763/taxi-fleet-crm/documents/receiptPhoto-1778041760406-410348956.jpg",
+        "_id": "69fac3a34ff964024067cd4e",
+        "id": "69fac3a34ff964024067cd4e"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-07T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778166794/taxi-fleet-crm/documents/receiptPhoto-1778166793416-848567842.jpg",
+        "_id": "69fcac0b34951c49b7b6fdc4",
+        "id": "69fcac0b34951c49b7b6fdc4"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-01-03T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde2e633941700cbc9be3e",
+        "id": "69fde2e633941700cbc9be3e"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-01-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde2f933941700cbc9c0c8",
+        "id": "69fde2f933941700cbc9c0c8"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-12T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde30d33941700cbc9c33e",
+        "id": "69fde30d33941700cbc9c33e"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-01-13T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde32333941700cbc9c5b6",
+        "id": "69fde32333941700cbc9c5b6"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-19T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde33933941700cbc9c830",
+        "id": "69fde33933941700cbc9c830"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde36533941700cbc9cd27",
+        "id": "69fde36533941700cbc9cd27"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-31T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde37233941700cbc9cfa5",
+        "id": "69fde37233941700cbc9cfa5"
+      },
+      {
+        "amount": 700,
+        "date": "2026-02-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fde38933941700cbc9d225",
+        "id": "69fde38933941700cbc9d225"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff00db305d798036d0073e",
+        "id": "69ff00db305d798036d0073e"
+      },
+      {
+        "amount": 300,
+        "date": "2026-03-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff00f4305d798036d00a04",
+        "id": "69ff00f4305d798036d00a04"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-04T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff011f305d798036d00ccc",
+        "id": "69ff011f305d798036d00ccc"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69ff0159305d798036d00f96",
+        "id": "69ff0159305d798036d00f96"
+      },
+      {
+        "amount": 700,
+        "date": "2026-03-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69ff0187305d798036d01262",
+        "id": "69ff0187305d798036d01262"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-25T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff01ab305d798036d01530",
+        "id": "69ff01ab305d798036d01530"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff01ce305d798036d01800",
+        "id": "69ff01ce305d798036d01800"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69ff023c305d798036d01ae7",
+        "id": "69ff023c305d798036d01ae7"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-05-08T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778322144/taxi-fleet-crm/documents/receiptPhoto-1778322143175-925991128.jpg",
+        "_id": "69ff0ae04ebb29e0dd5a76d6",
+        "id": "69ff0ae04ebb29e0dd5a76d6"
+      },
+      {
+        "amount": 300,
+        "date": "2026-05-15T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778905702/taxi-fleet-crm/documents/receiptPhoto-1778905700816-949758378.jpg",
+        "_id": "6a07f2663d6fb8beee1bb572",
+        "id": "6a07f2663d6fb8beee1bb572"
+      }
+    ]
+  },
+  "6993111da5a80aa58c682b04": {
+    "carNumber": "RJ-27-TA-6110",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-01-02T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde1707b755a53809858dc",
+        "id": "69fde1707b755a53809858dc"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-01-04T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde1877b755a5380985b41",
+        "id": "69fde1877b755a5380985b41"
+      },
+      {
+        "amount": 500,
+        "date": "2026-01-07T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde19f7b755a5380985da8",
+        "id": "69fde19f7b755a5380985da8"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-19T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fde1b37b755a5380986011",
+        "id": "69fde1b37b755a5380986011"
+      }
+    ]
+  },
+  "699344ff09a83283ae736482": {
+    "carNumber": "RJ-27-TA-9822",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-05-03T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1777778014/taxi-fleet-crm/documents/receiptPhoto-1777778011978-662904893.jpg",
+        "_id": "69f6bd5ef5a473c516d5c7ef",
+        "id": "69f6bd5ef5a473c516d5c7ef"
+      },
+      {
+        "amount": 500,
+        "date": "2026-02-17T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd3e921e701283d3e39df",
+        "id": "69fdd3e921e701283d3e39df"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-28T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed8cd214b55a23986a6db",
+        "id": "69fed8cd214b55a23986a6db"
+      },
+      {
+        "amount": 200,
+        "date": "2026-04-04T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed8eb214b55a23986a97d",
+        "id": "69fed8eb214b55a23986a97d"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-05T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fedbbe214b55a23986d993",
+        "id": "69fedbbe214b55a23986d993"
+      },
+      {
+        "amount": 300,
+        "date": "2026-04-06T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Kavish Sir",
+        "receiptPhoto": "",
+        "_id": "69fedbd4214b55a23986dc35",
+        "id": "69fedbd4214b55a23986dc35"
+      },
+      {
+        "amount": 500,
+        "date": "2026-04-22T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fedbe6214b55a23986ded9",
+        "id": "69fedbe6214b55a23986ded9"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-26T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Paid via Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779783949/taxi-fleet-crm/documents/receiptPhoto-1779783947648-40788316.jpg",
+        "_id": "6a15590dfa815e75210ae1d5",
+        "id": "6a15590dfa815e75210ae1d5"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-26T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779866331/taxi-fleet-crm/documents/receiptPhoto-1779866329612-373314191.jpg",
+        "_id": "6a169adbdbd52b1e96769ddd",
+        "id": "6a169adbdbd52b1e96769ddd"
+      }
+    ]
+  },
+  "69934c03aa4e75678f588555": {
+    "carNumber": "RJ-27-TA-7074",
+    "history": [
+      {
+        "amount": 100,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee79943faaada6219caff",
+        "id": "69fee79943faaada6219caff"
+      },
+      {
+        "amount": 1000,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee7b943faaada6219cdae",
+        "id": "69fee7b943faaada6219cdae"
+      },
+      {
+        "amount": 100,
+        "date": "2026-03-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fee7cb43faaada6219d05f",
+        "id": "69fee7cb43faaada6219d05f"
+      },
+      {
+        "amount": 200,
+        "date": "2026-03-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee7e543faaada6219d312",
+        "id": "69fee7e543faaada6219d312"
+      },
+      {
+        "amount": 300,
+        "date": "2026-03-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee7f443faaada6219d5c7",
+        "id": "69fee7f443faaada6219d5c7"
+      },
+      {
+        "amount": 300,
+        "date": "2026-03-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee80143faaada6219d87e",
+        "id": "69fee80143faaada6219d87e"
+      }
+    ]
+  },
+  "6998364c27193d3af5a1abe1": {
+    "carNumber": "RJ-27-TA-9795",
+    "history": [
+      {
+        "amount": 300,
+        "date": "2026-03-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee30d214b55a2398715f9",
+        "id": "69fee30d214b55a2398715f9"
+      },
+      {
+        "amount": 300,
+        "date": "2026-03-27T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fee558214b55a23987189f",
+        "id": "69fee558214b55a23987189f"
+      },
+      {
+        "amount": 500,
+        "date": "2026-05-23T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC YD",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1779517358/taxi-fleet-crm/documents/receiptPhoto-1779517357374-885755208.jpg",
+        "_id": "6a1147ae8072fe01867fbda7",
+        "id": "6a1147ae8072fe01867fbda7"
+      }
+    ]
+  },
+  "699af55d0d2028fe3b133230": {
+    "carNumber": "RJ-27-TB-1387",
+    "history": [
+      {
+        "amount": 500,
+        "date": "2026-02-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fdd05421a6df823eab5644",
+        "id": "69fdd05421a6df823eab5644"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-10T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Axis",
+        "receiptPhoto": "",
+        "_id": "69fed123a9fe62d02d9e8b61",
+        "id": "69fed123a9fe62d02d9e8b61"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-11T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed22aa9fe62d02d9e9072",
+        "id": "69fed22aa9fe62d02d9e9072"
+      },
+      {
+        "amount": 400,
+        "date": "2026-03-18T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed23ca9fe62d02d9e92fd",
+        "id": "69fed23ca9fe62d02d9e92fd"
+      },
+      {
+        "amount": 500,
+        "date": "2026-03-19T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "HDFC",
+        "receiptPhoto": "",
+        "_id": "69fed626270bd4029d5ae6e6",
+        "id": "69fed626270bd4029d5ae6e6"
+      }
+    ]
+  },
+  "69fdbe38c2258d09827f2c56": {
+    "carNumber": "HR26EV0001",
+    "history": [
+      {
+        "amount": 101,
+        "date": "2026-05-08T00:00:00.000Z",
+        "method": "UPI",
+        "remarks": "Done ",
+        "receiptPhoto": "https://res.cloudinary.com/doaymwjki/image/upload/v1778237376/taxi-fleet-crm/documents/receiptPhoto-1778237373117-664926850.jpg",
+        "_id": "69fdbfc1c2258d09827f2f01",
+        "id": "69fdbfc1c2258d09827f2f01"
+      }
+    ]
+  }
+}

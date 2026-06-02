@@ -13,7 +13,6 @@ import { useCompany } from '../context/CompanyContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { useRefresh } from '../context/RefreshContext';
 import SEO from '../components/SEO';
 import { todayIST, formatDateIST, firstDayOfMonthIST, nowIST, toISTDateString } from '../utils/istUtils';
 
@@ -124,7 +123,6 @@ const AdminDashboard = () => {
     const navigate = useNavigate();
     const { language, setLanguage, t } = useLanguage();
     const { selectedCompany, selectedDate, setSelectedDate } = useCompany();
-    const { refreshTrigger } = useRefresh();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
@@ -196,17 +194,22 @@ const AdminDashboard = () => {
 
     useEffect(() => {
         fetchStats();
-        
+        let interval = setInterval(fetchStats, 5 * 60 * 1000); // Refresh every 5 min
+
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') {
                 fetchStats();
+                interval = setInterval(fetchStats, 5 * 60 * 1000);
+            } else {
+                clearInterval(interval);
             }
         };
         document.addEventListener('visibilitychange', handleVisibility);
         return () => {
+            clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibility);
         };
-    }, [selectedCompany, selectedMonth, selectedYear, refreshTrigger]);
+    }, [selectedCompany, selectedMonth, selectedYear]);
 
     useEffect(() => {
         if (stats?.expiringAlerts && stats.expiringAlerts.length > 0) {

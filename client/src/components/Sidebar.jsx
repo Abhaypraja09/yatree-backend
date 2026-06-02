@@ -28,7 +28,6 @@ import { useAuth } from '../context/AuthContext';
 import { useCompany } from '../context/CompanyContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useTheme } from '../context/ThemeContext';
-import { useRefresh } from '../context/RefreshContext';
 
 const NavItem = ({ item, onClick, isSubItem = false }) => {
     const { t } = useLanguage();
@@ -114,7 +113,6 @@ const Sidebar = ({ isOpen, onClose }) => {
     const { selectedCompany } = useCompany();
     const { language, setLanguage, t } = useLanguage();
     const { theme } = useTheme();
-    const { isAutoRefreshEnabled, toggleAutoRefresh } = useRefresh();
     const location = useLocation();
 
     const userRole = user?.role?.toLowerCase() || '';
@@ -396,27 +394,6 @@ const Sidebar = ({ isOpen, onClose }) => {
                         </Link>
                     </>
                 )}
-
-                <button
-                    onClick={toggleAutoRefresh}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '12px 14px',
-                        width: '100%',
-                        borderRadius: '12px',
-                        color: isAutoRefreshEnabled ? '#10b981' : '#64748b',
-                        background: isAutoRefreshEnabled ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
-                        border: isAutoRefreshEnabled ? '1px solid rgba(16, 185, 129, 0.15)' : '1px solid rgba(255, 255, 255, 0.05)',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        marginBottom: '10px'
-                    }}
-                >
-                    <Activity size={20} />
-                    <span style={{ fontWeight: '700', fontSize: '15px' }}>Auto-Refresh {isAutoRefreshEnabled ? 'ON' : 'OFF'}</span>
-                </button>
 
                 <button
                     onClick={logout}
