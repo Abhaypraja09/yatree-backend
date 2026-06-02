@@ -387,8 +387,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
         const monthStartStr = DateTime.fromJSDate(monthStart).toFormat('yyyy-MM-dd');
         const monthEndStr = DateTime.fromJSDate(monthEnd).toFormat('yyyy-MM-dd');
-        const yStart = baseDate.startOf('year').toJSDate();
-        const yEnd = baseDate.endOf('year').toJSDate();
+
+        const currentYear = baseDate.year;
+        const currentMonth = baseDate.month;
+        const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+        
+        const yStart = DateTime.fromObject({ year: fyStartYear, month: 4, day: 1 }, { zone: 'Asia/Kolkata' }).startOf('day').toJSDate();
+        const yEnd = DateTime.fromObject({ year: fyStartYear + 1, month: 3, day: 31 }, { zone: 'Asia/Kolkata' }).endOf('day').toJSDate();
+
         const baseMonth = isMonthlyMode ? parseInt(qMonth) : baseDate.month;
         const baseYear = isMonthlyMode ? parseInt(qYear) : baseDate.year;
         const monthPrefix = isMonthlyMode ? `${qYear}-${qMonth.toString().padStart(2, '0')}` : baseDate.toFormat('yyyy-MM');
@@ -443,7 +449,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             Promise.all([
                 getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
                 getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true),
-                Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver').lean(),
+                Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver eventId dailyWage').lean(),
                 User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
                 Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean()
             ]),
@@ -470,7 +476,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyRegularLoanEMITotal = salReg.reduce((s, x) => s + (x.totalEMI || 0), 0);
         const monthlyNetSalaryTotal = salReg.reduce((s, x) => s + (x.netPayable || 0), 0);
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
-        const monthlyEventTotal = outFacet[0]?.e[0]?.t || 0;
+        
+        const fleetEventTotal = mAtt.filter(a => a.eventId).reduce((sum, a) => sum + (Number(a.dailyWage) || 0), 0);
+        const monthlyEventTotal = (outFacet[0]?.e[0]?.t || 0) + fleetEventTotal;
+        
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
         const monthlyMaintAmount = mMaintAgg[0]?.t || 0;
         const monthlySpecialPayTotal = mSpecialPayAgg[0]?.t || 0;
