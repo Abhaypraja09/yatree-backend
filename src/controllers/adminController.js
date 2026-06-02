@@ -3254,6 +3254,7 @@ const getFuelEntries = asyncHandler(async (req, res) => {
 
     const entries = await Fuel.find(query)
         .populate('vehicle', 'carNumber model')
+        .populate('createdBy', 'name')
         .sort({ date: -1, odometer: -1 });
 
     res.json(entries);
@@ -4395,6 +4396,7 @@ const getParkingEntries = asyncHandler(async (req, res) => {
     const parking = await Parking.find(query)
         .populate('vehicle', 'carNumber model')
         .populate('driverId', 'name mobile isFreelancer')
+        .populate('createdBy', 'name')
         .sort({ date: -1 });
     res.json(parking);
 });
@@ -4419,6 +4421,7 @@ const getCarServiceEntries = asyncHandler(async (req, res) => {
     const entries = await Parking.find(query)
         .populate('vehicle', 'carNumber model')
         .populate('driverId', 'name mobile isFreelancer')
+        .populate('createdBy', 'name')
         .sort({ date: -1 });
     res.json(entries);
 });
