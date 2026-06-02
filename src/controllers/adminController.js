@@ -6356,14 +6356,14 @@ const getLiveFeed = asyncHandler(async (req, res) => {
     const [attendanceToday, fuelEntriesToday, totalVehiclesCount, allDriversFromDB, allVehicles, outsideVehiclesToday] = await Promise.all([
         Attendance.find(attQuery).populate('driver', 'name mobile isFreelancer salary dailyWage overtime').populate('vehicle', 'carNumber model').lean(),
         Fuel.find({ company: companyObjectId, date: { $gte: startDT, $lte: endDT } }).populate('vehicle', 'carNumber').lean(),
-        Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true } }),
+        Vehicle.countDocuments({ company: companyObjectId, isOutsideCar: { $ne: true }, status: 'active' }),
         User.find({
             company: companyObjectId,
             role: 'Driver',
             isFreelancer: { $ne: true },
             status: { $in: ['active', 'Active', 'Present'] }
         }).select('name mobile isFreelancer salary dailyWage overtime').lean(),
-        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model status').lean(),
+        Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true }, status: 'active' }).select('carNumber model status').lean(),
         Vehicle.find({
             company: companyObjectId,
             isOutsideCar: true,
