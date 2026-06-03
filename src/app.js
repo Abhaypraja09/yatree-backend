@@ -41,6 +41,7 @@ const adminRoutes = require('./routes/adminRoutes');
 console.log('--- ADMIN ROUTES LOADED ---');
 const driverRoutes = require('./routes/driverRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const driverPerformanceRoutes = require('./routes/driverPerformanceRoutes');
 
 const aiRoutes = require('./routes/aiRoutes');
 
@@ -48,6 +49,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/driver-performance', driverPerformanceRoutes);
 
 app.use('/api/ai', aiRoutes);
 

@@ -442,7 +442,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Attendance.find({ company: companyObjectId, status: 'incomplete' }).populate('driver', 'name').populate('vehicle', 'carNumber').sort({ createdAt: -1 }).limit(20).lean()
             ]),
             Promise.all([
-                Vehicle.aggregate([{ $match: { company: companyObjectId, isOutsideCar: true } }, { $project: { month: { $substr: [{ $ifNull: ["$carNumber", ""] }, { $add: [{ $indexOfBytes: ["$carNumber", "#"] }, 1] }, 7] }, isBuy: { $eq: [{ $ifNull: ["$transactionType", "Buy"] }, "Buy"] }, amount: "$dutyAmount", isE: { $ne: [{ $ifNull: ["$eventId", null] }, null] } } }, { $facet: { e: [{ $match: { month: monthPrefix, isE: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }], o: [{ $match: { month: monthPrefix, isE: false, isBuy: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }] } }]),
+                Vehicle.aggregate([{ $match: { company: companyObjectId, isOutsideCar: true } }, { $project: { month: { $substr: [{ $ifNull: ["$carNumber", ""] }, { $add: [{ $indexOfBytes: ["$carNumber", "#"] }, 1] }, 7] }, isBuy: { $eq: [{ $ifNull: ["$transactionType", "Buy"] }, "Buy"] }, amount: "$dutyAmount", isE: { $gt: [{ $strLenCP: { $toString: { $ifNull: ["$eventId", ""] } } }, 10] } } }, { $facet: { e: [{ $match: { month: monthPrefix, isE: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }], o: [{ $match: { month: monthPrefix, isE: false, isBuy: true } }, { $group: { _id: null, t: { $sum: "$amount" } } }] } }]),
                 AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
                 AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: yStart, $lte: yEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
@@ -477,8 +477,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyNetSalaryTotal = salReg.reduce((s, x) => s + (x.netPayable || 0), 0);
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
         
-        const fleetEventTotal = mAtt.filter(a => a.eventId).reduce((sum, a) => sum + (Number(a.dailyWage) || 0), 0);
+        const fleetEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10).reduce((sum, a) => sum + (Number(a.dailyWage) || 0), 0);
         const monthlyEventTotal = (outFacet[0]?.e[0]?.t || 0) + fleetEventTotal;
+        
+        console.log('====== EVENT MANAGEMENT DEBUG ======');
+        console.log('fleetEventTotal:', fleetEventTotal);
+        console.log('outFacet e array:', JSON.stringify(outFacet[0]?.e));
+        console.log('outFacet monthPrefix:', monthPrefix);
+        console.log('monthlyEventTotal:', monthlyEventTotal);
+        console.log('====================================');
         
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
         const monthlyMaintAmount = mMaintAgg[0]?.t || 0;
