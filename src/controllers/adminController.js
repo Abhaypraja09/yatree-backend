@@ -1949,7 +1949,7 @@ const addBorderTax = asyncHandler(async (req, res) => {
     const entry = await BorderTax.create({
         company: companyId,
         vehicle: vehicleId,
-        driver: driverId,
+        ...(driverId && driverId.trim() !== '' ? { driver: driverId } : {}),
         borderName,
         amount: Number(amount),
         date,
@@ -1964,29 +1964,34 @@ const addBorderTax = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/border-tax/:companyId
 // @access  Private/Admin
 const getBorderTaxEntries = asyncHandler(async (req, res) => {
-    const { companyId } = req.params;
-    const { from, to } = req.query;
+    try {
+        const { companyId } = req.params;
+        const { from, to } = req.query;
 
-    if (!companyId || companyId === 'undefined') {
-        return res.json([]);
+        if (!companyId || companyId === 'undefined') {
+            return res.json([]);
+        }
+
+        let query = {
+            $or: [
+                mongoose.Types.ObjectId.isValid(companyId) ? { company: new mongoose.Types.ObjectId(companyId) } : { company: companyId },
+                { company: companyId }
+            ]
+        };
+        if (from && to) {
+            query.date = { $gte: from, $lte: to };
+        }
+
+        const entries = await BorderTax.find(query)
+            .populate('vehicle', 'carNumber')
+            .populate('driver', 'name')
+            .sort({ date: -1 });
+
+        res.json(entries);
+    } catch (error) {
+        console.error('ERROR IN getBorderTaxEntries:', error);
+        res.status(500).json({ message: 'Internal Server Error', error: error.message, stack: error.stack });
     }
-
-    let query = {
-        $or: [
-            mongoose.Types.ObjectId.isValid(companyId) ? { company: new mongoose.Types.ObjectId(companyId) } : { company: companyId },
-            { company: companyId }
-        ]
-    };
-    if (from && to) {
-        query.date = { $gte: from, $lte: to };
-    }
-
-    const entries = await BorderTax.find(query)
-        .populate('vehicle', 'carNumber')
-        .populate('driver', 'name')
-        .sort({ date: -1 });
-
-    res.json(entries);
 });
 
 // @desc    Recharge Fastag for a vehicle
