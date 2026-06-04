@@ -1967,9 +1967,13 @@ const getBorderTaxEntries = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
     const { from, to } = req.query;
 
+    if (!companyId || companyId === 'undefined') {
+        return res.json([]);
+    }
+
     let query = {
         $or: [
-            { company: new mongoose.Types.ObjectId(companyId) },
+            mongoose.Types.ObjectId.isValid(companyId) ? { company: new mongoose.Types.ObjectId(companyId) } : { company: companyId },
             { company: companyId }
         ]
     };
