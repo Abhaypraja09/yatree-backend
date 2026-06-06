@@ -46,6 +46,24 @@ const driverPerformanceRoutes = require('./routes/driverPerformanceRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 
 app.use('/api/auth', authRoutes);
+
+// --- PROXY FOR PDF IMAGES (NO AUTH) ---
+app.get('/api/admin/proxy-image', async (req, res) => {
+    try {
+        const url = req.query.url;
+        if (!url) return res.status(400).send('URL required');
+        const axios = require('axios');
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        res.set('Content-Type', response.headers['content-type']);
+        res.set('Cache-Control', 'public, max-age=31536000');
+        res.set('Access-Control-Allow-Origin', '*');
+        res.send(response.data);
+    } catch (err) {
+        console.error('Proxy Error:', err.message);
+        res.status(500).send('Proxy Error');
+    }
+});
+
 app.use('/api/admin', adminRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/staff', staffRoutes);
