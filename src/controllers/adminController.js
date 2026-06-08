@@ -736,27 +736,56 @@ const getAllDrivers = asyncHandler(async (req, res) => {
 
             // Apply 30-day freelancer filter ONLY if includeAll is not true
             if (req.query.includeAll !== 'true') {
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                
-                const driverIds = drivers.map(d => d._id);
-                // Find any attendance in the last 30 days
-                const recentAttendances = await Attendance.find({
-                    driver: { $in: driverIds },
-                    'punchIn.time': { $gte: thirtyDaysAgo }
-                }).select('driver').lean();
-                
-                const activeDriverIds = new Set(recentAttendances.map(a => a.driver.toString()));
+                let referenceDate = new Date();
+                let startOfMonth = null;
+                let endOfMonth = null;
+                const now = new Date();
+                let isBackMonth = false;
 
-                drivers = drivers.filter(d => {
-                    if (d.isFreelancer) {
-                        // If it's a new freelancer (created in last 30 days), allow them
-                        if (d.createdAt && new Date(d.createdAt) > thirtyDaysAgo) return true;
-                        // Otherwise, they must have attendance in the last 30 days
-                        return activeDriverIds.has(d._id.toString());
+                if (req.query.toDate) {
+                    referenceDate = new Date(req.query.toDate);
+                    if (referenceDate.getFullYear() < now.getFullYear() || (referenceDate.getFullYear() === now.getFullYear() && referenceDate.getMonth() < now.getMonth())) {
+                        isBackMonth = true;
                     }
-                    return true;
-                });
+                } else if (req.query.month && req.query.year) {
+                    referenceDate = new Date(req.query.year, req.query.month, 0); // last day of month
+                    if (Number(req.query.year) < now.getFullYear() || (Number(req.query.year) === now.getFullYear() && (Number(req.query.month) - 1) < now.getMonth())) {
+                        isBackMonth = true;
+                    }
+                }
+
+                const driverIds = drivers.map(d => d._id);
+                let validDriverIds = new Set(driverIds.map(id => id.toString()));
+
+                if (isBackMonth) {
+                    startOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+                    endOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0, 23, 59, 59);
+                    
+                    const monthAttendances = await Attendance.find({
+                        driver: { $in: driverIds },
+                        'punchIn.time': { $gte: startOfMonth, $lte: endOfMonth }
+                    }).select('driver').lean();
+                    validDriverIds = new Set(monthAttendances.map(a => a.driver.toString()));
+                } else {
+                    const thirtyDaysAgo = new Date(referenceDate);
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    
+                    const recentAttendances = await Attendance.find({
+                        driver: { $in: driverIds },
+                        'punchIn.time': { $gte: thirtyDaysAgo, $lte: referenceDate }
+                    }).select('driver').lean();
+                    const activeFreelancerIds = new Set(recentAttendances.map(a => a.driver.toString()));
+
+                    validDriverIds = new Set(drivers.filter(d => {
+                        if (d.isFreelancer) {
+                            if (d.createdAt && new Date(d.createdAt) > thirtyDaysAgo) return true;
+                            return activeFreelancerIds.has(d._id.toString());
+                        }
+                        return true;
+                    }).map(d => d._id.toString()));
+                }
+
+                drivers = drivers.filter(d => validDriverIds.has(d._id.toString()));
             }
 
             return drivers.map(d => {
