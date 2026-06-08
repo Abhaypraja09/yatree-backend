@@ -3940,7 +3940,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driverQuery.isFreelancer = { $ne: true };
     }
 
-    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary status overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled').lean();
+    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary status overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled isFreelancer').lean();
     if (!drivers.length) return [];
 
     const driverIds = drivers.map(d => d._id);
@@ -4182,7 +4182,8 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                     pending: allTimeGiven - allTimeRecovered
                 },
                 activeLoans: activeLoansInfo,
-                status: d.status
+                status: d.status,
+                isFreelancer: !!d.isFreelancer
             };
         } catch (err) {
             console.error(`[getDriverSalarySummaryInternal] Error for driver ${d._id}:`, err);
@@ -4200,6 +4201,9 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         // 1. Permanent Junk Filter: Hide anything with dummy mobile '0000000000' and no daily wage
         // This removes the "Suresh Kumar Patel" duplicates once and for all.
         if (s.mobile === '0000000000' && !hasDailyWage) return false;
+
+        // 1.5. Hide Freelancers completely if they have NO activity IN THIS MONTH
+        if (s.isFreelancer && !hasCurrentActivity) return false;
 
         // 2. Hide deleted/blocked/inactive drivers UNLESS they have activity IN THIS MONTH
         // This preserves the ability to see old duties for real drivers who were deleted or blocked.
