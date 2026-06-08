@@ -691,12 +691,25 @@ const getAllDrivers = asyncHandler(async (req, res) => {
             return res.status(403).json({ message: 'Access Denied: Missing organization context.' });
         }
 
+        let isBackMonth = false;
+        const now = new Date();
+        if (req.query.toDate) {
+            const refDate = new Date(req.query.toDate);
+            if (refDate.getFullYear() < now.getFullYear() || (refDate.getFullYear() === now.getFullYear() && refDate.getMonth() < now.getMonth())) {
+                isBackMonth = true;
+            }
+        } else if (req.query.month && req.query.year) {
+            if (Number(req.query.year) < now.getFullYear() || (Number(req.query.year) === now.getFullYear() && (Number(req.query.month) - 1) < now.getMonth())) {
+                isBackMonth = true;
+            }
+        }
+
         const driverQuery = {
             ...req.tenantFilter,
             role: 'Driver'
         };
         
-        if (req.query.includeAll === 'true') {
+        if (req.query.includeAll === 'true' || isBackMonth) {
             driverQuery.status = { $ne: 'deleted' };
         } else {
             driverQuery.status = 'active';
