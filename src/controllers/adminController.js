@@ -732,10 +732,35 @@ const getAllDrivers = asyncHandler(async (req, res) => {
             if (paginated) {
                 mongoQuery = mongoQuery.limit(pageSize).skip(pageSize * (page - 1));
             }
-            const drivers = await mongoQuery.sort({ createdAt: -1 });
+            let drivers = await mongoQuery.sort({ createdAt: -1 });
+
+            // Apply 30-day freelancer filter ONLY if includeAll is not true
+            if (req.query.includeAll !== 'true') {
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                
+                const driverIds = drivers.map(d => d._id);
+                // Find any attendance in the last 30 days
+                const recentAttendances = await Attendance.find({
+                    driver: { $in: driverIds },
+                    'punchIn.time': { $gte: thirtyDaysAgo }
+                }).select('driver').lean();
+                
+                const activeDriverIds = new Set(recentAttendances.map(a => a.driver.toString()));
+
+                drivers = drivers.filter(d => {
+                    if (d.isFreelancer) {
+                        // If it's a new freelancer (created in last 30 days), allow them
+                        if (d.createdAt && new Date(d.createdAt) > thirtyDaysAgo) return true;
+                        // Otherwise, they must have attendance in the last 30 days
+                        return activeDriverIds.has(d._id.toString());
+                    }
+                    return true;
+                });
+            }
 
             return drivers.map(d => {
-                const driverObj = d.toObject();
+                const driverObj = typeof d.toObject === 'function' ? d.toObject() : d;
                 const dId = d._id.toString();
 
                 if (activeAtSet.has(dId)) {
