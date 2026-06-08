@@ -693,9 +693,15 @@ const getAllDrivers = asyncHandler(async (req, res) => {
 
         const driverQuery = {
             ...req.tenantFilter,
-            role: 'Driver',
-            status: { $ne: 'deleted' }
+            role: 'Driver'
         };
+        
+        if (req.query.includeAll === 'true') {
+            driverQuery.status = { $ne: 'deleted' };
+        } else {
+            driverQuery.status = 'active';
+        }
+
         if (req.query.isFreelancer !== undefined) {
             driverQuery.isFreelancer = isFreelancerQuery;
         }
@@ -4195,12 +4201,12 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         // This removes the "Suresh Kumar Patel" duplicates once and for all.
         if (s.mobile === '0000000000' && !hasDailyWage) return false;
 
-        // 2. Hide deleted drivers UNLESS they have activity IN THIS MONTH
-        // This preserves the ability to see old duties for real drivers who were deleted.
-        if (status === 'deleted' && !hasCurrentActivity) return false;
+        // 2. Hide deleted/blocked/inactive drivers UNLESS they have activity IN THIS MONTH
+        // This preserves the ability to see old duties for real drivers who were deleted or blocked.
+        if (['deleted', 'blocked', 'inactive'].includes(status) && !hasCurrentActivity) return false;
 
         // 3. Hide active drivers with no activity AND no daily wage (ghost entries)
-        if (status !== 'deleted' && !hasCurrentActivity && !hasDailyWage) return false;
+        if (!['deleted', 'blocked', 'inactive'].includes(status) && !hasCurrentActivity && !hasDailyWage) return false;
 
         return true;
     });
