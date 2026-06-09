@@ -774,10 +774,15 @@ const getAllDrivers = asyncHandler(async (req, res) => {
                     const startOfDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 0, 0, 0);
                     const endOfDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 23, 59, 59);
                     
-                    const dayAttendances = await Attendance.find({
+                    const attQuery = {
                         driver: { $in: driverIds },
                         'punchIn.time': { $gte: startOfDay, $lte: endOfDay }
-                    }).select('driver').lean();
+                    };
+                    if (req.query.exactVehicleId) {
+                        attQuery.vehicle = req.query.exactVehicleId;
+                    }
+                    
+                    const dayAttendances = await Attendance.find(attQuery).select('driver').lean();
                     
                     validDriverIds = new Set(dayAttendances.map(a => a.driver.toString()));
                 } else if (isBackMonth) {
