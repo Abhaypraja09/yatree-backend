@@ -129,7 +129,7 @@ const userSchema = new mongoose.Schema({
     },
     staffType: {
         type: String,
-        enum: ['Company', 'Hotel', 'Freelancer'],
+        enum: ['Company', 'Hotel', 'Freelancer', 'Regular', 'Fixed', 'Daily'],
         default: 'Company'
     },
     permissions: {

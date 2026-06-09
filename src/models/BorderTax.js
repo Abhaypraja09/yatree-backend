@@ -30,6 +30,10 @@ const borderTaxSchema = new mongoose.Schema({
         type: String, // YYYY-MM-DD
         required: true
     },
+    validTill: {
+        type: String, // YYYY-MM-DD
+        required: false
+    },
     remarks: {
         type: String
     }

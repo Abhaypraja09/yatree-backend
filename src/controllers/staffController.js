@@ -91,14 +91,14 @@ const staffPunchIn = asyncHandler(async (req, res) => {
         const staffLon = Number(longitude);
         const officeLat = Number(user.officeLocation.latitude);
         const officeLon = Number(user.officeLocation.longitude);
-        const radius = Number(user.officeLocation.radius) > 0 ? Number(user.officeLocation.radius) : 200;
+        const radius = Number(user.officeLocation.radius) > 0 ? Number(user.officeLocation.radius) : 500;
 
         if (staffLat && staffLon) {
             const distance = calculateDistance(staffLat, staffLon, officeLat, officeLon);
             if (distance > radius) {
                 console.log(`[GEO_BLOCK] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Radius: ${radius}m | Status: REJECTED`);
                 return res.status(403).json({
-                    message: `Punch-in restricted. You are ${Math.round(distance)}m away from the office. Please reach the office to punch in.`,
+                    message: `Geofence Blocked: You are ${Math.round(distance)} meters away from the office. (Allowed radius: ${radius}m). Please move closer.`,
                     distance: Math.round(distance),
                     requiredRadius: radius
                 });

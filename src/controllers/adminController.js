@@ -572,6 +572,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             }
         });
 
+        const activeBorderTaxes = await BorderTax.find({
+            company: companyObjectId,
+            validTill: { $gte: todayIST }
+        }).populate('vehicle', 'carNumber model').lean();
+
         const finalResponse = {
             date: targetDate, totalVehicles, totalInternalVehicles,
             totalDrivers: allD.length, internalDriversCount: allD.filter(d => !d.isFreelancer).length, freelancerDriversCount: allD.filter(d => d.isFreelancer).length,
@@ -596,6 +601,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             staffAttendanceToday: staffAttToday,
             attendanceDetails: attToday,
             expiringAlerts: alerts,
+            activeBorderTaxes: activeBorderTaxes,
             reportedIssues: reportedIss,
             monthlySalaryTotal: monthlyRegularSalaryTotal + outsideCarsMonthlyTotal,
             monthlyRegularSalaryTotal, monthlyNetSalaryTotal, monthlyFreelancerSalaryTotal,
@@ -2062,7 +2068,7 @@ const approveNewTrip = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/border-tax
 // @access  Private/Admin
 const addBorderTax = asyncHandler(async (req, res) => {
-    const { vehicleId, driverId, borderName, amount, date, remarks, companyId } = req.body;
+    const { vehicleId, driverId, borderName, amount, date, validTill, remarks, companyId } = req.body;
 
     if (!vehicleId || !borderName || !amount || !date || !companyId) {
         return res.status(400).json({ message: 'Please provide all required fields' });
@@ -2077,6 +2083,7 @@ const addBorderTax = asyncHandler(async (req, res) => {
         borderName,
         amount: Number(amount),
         date,
+        validTill,
         remarks,
         receiptPhoto: receiptPhoto
     });
@@ -4896,7 +4903,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
             // 2. Fetch Aggregated Historical Data (Before cycle start)
             // We count PRESENT days to subtract from total elapsed days since joining
-            const [historicalAttStats] = await Promise.all([
+            const [historicalAttStats, firstAttStats] = await Promise.all([
                 StaffAttendance.aggregate([
                     { $match: { staff: { $in: staffIds }, date: { $lt: startStrQuery } } },
                     { $group: {
@@ -4904,12 +4911,21 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         presentCount: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
                         halfDayCount: { $sum: { $cond: [{ $eq: ["$status", "half-day"] }, 0.5, 0] } }
                     }}
+                ]),
+                StaffAttendance.aggregate([
+                    { $match: { staff: { $in: staffIds } } },
+                    { $group: { _id: "$staff", firstDate: { $min: "$date" } } }
                 ])
             ]);
 
             // Map stats for easy access
             const histPresentMap = historicalAttStats.reduce((acc, curr) => {
                 acc[curr._id.toString()] = (curr.presentCount || 0) + (curr.halfDayCount || 0);
+                return acc;
+            }, {});
+
+            const firstAttMap = firstAttStats.reduce((acc, curr) => {
+                acc[curr._id.toString()] = curr.firstDate;
                 return acc;
             }, {});
             
@@ -5038,29 +5054,57 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
                     const joinDateStr = s.joiningDate ? (typeof s.joiningDate === 'string' ? s.joiningDate : s.joiningDate.toISOString().split('T')[0]) : (s.createdAt ? s.createdAt.toISOString().split('T')[0] : todayStr);
                     const joinDT = DateTime.fromISO(joinDateStr, { zone: 'Asia/Kolkata' });
+                      
+                      // Set effective join date to the first punch-in date if it's much later than joiningDate
+                      let effectiveJoinDT = joinDT;
+                      const firstAttStr = firstAttMap[String(s._id)];
+                      if (firstAttStr) {
+                          const firstAttDT = DateTime.fromISO(firstAttStr, { zone: 'Asia/Kolkata' });
+                          if (firstAttDT > effectiveJoinDT) {
+                              let tempCycleStart = effectiveJoinDT;
+                              while (tempCycleStart.plus({ months: 1 }) <= firstAttDT) {
+                                  tempCycleStart = tempCycleStart.plus({ months: 1 });
+                              }
+                              effectiveJoinDT = tempCycleStart;
+                          }
+                      }
                     
                     // Calculate leaves accurately: 
                     const leaveAllowance = s.monthlyLeaveAllowance || 4;
                     // 1. Months fully completed before this cycle starts
-                    const monthsBefore = Math.floor(Math.max(0, cStart.diff(joinDT, 'months').months));
+                    const monthsBefore = Math.floor(Math.max(0, cStart.diff(effectiveJoinDT, 'months').months));
                     // 2. Current month's allowance (always 1 for the active cycle)
                     const totalLeaveAccrued = (monthsBefore + 1) * leaveAllowance;
 
                     // Calculate historical usage: Total days passed since join until this cycle - Actual present days
                     // Safety: Only start counting from joiningDate OR March 1st 2026 (System Live Date)
                     const sysStartDT = DateTime.fromISO('2026-03-01');
-                    const effectiveJoinDT = joinDT < sysStartDT ? sysStartDT : joinDT;
+                    const realEffectiveJoinDT = effectiveJoinDT < sysStartDT ? sysStartDT : effectiveJoinDT;
                     
-                    const totalDaysBefore = Math.floor(Math.max(0, cStart.diff(effectiveJoinDT, 'days').days));
-                    const historicalPresentDays = histPresentMap[String(s._id)] || 0;
-                    const historicalLeavesTaken = Math.max(0, totalDaysBefore - historicalPresentDays);
+                    const totalDaysBefore = Math.floor(Math.max(0, cStart.diff(realEffectiveJoinDT, 'days').days));
+                    
+                    // Count Sundays in the historical period
+                    let historicalSundays = 0;
+                    let tempD = realEffectiveJoinDT;
+                    let loopCount = 0;
+                    while (tempD < cStart && loopCount < 3650) { // Safety cap of 10 years
+                        if (tempD.weekday === 7) historicalSundays++;
+                        tempD = tempD.plus({ days: 1 });
+                        loopCount++;
+                    }
+                    
+                    const historicalWorkingDaysBefore = Math.max(0, totalDaysBefore - historicalSundays);
+                    const historicalLeavesTaken = Math.max(0, historicalWorkingDaysBefore - (histPresentMap[String(s._id)] || 0));
 
                     // Calculate historical balance (only carry forward positive balance)
+                    // The maximum paid leaves they could have used historically is what they had accrued.
+                    // Any absences beyond that were unpaid and should not count as "pool used".
                     const totalAccruedBefore = monthsBefore * leaveAllowance;
-                    const historicalBalance = totalAccruedBefore - historicalLeavesTaken;
+                    const historicalPaidLeavesUsed = Math.min(totalAccruedBefore, historicalLeavesTaken);
+                    const historicalBalance = totalAccruedBefore - historicalPaidLeavesUsed;
                     
                     // Final pool for THIS cycle = (Positive carry forward from past) + (Current month's allowance)
-                    let availableLeavesPool = Math.max(0, historicalBalance) + leaveAllowance;
+                    let availableLeavesPool = historicalBalance + leaveAllowance;
                     
                     let currentCycleLeavesUsed = 0;
                     let presentDays = 0;
@@ -5069,18 +5113,15 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     let sundaysPassed = 0;
                     let sundaysWorked = 0;
                     let workingDaysPassed = 0;
-                    let totalDaysInCycle = 0;
-
+                    let paidSundays = 0;
                     const attendanceData = [];
 
-                    for (const d of calendarDates) {
-                        if (d.dStr < cycleStartStr || d.dStr > cycleEndStr) continue;
-                        totalDaysInCycle++;
-
-                        const isPastOrToday = d.dStr <= todayStr;
+                    for (let d = cStart; d <= cEnd; d = d.plus({ days: 1 })) {
+                        const dStr = d.toFormat('yyyy-MM-dd');
+                        const isPastOrToday = dStr <= todayStr;
                         const isSunday = d.weekday === 7;
-                        const record = staffAtt[d.dStr];
-                        const onApprovedLeave = staffLeaves.has(d.dStr);
+                        const record = staffAtt[dStr];
+                        const onApprovedLeave = staffLeaves.has(dStr);
 
                         let status = 'upcoming';
                         let statusLabel = '';
@@ -5091,7 +5132,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                             } else if (onApprovedLeave) {
                                 status = 'leave';
                             } else if (isSunday) {
-                                status = 'absent'; // Counting Sunday as absent if no punch-in (as per user request)
+                                status = 'sunday-off'; // Properly label unworked Sundays
                                 statusLabel = 'SUNDAY';
                             } else {
                                 status = 'absent';
@@ -5101,60 +5142,47 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                             if (isSunday) {
                                 if (status === 'present' || status === 'half-day') {
                                     sundaysWorked += (status === 'present' ? 1 : 0.5);
+                                    presentDays += (status === 'present' ? 1 : 0.5);
                                 } else {
                                     sundaysPassed += 1;
+                                    // By default, Sunday is a paid off-day. It does NOT consume the leave pool.
+                                    paidSundays += 1;
                                 }
                             } else {
                                 workingDaysPassed += 1;
+                                
+                                if (status === 'present') {
+                                    presentDays += 1;
+                                } else if (status === 'half-day') {
+                                    presentDays += 0.5;
+                                    if (availableLeavesPool >= 0.5) {
+                                        availableLeavesPool -= 0.5;
+                                        currentCycleLeavesUsed += 0.5;
+                                    } else {
+                                        extraLeaves += 0.5;
+                                    }
+                                    leavesTaken += 0.5;
+                                } else if (status === 'leave' || status === 'absent') {
+                                    if (availableLeavesPool >= 1) {
+                                        availableLeavesPool -= 1;
+                                        currentCycleLeavesUsed += 1;
+                                    } else {
+                                        extraLeaves += 1;
+                                    }
+                                    leavesTaken += 1;
+                                }
                             }
-                        }
-
-                        if (status === 'present') {
-                            presentDays++;
-                        } else if (status === 'leave') {
-                            // Approved leaves use the pool
-                            if (availableLeavesPool >= 1) {
-                                availableLeavesPool -= 1;
-                                currentCycleLeavesUsed += 1;
-                            } else {
-                                extraLeaves += 1;
-                            }
-                            leavesTaken++;
-                        } else if (isSunday && status === 'absent') {
-                            // Sundays use the pool IF there is some attendance in this cycle
-                            // This prevents paying for Sundays if a staff member hasn't started/showed up yet
-                            const hasStartedWorking = presentDays > 0;
-                            if (hasStartedWorking && availableLeavesPool >= 1) {
-                                availableLeavesPool -= 1;
-                                currentCycleLeavesUsed += 1;
-                            } else {
-                                extraLeaves += 1;
-                            }
-                            leavesTaken++;
-                        } else if (status === 'absent') {
-                            // Unapproved absences (non-Sunday) are ALWAYS unpaid and don't use pool
-                            extraLeaves += 1;
-                            leavesTaken++;
-                        } else if (status === 'half-day') {
-                            presentDays += 0.5;
-                            if (availableLeavesPool >= 0.5) {
-                                availableLeavesPool -= 0.5;
-                                currentCycleLeavesUsed += 0.5;
-                            } else {
-                                extraLeaves += 0.5;
-                            }
-                            leavesTaken += 0.5;
                         }
 
                         attendanceData.push({
-                            date: d.dStr,
+                            date: dStr,
                             day: d.day,
                             status,
                             statusLabel,
                             isSunday,
                             punchIn: record?.punchIn,
                             punchOut: record?.punchOut,
-                            _id: record?._id || `empty-${d.dStr}`
+                            _id: record?._id || `empty-${dStr}`
                         });
                     }
 
@@ -5162,24 +5190,40 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     let effectiveCurrentCycleLeavesUsed = currentCycleLeavesUsed;
                     if (presentDays === 0 && s.staffType !== 'Fixed') {
                         effectiveCurrentCycleLeavesUsed = 0;
+                        paidSundays = 0; // Don't pay for Sundays if they never showed up
                     }
 
                     const perDaySalary = Math.round(s.salary / 30);
                     let deduction = Math.round(extraLeaves * perDaySalary);
                     
                     // Calculate Advances for this staff in this period
-                    const staffAdvances = allAdvances.filter(adv => 
-                        adv.staff?.toString() === s._id.toString() || 
-                        adv.driver?.toString() === s._id.toString()
-                    );
+                    const staffAdvances = allAdvances.filter(adv => {
+                        const isForStaff = adv.staff?.toString() === s._id.toString() || adv.driver?.toString() === s._id.toString();
+                        if (!isForStaff) return false;
+                        if (month && year) {
+                            return adv.month === parseInt(month) && adv.year === parseInt(year);
+                        }
+                        // If queried by from/to dates, the DB query already restricted it
+                        return true;
+                    });
                     const totalAdvances = staffAdvances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
                     
                     // Calculate Payments for this staff in this period
-                    const staffPayments = allPayments.filter(p => p.staff?.toString() === s._id.toString());
+                    const staffPayments = allPayments.filter(p => {
+                        const isForStaff = p.staff?.toString() === s._id.toString();
+                        if (!isForStaff) return false;
+                        if (month && year) {
+                            return p.month === parseInt(month) && p.year === parseInt(year);
+                        }
+                        return true;
+                    });
                     const totalPayments = staffPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-                    let totalEarned = Math.round((presentDays + effectiveCurrentCycleLeavesUsed) * perDaySalary);
-                    let earnedDaysCalc = totalDaysInCycle - extraLeaves;
+                    // Initialize variables for Final Salary
+                    let totalEarned = 0;
+                    let earnedDaysCalc = 0;
+                    const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > cEnd;
+                    const totalDaysInCycle = Math.round(cEnd.diff(cStart, 'days').days) + 1;
 
                     if (s.staffType === 'Fixed') {
                         // For Fixed staff, they get paid for all days passed in the active cycle so far (punch in or not),
@@ -5188,14 +5232,31 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         deduction = 0;
                         extraLeaves = 0;
                         
-                        // If it's a past month (i.e., cycle end date is in the past), give full salary/days
-                        const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > cEnd;
                         if (isPastCycle) {
                             earnedDaysCalc = totalDaysInCycle || 30;
                             totalEarned = s.salary;
                         } else {
                             earnedDaysCalc = daysPassedInCycle;
                             totalEarned = Math.round(daysPassedInCycle * perDaySalary);
+                        }
+                    } else if (s.staffType === 'Daily') {
+                        // For Daily staff, they get paid only for the days they are present.
+                        const perDayWage = s.salary;
+                        deduction = 0;
+                        extraLeaves = 0;
+                        earnedDaysCalc = presentDays;
+                        totalEarned = Math.round(presentDays * perDayWage);
+                    } else {
+                        // For Regular staff, use standard Base Salary minus deductions for unpaid leaves
+                        if (isPastCycle) {
+                            earnedDaysCalc = Math.max(0, 30 - extraLeaves); // 30 is standardized
+                            totalEarned = Math.max(0, s.salary - deduction);
+                        } else {
+                            // For active cycle, prorate it but cap it at max possible earned
+                            let currentProratedEarned = Math.round((presentDays + paidSundays + effectiveCurrentCycleLeavesUsed) * perDaySalary);
+                            const maxPossibleEarned = Math.max(0, s.salary - deduction);
+                            totalEarned = Math.min(currentProratedEarned, maxPossibleEarned);
+                            earnedDaysCalc = presentDays + paidSundays + effectiveCurrentCycleLeavesUsed;
                         }
                     }
 
@@ -5222,12 +5283,13 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         sundaysPassed,
                         sundaysWorked,
                         totalLeaveAccrued,
-                        totalLeaveUsed: historicalLeavesTaken + effectiveCurrentCycleLeavesUsed,
+                        totalLeaveUsed: historicalPaidLeavesUsed + effectiveCurrentCycleLeavesUsed,
                         availableLeave: availableLeavesPool,
                         cycleStart: cycleStartStr,
                         cycleEnd: cycleEndStr,
-                        monthLabel: cStart.isValid ? cStart.toLocaleString({ month: 'long', year: 'numeric' }) : '',
-                        earnedDays: earnedDaysCalc
+                        monthLabel: cEnd.isValid ? cEnd.toLocaleString({ month: 'long', year: 'numeric' }) : '',
+                        earnedDays: earnedDaysCalc,
+                        leavesTaken: leavesTaken
                     };
                 } catch (err) {
                     console.error(`[StaffReport] Error processing staff ${s._id}:`, err);
@@ -6769,12 +6831,13 @@ const recordLoanRepayment = asyncHandler(async (req, res) => {
 });
 
 const updateBorderTax = asyncHandler(async (req, res) => {
-    const { amount, borderName, date, remarks, driverId } = req.body;
+    const { amount, borderName, date, validTill, remarks, driverId } = req.body;
     const entry = await BorderTax.findById(req.params.id);
     if (entry) {
         if (amount) entry.amount = Number(amount);
         if (borderName) entry.borderName = borderName;
         if (date) entry.date = date;
+        if (validTill !== undefined) entry.validTill = validTill;
         if (remarks) entry.remarks = remarks;
         if (driverId) entry.driver = driverId;
         if (req.file) entry.receiptPhoto = req.file.path.replace(/\\/g, '/');
