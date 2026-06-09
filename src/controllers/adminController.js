@@ -770,7 +770,17 @@ const getAllDrivers = asyncHandler(async (req, res) => {
                 const driverIds = drivers.map(d => d._id);
                 let validDriverIds = new Set(driverIds.map(id => id.toString()));
 
-                if (isBackMonth) {
+                if (req.query.exactDate === 'true') {
+                    const startOfDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 0, 0, 0);
+                    const endOfDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 23, 59, 59);
+                    
+                    const dayAttendances = await Attendance.find({
+                        driver: { $in: driverIds },
+                        'punchIn.time': { $gte: startOfDay, $lte: endOfDay }
+                    }).select('driver').lean();
+                    
+                    validDriverIds = new Set(dayAttendances.map(a => a.driver.toString()));
+                } else if (isBackMonth) {
                     startOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
                     endOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0, 23, 59, 59);
                     
@@ -849,11 +859,47 @@ const getAllVehicles = asyncHandler(async (req, res) => {
         }
 
         const mergedQuery = { ...query, ...req.tenantFilter };
+
+        let isBackMonth = false;
+        const now = new Date();
+        let referenceDate = new Date();
+
+        if (req.query.toDate) {
+            referenceDate = new Date(req.query.toDate);
+            if (referenceDate.getFullYear() < now.getFullYear() || (referenceDate.getFullYear() === now.getFullYear() && referenceDate.getMonth() < now.getMonth())) {
+                isBackMonth = true;
+            }
+        } else if (req.query.month && req.query.year) {
+            referenceDate = new Date(req.query.year, req.query.month, 0); // last day of month
+            if (Number(req.query.year) < now.getFullYear() || (Number(req.query.year) === now.getFullYear() && (Number(req.query.month) - 1) < now.getMonth())) {
+                isBackMonth = true;
+            }
+        }
+
+        if (!isBackMonth && req.query.includeBlocked !== 'true') {
+            mergedQuery.status = 'active';
+        }
+
         logToFile(`getAllVehicles - Query: ${JSON.stringify(mergedQuery)}`);
 
-        const vehicles = await Vehicle.find(mergedQuery)
+        let vehicles = await Vehicle.find(mergedQuery)
             .populate('currentDriver', 'name mobile isFreelancer')
             .sort({ carNumber: 1 });
+
+        if (isBackMonth && req.query.includeBlocked !== 'true') {
+            const startOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+            const endOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0, 23, 59, 59);
+
+            const vehicleIds = vehicles.map(v => v._id);
+            const monthAttendances = await Attendance.find({
+                vehicle: { $in: vehicleIds },
+                'punchIn.time': { $gte: startOfMonth, $lte: endOfMonth }
+            }).select('vehicle').lean();
+
+            const activeVehicleIds = new Set(monthAttendances.map(a => a.vehicle?.toString()));
+
+            vehicles = vehicles.filter(v => v.status === 'active' || activeVehicleIds.has(v._id.toString()));
+        }
 
         // 🚀 HIGH-PERFORMANCE HEALING: Batch all checks to avoid N+1 queries
         const activeDriverIds = vehicles.filter(v => v.currentDriver).map(v => v.currentDriver._id || v.currentDriver);
