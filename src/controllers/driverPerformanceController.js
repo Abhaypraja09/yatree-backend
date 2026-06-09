@@ -5,7 +5,7 @@ const DriverPerformance = require('../models/DriverPerformance');
 // @route   POST /api/driver-performance
 // @access  Private/Admin
 const addPerformanceRecord = asyncHandler(async (req, res) => {
-    const { driverId, date, incidentType, remarks } = req.body;
+    const { driverId, date, incidentType, remarks, photos } = req.body;
 
     if (!driverId || !date || !incidentType || !remarks) {
         res.status(400);
@@ -17,6 +17,7 @@ const addPerformanceRecord = asyncHandler(async (req, res) => {
         date,
         incidentType,
         remarks,
+        photos: photos || [],
         recordedBy: req.user._id
     });
 
@@ -63,7 +64,7 @@ const getCompanyPerformance = asyncHandler(async (req, res) => {
 // @route   PUT /api/driver-performance/:id
 // @access  Private/Admin
 const updatePerformanceRecord = asyncHandler(async (req, res) => {
-    const { driverId, date, incidentType, remarks } = req.body;
+    const { driverId, date, incidentType, remarks, photos } = req.body;
     const record = await DriverPerformance.findById(req.params.id);
 
     if (record) {
@@ -71,6 +72,9 @@ const updatePerformanceRecord = asyncHandler(async (req, res) => {
         record.date = date || record.date;
         record.incidentType = incidentType || record.incidentType;
         record.remarks = remarks || record.remarks;
+        if (photos !== undefined) {
+            record.photos = photos;
+        }
 
         const updatedRecord = await record.save();
         res.json(updatedRecord);

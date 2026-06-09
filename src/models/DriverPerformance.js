@@ -20,6 +20,10 @@ const driverPerformanceSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    photos: {
+        type: [String],
+        default: []
+    },
     recordedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
