@@ -39,6 +39,16 @@ const maintenanceSchema = new mongoose.Schema({
         enum: ['Cash', 'UPI', 'Bank Transfer', 'Credit Card', 'Other'],
         default: 'Cash'
     },
+    paymentStatus: {
+        type: String,
+        enum: ['Paid', 'Due'],
+        default: 'Paid'
+    },
+    paymentSource: {
+        type: String,
+        enum: ['Office', 'Guest', 'Main Office', 'Paid'],
+        default: 'Office'
+    },
     currentKm: Number,
     nextServiceKm: Number,
     nextServiceDate: Date,

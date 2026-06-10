@@ -2893,6 +2893,8 @@ const addMaintenanceRecord = asyncHandler(async (req, res) => {
         billDate,
         amount,
         paymentMode,
+        paymentStatus,
+        paymentSource,
         currentKm,
         nextServiceKm,
         nextServiceDate,
@@ -2917,6 +2919,8 @@ const addMaintenanceRecord = asyncHandler(async (req, res) => {
         billDate,
         amount,
         paymentMode,
+        paymentStatus,
+        paymentSource,
         currentKm,
         nextServiceKm,
         nextServiceDate,
@@ -3160,6 +3164,8 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         billDate,
         amount,
         paymentMode,
+        paymentStatus,
+        paymentSource,
         currentKm,
         nextServiceKm,
         status,
@@ -3182,6 +3188,8 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         if (billDate) targetDoc.billDate = billDate;
         if (amount) targetDoc.amount = Number(amount);
         if (paymentMode) targetDoc.paymentMode = paymentMode;
+        if (paymentStatus) targetDoc.paymentStatus = paymentStatus;
+        if (paymentSource) targetDoc.paymentSource = paymentSource;
         if (currentKm) targetDoc.currentKm = Number(currentKm);
         if (nextServiceKm) targetDoc.nextServiceKm = Number(nextServiceKm);
         if (status) targetDoc.status = status;
@@ -3204,6 +3212,8 @@ const updateMaintenanceRecord = asyncHandler(async (req, res) => {
         if (description) targetDoc.remark = description;
         if (req.file) targetDoc.slipPhoto = req.file.path;
         if (status) targetDoc.status = status;
+        if (paymentStatus) targetDoc.status = paymentStatus === 'Paid' ? 'approved' : 'pending';
+        if (paymentSource) targetDoc.paymentSource = paymentSource;
         if (currentKm) targetDoc.km = Number(currentKm);
 
         await attendanceDoc.save();
@@ -6892,7 +6902,24 @@ const getSalaryPayments = asyncHandler(async (req, res) => {
     res.json(filteredPayments);
 });
 
+// @desc    Get all unique garage names across all maintenance and parking records
+// @route   GET /api/admin/maintenance/garages/:companyId
+// @access  Private/Admin
+const getUniqueGarages = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || companyId;
+    
+    const maintenanceGarages = await Maintenance.distinct('garageName', { company: finalCompanyId });
+    const parkingGarages = await Parking.distinct('vendorName', { company: finalCompanyId });
+    const attendanceGarages = await Parking.distinct('remark', { company: finalCompanyId, serviceType: 'car_service' });
+
+    const unique = [...new Set([...maintenanceGarages, ...parkingGarages, ...attendanceGarages])].filter(Boolean).sort();
+    
+    res.json(unique);
+});
+
 module.exports = {
+    getUniqueGarages,
     markSalaryAsPaid,
     getSalaryPayments,
     createDriver,
