@@ -6044,10 +6044,11 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
         ]
     };
 
-    // 1. Get all fleet vehicles
+    // 1. Get all active fleet vehicles
     const vehicles = await Vehicle.find({
         ...companyQuery,
-        isOutsideCar: { $ne: true }
+        isOutsideCar: { $ne: true },
+        status: { $ne: 'inactive' }
     }).select('carNumber model fastagHistory');
 
     // 2. Fetch all related data for the month concurrently
