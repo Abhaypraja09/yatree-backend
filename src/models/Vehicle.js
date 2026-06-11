@@ -52,6 +52,10 @@ const vehicleSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    buyAmount: {
+        type: Number,
+        default: 0
+    },
     property: {
         type: String // For outside cars: Client/Property name (e.g. Hotel Taj)
     },

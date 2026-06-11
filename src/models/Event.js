@@ -30,6 +30,10 @@ const eventSchema = new mongoose.Schema({
         default: 'Upcoming'
     },
     // Financial Tracking
+    proformaAmount: {
+        type: Number,
+        default: 0
+    },
     totalRevenue: {
         type: Number,
         default: 0

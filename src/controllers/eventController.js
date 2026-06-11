@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 // @route   POST /api/admin/events
 // @access  Private/Admin
 const createEvent = asyncHandler(async (req, res) => {
-    const { name, companyId, client, date, location, description, totalRevenue, advanceAmount, amountReceived, status } = req.body;
+    const { name, companyId, client, date, location, description, totalRevenue, advanceAmount, amountReceived, status, proformaAmount } = req.body;
 
     if (!name || !companyId || !date) {
         return res.status(400).json({ message: 'Please provide name, companyId and date' });
@@ -23,6 +23,7 @@ const createEvent = asyncHandler(async (req, res) => {
         totalRevenue: Number(totalRevenue) || 0,
         amountReceived: Number(amountReceived) || 0,
         advanceAmount: Number(advanceAmount) || 0,
+        proformaAmount: Number(proformaAmount) || 0,
         status: status || 'Upcoming'
     });
 
@@ -182,6 +183,7 @@ const updateEvent = asyncHandler(async (req, res) => {
         if (req.body.totalRevenue !== undefined) event.totalRevenue = Number(req.body.totalRevenue);
         if (req.body.amountReceived !== undefined) event.amountReceived = Number(req.body.amountReceived);
         if (req.body.advanceAmount !== undefined) event.advanceAmount = Number(req.body.advanceAmount);
+        if (req.body.proformaAmount !== undefined) event.proformaAmount = Number(req.body.proformaAmount);
 
         const updatedEvent = await event.save();
         res.json(updatedEvent);

@@ -152,7 +152,7 @@ const createDriver = async (req, res, next) => {
 // @access  Private/Admin
 const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId } = req.body;
+    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, buyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
     // 🛡️ SECURITY: Global system check for car number uniqueness but restricted by tenant filter for safety.
@@ -200,6 +200,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         carType: carType || 'SUV',
         isOutsideCar: isOutsideCar === 'true' || isOutsideCar === true,
         dutyAmount: Number(dutyAmount) || 0,
+        buyAmount: Number(buyAmount) || 0,
         fastagNumber,
         fastagBalance: Number(fastagBalance) || 0,
         fastagBank,
@@ -420,7 +421,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                         { nextServiceDate: { $lte: alertThreshold.toJSDate(), $gte: baseDate.minus({ days: 30 }).toJSDate() } },
                         { nextServiceKm: { $gt: 0 } }
                     ]
-                }).populate('vehicle', 'carNumber lastOdometer').sort({ billDate: -1 }).lean()
+                }).populate('vehicle', 'carNumber lastOdometer').sort({ billDate: -1 }).lean(),
+                Event.find({ company: companyObjectId, status: { $in: ['Upcoming', 'Running'] }, date: { $gte: actualTodayIST.toJSDate(), $lte: actualTodayIST.plus({ days: 15 }).endOf('day').toJSDate() } }).lean()
             ]),
             Promise.all([
                 Vehicle.aggregate([{ $match: { company: companyObjectId, fastagHistory: { $exists: true } } }, { $unwind: '$fastagHistory' }, { $match: { 'fastagHistory.date': { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$fastagHistory.amount' } } }]),
@@ -464,7 +466,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         // MAP RESULTS
         const totalVehicles = basicCounts[0]?.total[0]?.c || 0;
         const totalInternalVehicles = basicCounts[0]?.internal[0]?.c || 0;
-        const [vExp, dExp, upcomingS, expiringServices] = alertData;
+        const [vExp, dExp, upcomingS, expiringServices, upcomingEvents] = alertData;
         const [fT, aD, mFuel, mPark, bTax, mMaintAgg, mSpecialPayAgg] = financialData;
         const [attToday, pendingApps, totalStaff, staffAttToday, reportedIss] = fleetStatus;
         const [outFacet, mAcc, yAcc] = outsideData;
@@ -494,6 +496,14 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         // FLATTEN & CALCULATE ALERTS
         const actualToday = DateTime.now().setZone('Asia/Kolkata').startOf('day').toJSDate();
         const alerts = [];
+
+        if (upcomingEvents) {
+            upcomingEvents.forEach(ev => {
+                const d = Math.ceil((new Date(ev.date) - actualToday) / (1000 * 60 * 60 * 24));
+                alerts.push({ type: 'Event', identifier: ev.client || 'Event', documentType: `Upcoming Event: ${ev.name || 'Logistics'}`, expiryDate: ev.date, daysLeft: d, status: d === 0 ? 'Today' : 'Upcoming' });
+            });
+        }
+
         vExp.forEach(v => {
             (v.documents || []).forEach(doc => {
                 if (doc.expiryDate && new Date(doc.expiryDate) <= alertThreshold.toJSDate()) {
@@ -1193,6 +1203,7 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.driverName !== undefined) updateData.driverName = req.body.driverName;
     if (req.body.ownerName !== undefined) updateData.ownerName = req.body.ownerName;
     if (req.body.dutyAmount !== undefined) updateData.dutyAmount = Number(req.body.dutyAmount);
+    if (req.body.buyAmount !== undefined) updateData.buyAmount = Number(req.body.buyAmount);
     if (req.body.dutyType !== undefined) updateData.dutyType = req.body.dutyType;
     if (req.body.dutyTime !== undefined) updateData.dutyTime = req.body.dutyTime;
     if (req.body.dropLocation !== undefined) updateData.dropLocation = req.body.dropLocation;
