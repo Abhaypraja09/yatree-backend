@@ -152,7 +152,7 @@ const createDriver = async (req, res, next) => {
 // @access  Private/Admin
 const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, buyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId } = req.body;
+    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, buyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId, remarks, guestCount } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
     // 🛡️ SECURITY: Global system check for car number uniqueness but restricted by tenant filter for safety.
@@ -207,9 +207,12 @@ const createVehicle = asyncHandler(async (req, res) => {
         driverName,
         dutyType,
         dutyTime,
-        ownerName,
-        dropLocation,
-        property,
+        ownerName: ownerName,
+        property: property,
+        dropLocation: dropLocation,
+        eventId: eventId,
+        remarks: remarks,
+        guestCount: guestCount ? Number(guestCount) : 0,
         transactionType: req.body.transactionType || 'Duty',
         vehicleSource: req.body.vehicleSource || (isOutsideCar === 'true' || isOutsideCar === true ? 'External' : 'Fleet'),
         eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
