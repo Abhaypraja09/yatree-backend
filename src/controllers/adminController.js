@@ -2742,7 +2742,8 @@ const addManualDuty = asyncHandler(async (req, res) => {
         nightStayAmount,
         otherBonus,
         parkingPaidBy,
-        eventId
+        eventId,
+        guestName
     } = req.body;
 
     const finalCompanyId = req.tenantFilter?.company || companyId;
@@ -2771,6 +2772,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
         status: 'completed',
         dailyWage: Number(dailyWage) || driver.dailyWage || 0,
         eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
+        guestName: guestName || undefined,
         punchIn: {
             km: Number(punchInKM) || 0,
             time: punchInTime ? new Date(punchInTime) : DateTime.fromFormat(date, 'yyyy-MM-dd', { zone: 'Asia/Kolkata' }).set({ hour: 8 }).toJSDate(),
