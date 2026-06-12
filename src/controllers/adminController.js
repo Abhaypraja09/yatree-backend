@@ -152,7 +152,7 @@ const createDriver = async (req, res, next) => {
 // @access  Private/Admin
 const createVehicle = asyncHandler(async (req, res) => {
     console.log('CREATE VEHICLE REQUEST:', { body: req.body, files: req.files ? Object.keys(req.files) : 'no files' });
-    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, buyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId, remarks, guestCount } = req.body;
+    const { carNumber, model, permitType, companyId, carType, isOutsideCar, dutyAmount, buyAmount, fastagNumber, fastagBalance, fastagBank, driverName, dutyType, dutyTime, ownerName, dropLocation, property, eventId, remarks, guestCount, guestName } = req.body;
 
     const formattedCarNumber = carNumber.trim().toUpperCase();
     // 🛡️ SECURITY: Global system check for car number uniqueness but restricted by tenant filter for safety.
@@ -1209,8 +1209,10 @@ const updateVehicle = asyncHandler(async (req, res) => {
     if (req.body.buyAmount !== undefined) updateData.buyAmount = Number(req.body.buyAmount);
     if (req.body.dutyType !== undefined) updateData.dutyType = req.body.dutyType;
     if (req.body.dutyTime !== undefined) updateData.dutyTime = req.body.dutyTime;
+    if (req.body.guestName !== undefined) updateData.guestName = req.body.guestName;
     if (req.body.dropLocation !== undefined) updateData.dropLocation = req.body.dropLocation;
     if (req.body.property !== undefined) updateData.property = req.body.property;
+    if (req.body.remarks !== undefined) updateData.remarks = req.body.remarks;
     if (req.body.lastOdometer !== undefined) updateData.lastOdometer = Number(req.body.lastOdometer);
     if (req.body.fastagBalance !== undefined) updateData.fastagBalance = Number(req.body.fastagBalance);
     if (req.body.fastagNumber !== undefined) updateData.fastagNumber = req.body.fastagNumber;
@@ -2545,7 +2547,7 @@ const freelancerPunchOut = asyncHandler(async (req, res) => {
 // @route   POST /api/admin/punch-in
 // @access  Private/Admin
 const adminPunchIn = asyncHandler(async (req, res) => {
-    const { driverId, vehicleId, km, time, pickUpLocation, date, dailyWage } = req.body;
+    const { driverId, vehicleId, km, time, pickUpLocation, dropLocation, date, dailyWage, guestName, dutyType, dutyTime, remarks, eventId } = req.body;
 
     const driver = await User.findById(driverId);
     const vehicle = await Vehicle.findById(vehicleId);
@@ -2572,9 +2574,18 @@ const adminPunchIn = asyncHandler(async (req, res) => {
         vehicle: vehicleId,
         date: dutyDate,
         dailyWage: Number(dailyWage) || driver.dailyWage || 0,
+        guestName: guestName || undefined,
+        dutyType: dutyType || undefined,
+        dutyTime: dutyTime || undefined,
+        eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
         punchIn: {
             km: Number(km) || 0,
             time: time ? DateTime.fromISO(time, { zone: 'Asia/Kolkata' }).toJSDate() : new Date(),
+        },
+        punchOut: {
+            tollParkingAmount: 0,
+            parkingPaidBy: 'Self',
+            remarks: remarks || undefined
         },
         pickUpLocation: pickUpLocation || 'Office',
         status: 'incomplete'
@@ -5517,7 +5528,10 @@ const updateAttendance = asyncHandler(async (req, res) => {
         endKm,
         punchInTime,
         punchOutTime,
-        tripType
+        tripType,
+        guestName,
+        dutyType,
+        dutyTime
     } = req.body;
 
     console.log(`[ATTENDANCE_UPDATE] Updating ID: ${req.params.id}`, { parkingAmount, parkingPaidBy, dailyWage, startKm, endKm });
@@ -5558,6 +5572,9 @@ const updateAttendance = asyncHandler(async (req, res) => {
     if (req.body.eventId !== undefined) {
         attendance.eventId = req.body.eventId && req.body.eventId !== 'undefined' ? req.body.eventId : undefined;
     }
+    if (guestName !== undefined) attendance.guestName = guestName;
+    if (dutyType !== undefined) attendance.dutyType = dutyType;
+    if (dutyTime !== undefined) attendance.dutyTime = dutyTime;
 
     // 2. Punch In Data (KMs & Time)
     if (!attendance.punchIn) attendance.punchIn = {};

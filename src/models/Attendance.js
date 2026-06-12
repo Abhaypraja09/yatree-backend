@@ -24,6 +24,9 @@ const attendanceSchema = new mongoose.Schema({
         type: String, // format: YYYY-MM-DD for easier querying per day
         required: true
     },
+    guestName: { type: String },
+    dutyType: { type: String },
+    dutyTime: { type: String },
     punchIn: {
         km: { type: Number },
         selfie: { type: String }, // URL from Cloudinary
