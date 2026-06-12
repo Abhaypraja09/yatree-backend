@@ -987,6 +987,7 @@ const getAllVehicles = asyncHandler(async (req, res) => {
     };
     if (type === 'outside') {
         query.isOutsideCar = true;
+        query.vehicleSource = { $ne: 'Fleet' };
     } else if (type === 'fleet') {
         query.isOutsideCar = { $ne: true };
     } else if (type === 'all') {
