@@ -434,7 +434,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Fuel.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' }, q: { $sum: '$quantity' } } }]),
                 Parking.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$serviceType", t: { $sum: '$amount' } } }]),
                 BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
-                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
+                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$maintenanceType", t: { $sum: '$amount' } } }]),
                 require('../models/Allowance').aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
@@ -494,7 +494,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         console.log('====================================');
         
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
-        const monthlyMaintAmount = mMaintAgg[0]?.t || 0;
+        const monthlyMaintAmount = mMaintAgg.filter(m => m._id !== 'Car Service').reduce((s, m) => s + m.t, 0);
         const monthlySpecialPayTotal = mSpecialPayAgg[0]?.t || 0;
 
         // FLATTEN & CALCULATE ALERTS
@@ -602,7 +602,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             monthlyFuelAmount: mFuel[0]?.t || 0,
             monthlyFuelQuantity: mFuel[0]?.q || 0,
             monthlyMaintenanceAmount: monthlyMaintAmount,
-            monthlyParkingAmount: mPark.find(p => p._id !== 'car_service')?.t || 0,
+            monthlyParkingAmount: mPark.reduce((s, p) => s + p.t, 0),
             monthlyBorderTaxAmount: bTax[0]?.t || 0,
             monthlyAccidentAmount: mAcc[0]?.t || 0,
             yearlyAccidentAmount: yAcc[0]?.t || 0,
@@ -611,7 +611,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             totalStaff, countStaffPresent: staffAttToday.length,
             monthlyRegularAdvanceTotal,
             monthlyRegularLoanEMITotal,
-            monthlyDriverServicesAmount: mPark.find(p => p._id === 'car_service')?.t || 0,
+            monthlyDriverServicesAmount: mMaintAgg.find(m => m._id === 'Car Service')?.t || 0,
             staffAttendanceToday: staffAttToday,
             attendanceDetails: attToday,
             expiringAlerts: alerts,
