@@ -213,6 +213,7 @@ const createVehicle = asyncHandler(async (req, res) => {
         eventId: eventId,
         remarks: remarks,
         guestCount: guestCount ? Number(guestCount) : 0,
+        guestName: guestName,
         transactionType: req.body.transactionType || 'Duty',
         vehicleSource: req.body.vehicleSource || (isOutsideCar === 'true' || isOutsideCar === true ? 'External' : 'Fleet'),
         eventId: eventId && eventId !== 'undefined' ? eventId : undefined,
