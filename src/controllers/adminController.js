@@ -925,57 +925,6 @@ const getAllVehicles = asyncHandler(async (req, res) => {
             vehicles = vehicles.filter(v => v.status === 'active' || activeVehicleIds.has(v._id.toString()));
         }
 
-        // 🚀 HIGH-PERFORMANCE HEALING: Batch all checks to avoid N+1 queries
-        const activeDriverIds = vehicles.filter(v => v.currentDriver).map(v => v.currentDriver._id || v.currentDriver);
-        
-        // Fetch all potential freelancers and attendance in parallel
-        const [onDutyFreelancers, currentDrivers, activeAtt] = await Promise.all([
-            User.find({ ...req.tenantFilter, isFreelancer: true, tripStatus: 'active' }),
-            User.find({ _id: { $in: activeDriverIds } }),
-            Attendance.find({ ...req.tenantFilter, status: 'incomplete' })
-        ]);
-
-        const driverMap = new Map(currentDrivers.map(d => [d._id.toString(), d]));
-        const attMap = new Map(activeAtt.map(a => [`${a.driver}_${a.vehicle}`, a]));
-
-        // Sync orphans: find freelance drivers who are 'active' but their vehicle is not linked
-        const healingOps = [];
-        for (const drv of onDutyFreelancers) {
-            const vIndex = vehicles.findIndex(v => v._id.toString() === drv.assignedVehicle?.toString());
-            if (vIndex !== -1 && !vehicles[vIndex].currentDriver) {
-                healingOps.push(Vehicle.findByIdAndUpdate(drv.assignedVehicle, { currentDriver: drv._id }));
-                vehicles[vIndex].currentDriver = drv;
-            }
-        }
-
-        // Backward Healing: Clear currentDriver if driver is no longer active
-        for (let i = 0; i < vehicles.length; i++) {
-            const v = vehicles[i];
-            const driverId = v.currentDriver?._id?.toString() || v.currentDriver?.toString();
-            if (!driverId) continue;
-
-            const drv = driverMap.get(driverId);
-            const hasAtt = attMap.get(`${driverId}_${v._id}`);
-
-            if (!drv) {
-                healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
-                v.currentDriver = null;
-            } else if (drv.tripStatus !== 'active') {
-                if (!hasAtt) {
-                    healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
-                    v.currentDriver = null;
-                } else {
-                    healingOps.push(User.findByIdAndUpdate(drv._id, { tripStatus: 'active', assignedVehicle: v._id }));
-                }
-            } else if (drv.assignedVehicle?.toString() !== v._id.toString()) {
-                if (!hasAtt) {
-                    healingOps.push(Vehicle.findByIdAndUpdate(v._id, { currentDriver: null }));
-                    v.currentDriver = null;
-                }
-            }
-        }
-
-        if (healingOps.length > 0) await Promise.all(healingOps);
         return vehicles;
     };
 

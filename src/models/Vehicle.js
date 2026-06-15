@@ -161,4 +161,9 @@ vehicleSchema.virtual('documentStatuses').get(function () {
     });
 });
 
+// Indexes for performance optimization
+vehicleSchema.index({ eventId: 1 });
+vehicleSchema.index({ company: 1, isOutsideCar: 1 });
+vehicleSchema.index({ currentDriver: 1 });
+
 module.exports = mongoose.model('Vehicle', vehicleSchema);
