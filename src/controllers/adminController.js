@@ -494,7 +494,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         console.log('====================================');
         
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
-        const monthlyMaintAmount = mMaintAgg.filter(m => m._id !== 'Car Service').reduce((s, m) => s + m.t, 0);
+        const monthlyMaintAmount = mMaintAgg.filter(m => !['Car Service', 'Driver Services'].includes(m._id)).reduce((s, m) => s + m.t, 0);
         const monthlySpecialPayTotal = mSpecialPayAgg[0]?.t || 0;
 
         // FLATTEN & CALCULATE ALERTS
@@ -611,7 +611,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             totalStaff, countStaffPresent: staffAttToday.length,
             monthlyRegularAdvanceTotal,
             monthlyRegularLoanEMITotal,
-            monthlyDriverServicesAmount: mMaintAgg.find(m => m._id === 'Car Service')?.t || 0,
+            monthlyDriverServicesAmount: mMaintAgg.filter(m => ['Car Service', 'Driver Services'].includes(m._id)).reduce((s, m) => s + m.t, 0),
             staffAttendanceToday: staffAttToday,
             attendanceDetails: attToday,
             expiringAlerts: alerts,
