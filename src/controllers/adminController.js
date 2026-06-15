@@ -434,7 +434,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 Fuel.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' }, q: { $sum: '$quantity' } } }]),
                 Parking.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$serviceType", t: { $sum: '$amount' } } }]),
                 BorderTax.aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }]),
-                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: "$maintenanceType", t: { $sum: '$amount' } } }]),
+                Maintenance.aggregate([{ $match: { company: companyObjectId, billDate: { $gte: monthStart, $lte: monthEnd } } }, { $project: { maintenanceType: 1, category: 1, description: 1, amount: 1 } }]),
                 require('../models/Allowance').aggregate([{ $match: { company: companyObjectId, date: { $gte: monthStart, $lte: monthEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
@@ -494,7 +494,35 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         console.log('====================================');
         
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
-        const monthlyMaintAmount = mMaintAgg.filter(m => !['Car Service', 'Driver Services'].includes(m._id)).reduce((s, m) => s + m.t, 0);
+        let monthlyMaintAmount = 0;
+        let monthlyDriverServicesAmount = 0;
+
+        mMaintAgg.forEach(r => {
+            const cat = String(r.category || '').toLowerCase();
+            const desc = String(r.description || '').toLowerCase();
+            const mType = String(r.maintenanceType || '').toLowerCase();
+
+            const isWash = cat.includes('wash') || desc.includes('wash');
+            const isPuncture = cat.includes('punc') || desc.includes('punc');
+            const isTissue = cat.includes('tissue') || desc.includes('tissue');
+            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
+                (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
+
+            const isExplicitService = mType.includes('service');
+            const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) ||
+                /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
+
+            const isDriverService = (isWash || isPuncture || isTissue || isWater || isExplicitService) && !isMechanical;
+
+            if (isDriverService) {
+                monthlyDriverServicesAmount += (Number(r.amount) || 0);
+            } else {
+                monthlyMaintAmount += (Number(r.amount) || 0);
+            }
+        });
+        
+        // Also add Parking marked as car_service to Driver Services total
+        monthlyDriverServicesAmount += mPark.find(p => p._id === 'car_service')?.t || 0;
         const monthlySpecialPayTotal = mSpecialPayAgg[0]?.t || 0;
 
         // FLATTEN & CALCULATE ALERTS
@@ -611,7 +639,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             totalStaff, countStaffPresent: staffAttToday.length,
             monthlyRegularAdvanceTotal,
             monthlyRegularLoanEMITotal,
-            monthlyDriverServicesAmount: mMaintAgg.filter(m => ['Car Service', 'Driver Services'].includes(m._id)).reduce((s, m) => s + m.t, 0),
+            monthlyDriverServicesAmount,
             staffAttendanceToday: staffAttToday,
             attendanceDetails: attToday,
             expiringAlerts: alerts,
