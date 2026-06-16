@@ -4720,7 +4720,7 @@ const updateStaff = asyncHandler(async (req, res) => {
     const { name, mobile, salary, status, monthlyLeaveAllowance, username, password } = req.body;
     const staff = await User.findById(req.params.id);
 
-    if (staff && staff.role === 'Staff') {
+    if (staff && ['Staff', 'Executive', 'Admin'].includes(staff.role)) {
         if (mobile && mobile !== staff.mobile) {
             const mobileExists = await User.findOne({ mobile, isFreelancer: { $ne: true } });
             if (mobileExists) return res.status(400).json({ message: 'Mobile number already in use by another staff/driver' });
