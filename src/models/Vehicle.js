@@ -124,6 +124,15 @@ const vehicleSchema = new mongoose.Schema({
     lastOdometer: {
         type: Number,
         default: 0
+    },
+    lastAirCheckDate: {
+        type: Date,
+        default: null
+    },
+    lastAirCheckedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
     }
 }, {
     timestamps: true,

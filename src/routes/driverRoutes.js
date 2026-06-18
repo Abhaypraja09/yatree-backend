@@ -6,6 +6,7 @@ const {
     punchOut,
     requestNewTrip,
     addExpense,
+    recordAirCheck,
     getDriverLedger,
     updatePassword
 } = require('../controllers/driverController');
@@ -34,6 +35,7 @@ router.post('/punch-out', upload.fields([
 
 router.post('/request-trip', requestNewTrip);
 router.post('/add-expense', upload.any(), addExpense);
+router.post('/air-check', recordAirCheck);
 router.get('/ledger', getDriverLedger);
 router.put('/update-password', updatePassword);
 

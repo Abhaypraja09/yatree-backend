@@ -532,28 +532,15 @@ const addExpense = async (req, res) => {
         await attendance.save();
         DASHBOARD_CACHE.clear(); // Ensure expenses reflect in live feed stats
 
-        // Update vehicle lastOdometer or lastAirCheck
-        let hasAirCheck = typesArr.includes('air');
-        if ((kmsArr && kmsArr.length > 0) || hasAirCheck) {
-            const vehicle = await Vehicle.findById(attendance.vehicle);
-            if (vehicle) {
-                let saveNeeded = false;
-                if (kmsArr && kmsArr.length > 0) {
-                    const maxKM = Math.max(...kmsArr.map(k => Number(k) || 0));
-                    if (maxKM > (vehicle.lastOdometer || 0)) {
-                        vehicle.lastOdometer = maxKM;
-                        saveNeeded = true;
-                    }
+        // Update vehicle lastOdometer if any KM provided in expenses
+        if (kmsArr && kmsArr.length > 0) {
+            const maxKM = Math.max(...kmsArr.map(k => Number(k) || 0));
+            if (maxKM > 0) {
+                const vehicle = await Vehicle.findById(attendance.vehicle);
+                if (vehicle && maxKM > (vehicle.lastOdometer || 0)) {
+                    vehicle.lastOdometer = maxKM;
+                    await vehicle.save();
                 }
-                if (hasAirCheck) {
-                    vehicle.lastAirCheck = {
-                        date: new Date(),
-                        driverName: req.user.name,
-                        driverId: req.user._id
-                    };
-                    saveNeeded = true;
-                }
-                if (saveNeeded) await vehicle.save();
             }
         }
 
@@ -867,3 +854,30 @@ module.exports = {
     getDriverLedger,
     updatePassword
 };
+
+
+// @desc    Record tire air check for assigned vehicle
+// @route   POST /api/driver/vehicle/air-check
+// @access  Private/Driver
+const recordAirCheck = asyncHandler(async (req, res) => {
+    const driver = await User.findById(req.user._id).populate("assignedCar");
+    if (!driver || !driver.assignedCar) {
+        res.status(400);
+        throw new Error("No vehicle assigned to you");
+    }
+
+    const vehicle = await Vehicle.findById(driver.assignedCar._id);
+    if (!vehicle) {
+        res.status(404);
+        throw new Error("Vehicle not found");
+    }
+
+    vehicle.lastAirCheckDate = new Date();
+    vehicle.lastAirCheckedBy = req.user._id;
+    await vehicle.save();
+
+    res.status(200).json({ success: true, message: "Air check recorded successfully" });
+});
+
+module.exports.recordAirCheck = recordAirCheck;
+
