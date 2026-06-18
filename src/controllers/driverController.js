@@ -859,25 +859,27 @@ module.exports = {
 // @desc    Record tire air check for assigned vehicle
 // @route   POST /api/driver/vehicle/air-check
 // @access  Private/Driver
-const recordAirCheck = asyncHandler(async (req, res) => {
-    const driver = await User.findById(req.user._id).populate("assignedCar");
-    if (!driver || !driver.assignedCar) {
-        res.status(400);
-        throw new Error("No vehicle assigned to you");
+const recordAirCheck = async (req, res) => {
+    try {
+        const driver = await User.findById(req.user._id).populate("assignedCar");
+        if (!driver || !driver.assignedCar) {
+            return res.status(400).json({ message: "No vehicle assigned to you" });
+        }
+
+        const vehicle = await Vehicle.findById(driver.assignedCar._id);
+        if (!vehicle) {
+            return res.status(404).json({ message: "Vehicle not found" });
+        }
+
+        vehicle.lastAirCheckDate = new Date();
+        vehicle.lastAirCheckedBy = req.user._id;
+        await vehicle.save();
+
+        res.status(200).json({ success: true, message: "Air check recorded successfully" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
-
-    const vehicle = await Vehicle.findById(driver.assignedCar._id);
-    if (!vehicle) {
-        res.status(404);
-        throw new Error("Vehicle not found");
-    }
-
-    vehicle.lastAirCheckDate = new Date();
-    vehicle.lastAirCheckedBy = req.user._id;
-    await vehicle.save();
-
-    res.status(200).json({ success: true, message: "Air check recorded successfully" });
-});
+};
 
 module.exports.recordAirCheck = recordAirCheck;
 
