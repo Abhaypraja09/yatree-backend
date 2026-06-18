@@ -104,6 +104,7 @@ const upload = multer({ storage });
 router.use(protect);
 
 const driverUpload = upload.fields([
+    { name: 'profilePhoto', maxCount: 1 },
     { name: 'aadharCardFront', maxCount: 1 },
     { name: 'aadharCardBack', maxCount: 1 },
     { name: 'drivingLicense', maxCount: 1 },
