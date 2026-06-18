@@ -13,7 +13,11 @@ const errorHandler = (err, req, res, next) => {
     const path = require('path');
     try {
         const logPath = path.join(process.cwd(), 'server_debug.log');
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] GLOBAL_ERROR: ${message} - Stack: ${err.stack}\n`);
+        let logMsg = `[${new Date().toISOString()}] GLOBAL_ERROR: ${message} - Stack: ${err.stack}\n`;
+        if (err.field) {
+            logMsg += `Unexpected Multer field: ${err.field}\n`;
+        }
+        fs.appendFileSync(logPath, logMsg);
     } catch (e) { }
 
     // Check for Mongoose bad ObjectId
