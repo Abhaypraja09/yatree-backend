@@ -486,17 +486,10 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
         
         const fleetEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10 && !a.isOutsideCar).reduce((sum, a) => sum + (Number(a.dutyAmount || a.dailyWage) || 0), 0);
-        const externalEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10 && a.isOutsideCar).reduce((sum, a) => sum + (Number(a.dutyAmount || a.dailyWage) || 0), 0);
         
-        // Since this label is under "OUTSIDE CARS (MONTHLY)", it should just show the external event total
-        const monthlyEventTotal = externalEventTotal;
-        
-        console.log('====== EVENT MANAGEMENT DEBUG ======');
-        console.log('fleetEventTotal:', fleetEventTotal);
-        console.log('outFacet e array:', JSON.stringify(outFacet[0]?.e));
-        console.log('outFacet monthPrefix:', monthPrefix);
-        console.log('monthlyEventTotal:', monthlyEventTotal);
-        console.log('====================================');
+        // Use outFacet for outside cars event total, because outside cars don't always have attendance records
+        const outsideCarEventTotal = outFacet[0]?.e[0]?.t || 0;
+        const monthlyEventTotal = fleetEventTotal + outsideCarEventTotal;
         
         const outsideCarsMonthlyTotal = outFacet[0]?.o[0]?.t || 0;
         let monthlyMaintAmount = 0;
