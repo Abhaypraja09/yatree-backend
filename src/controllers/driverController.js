@@ -861,12 +861,12 @@ module.exports = {
 // @access  Private/Driver
 const recordAirCheck = async (req, res) => {
     try {
-        const driver = await User.findById(req.user._id).populate("assignedCar");
-        if (!driver || !driver.assignedCar) {
+        const driver = await User.findById(req.user._id).populate("assignedVehicle");
+        if (!driver || !driver.assignedVehicle) {
             return res.status(400).json({ message: "No vehicle assigned to you" });
         }
 
-        const vehicle = await Vehicle.findById(driver.assignedCar._id);
+        const vehicle = await Vehicle.findById(driver.assignedVehicle._id);
         if (!vehicle) {
             return res.status(404).json({ message: "Vehicle not found" });
         }
