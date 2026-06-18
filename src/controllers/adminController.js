@@ -3112,7 +3112,7 @@ const getMaintenanceRecords = asyncHandler(async (req, res) => {
             const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) ||
                 /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
 
-            return (isWash || isPuncture || isTissue || isWater || isExplicitService) && !isMechanical;
+            return isWash || isPuncture || isTissue || isWater || (isExplicitService && !isMechanical);
         });
     } else {
         // Exclude driver services from the main maintenance view
