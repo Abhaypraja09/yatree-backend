@@ -105,7 +105,7 @@ const attendanceSchema = new mongoose.Schema({
         default: 1
     },
     pendingExpenses: [{
-        type: { type: String, enum: ['fuel', 'parking', 'other', 'wash', 'puncture', 'tissue', 'water', 'special_pay'] },
+        type: { type: String, enum: ['fuel', 'parking', 'other', 'wash', 'puncture', 'tissue', 'water', 'special_pay', 'air'] },
         fuelType: { type: String }, // NEW: Petrol, Diesel, CNG, Electric
         amount: { type: Number },
         quantity: { type: Number, default: 0 }, // Liters

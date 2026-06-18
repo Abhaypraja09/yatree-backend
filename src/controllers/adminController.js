@@ -459,7 +459,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true),
                 Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver eventId dailyWage').lean(),
                 User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
-                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean()
+                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer lastAirCheck status').lean()
             ]),
             Promise.all([
                 Fuel.find({ company: companyObjectId, date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() } }).populate('vehicle', 'carNumber').lean(),
@@ -542,6 +542,27 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     alerts.push({ type: 'Driver', identifier: d.name, documentType: doc.documentType, expiryDate: doc.expiryDate, daysLeft: d, status: d < 0 ? 'Expired' : 'Expiring Soon' });
                 }
             });
+        });
+
+        // Air Check Alerts
+        const todayDay = DateTime.now().setZone('Asia/Kolkata').weekday; // 1 = Monday
+        allV.forEach(v => {
+            if (v.status !== 'active') return;
+            const lastCheck = v.lastAirCheck?.date ? new Date(v.lastAirCheck.date) : null;
+            const daysSince = lastCheck ? Math.floor((actualToday - lastCheck) / (1000 * 60 * 60 * 24)) : 999;
+            
+            // If more than 7 days, or if it's Monday and hasn't been done in the last 7 days
+            if (daysSince > 7) {
+                alerts.push({
+                    type: 'Service',
+                    identifier: v.carNumber,
+                    documentType: 'Tire Air Check Overdue',
+                    expiryDate: null,
+                    daysLeft: -daysSince,
+                    status: (todayDay === 1) ? 'Urgent: Check Today' : 'Overdue',
+                    currentKm: null
+                });
+            }
         });
 
         const maintenanceAlertsSet = new Set();

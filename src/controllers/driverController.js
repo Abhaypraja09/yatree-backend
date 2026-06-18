@@ -532,15 +532,28 @@ const addExpense = async (req, res) => {
         await attendance.save();
         DASHBOARD_CACHE.clear(); // Ensure expenses reflect in live feed stats
 
-        // Update vehicle lastOdometer if any KM provided in expenses
-        if (kmsArr && kmsArr.length > 0) {
-            const maxKM = Math.max(...kmsArr.map(k => Number(k) || 0));
-            if (maxKM > 0) {
-                const vehicle = await Vehicle.findById(attendance.vehicle);
-                if (vehicle && maxKM > (vehicle.lastOdometer || 0)) {
-                    vehicle.lastOdometer = maxKM;
-                    await vehicle.save();
+        // Update vehicle lastOdometer or lastAirCheck
+        let hasAirCheck = typesArr.includes('air');
+        if ((kmsArr && kmsArr.length > 0) || hasAirCheck) {
+            const vehicle = await Vehicle.findById(attendance.vehicle);
+            if (vehicle) {
+                let saveNeeded = false;
+                if (kmsArr && kmsArr.length > 0) {
+                    const maxKM = Math.max(...kmsArr.map(k => Number(k) || 0));
+                    if (maxKM > (vehicle.lastOdometer || 0)) {
+                        vehicle.lastOdometer = maxKM;
+                        saveNeeded = true;
+                    }
                 }
+                if (hasAirCheck) {
+                    vehicle.lastAirCheck = {
+                        date: new Date(),
+                        driverName: req.user.name,
+                        driverId: req.user._id
+                    };
+                    saveNeeded = true;
+                }
+                if (saveNeeded) await vehicle.save();
             }
         }
 
