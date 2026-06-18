@@ -112,6 +112,8 @@ const createDriver = async (req, res, next) => {
         if (req.files) {
             const docMappings = [
                 { field: 'aadharCard', type: 'Aadhaar Card' },
+                { field: 'aadharCardFront', type: 'Aadhaar Front' },
+                { field: 'aadharCardBack', type: 'Aadhaar Back' },
                 { field: 'drivingLicense', type: 'Driving License' },
                 { field: 'addressProof', type: 'Address Proof' },
                 { field: 'offerLetter', type: 'Offer Letter' }
@@ -483,8 +485,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         const monthlyNetSalaryTotal = salReg.reduce((s, x) => s + (x.netPayable || 0), 0);
         const monthlyFreelancerSalaryTotal = salFree.reduce((s, x) => s + (x.totalEarned || 0), 0);
         
-        const fleetEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10).reduce((sum, a) => sum + (Number(a.dailyWage) || 0), 0);
-        const monthlyEventTotal = (outFacet[0]?.e[0]?.t || 0) + fleetEventTotal;
+        const fleetEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10 && !a.isOutsideCar).reduce((sum, a) => sum + (Number(a.dutyAmount || a.dailyWage) || 0), 0);
+        const externalEventTotal = mAtt.filter(a => a.eventId && String(a.eventId).length > 10 && a.isOutsideCar).reduce((sum, a) => sum + (Number(a.dutyAmount || a.dailyWage) || 0), 0);
+        
+        // Since this label is under "OUTSIDE CARS (MONTHLY)", it should just show the external event total
+        const monthlyEventTotal = externalEventTotal;
         
         console.log('====== EVENT MANAGEMENT DEBUG ======');
         console.log('fleetEventTotal:', fleetEventTotal);
@@ -498,23 +503,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         let monthlyDriverServicesAmount = 0;
 
         mMaintAgg.forEach(r => {
-            const cat = String(r.category || '').toLowerCase();
-            const desc = String(r.description || '').toLowerCase();
             const mType = String(r.maintenanceType || '').toLowerCase();
 
-            const isWash = cat.includes('wash') || desc.includes('wash');
-            const isPuncture = cat.includes('punc') || desc.includes('punc');
-            const isTissue = cat.includes('tissue') || desc.includes('tissue');
-            const isWater = (cat.includes('water') && !cat.includes('repair') && !cat.includes('leak') && !cat.includes('pump')) ||
-                (desc.includes('water') && !desc.includes('repair') && !desc.includes('leak') && !desc.includes('pump'));
-
-            const isExplicitService = mType.includes('service');
-            const isMechanical = /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(cat) ||
-                /oil|fan|engine|brake|clutch|gear|mechanical|electrical|suspension|tyre|tire|battery|coolant|labour|labor|parts/i.test(desc);
-
-            const isDriverService = (isWash || isPuncture || isTissue || isWater || isExplicitService) && !isMechanical;
-
-            if (isDriverService) {
+            if (mType === 'driver services') {
                 monthlyDriverServicesAmount += (Number(r.amount) || 0);
             } else {
                 monthlyMaintAmount += (Number(r.amount) || 0);
@@ -1093,6 +1084,8 @@ const updateDriver = asyncHandler(async (req, res) => {
         if (req.files) {
             const docMappings = [
                 { field: 'aadharCard', type: 'Aadhaar Card' },
+                { field: 'aadharCardFront', type: 'Aadhaar Front' },
+                { field: 'aadharCardBack', type: 'Aadhaar Back' },
                 { field: 'drivingLicense', type: 'Driving License' },
                 { field: 'addressProof', type: 'Address Proof' },
                 { field: 'offerLetter', type: 'Offer Letter' }
@@ -1101,8 +1094,12 @@ const updateDriver = asyncHandler(async (req, res) => {
             docMappings.forEach(mapping => {
                 if (req.files[mapping.field]) {
                     // Remove old of same type or obsolete Aadhar types if it's Aadhar Card
+                    // Remove old of same type or obsolete Aadhar types if it's Aadhar Card
                     if (mapping.type === 'Aadhaar Card') {
                         driver.documents = driver.documents.filter(doc => !['Aadhaar Card', 'Aadhaar Front', 'Aadhaar Back'].includes(doc.documentType));
+                    } else if (mapping.type === 'Aadhaar Front' || mapping.type === 'Aadhaar Back') {
+                        // If uploading Front or Back, we should remove 'Aadhaar Card' (legacy single) and the specific new one.
+                        driver.documents = driver.documents.filter(doc => doc.documentType !== 'Aadhaar Card' && doc.documentType !== mapping.type);
                     } else {
                         driver.documents = driver.documents.filter(doc => doc.documentType !== mapping.type);
                     }
