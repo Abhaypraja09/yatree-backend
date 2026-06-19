@@ -4239,6 +4239,16 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             let nightStayCount = 0;
             const datesProcessed = new Set();
 
+            // PRECALCULATE MAX WAGE PER DAY
+            const maxWageByDay = new Map();
+            driverAtt.forEach(att => {
+                const dateStr = att.date || 'unknown';
+                const w = Number(att.dailyWage) || 0;
+                if (!maxWageByDay.has(dateStr) || w > maxWageByDay.get(dateStr)) {
+                    maxWageByDay.set(dateStr, w);
+                }
+            });
+
             // Optimization: check if overtime is enabled once
             const otEnabled = !!d.overtime?.enabled;
             const otThreshold = Number(d.overtime?.thresholdHours) || 9;
@@ -4248,9 +4258,9 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 const att = driverAtt[i];
                 const dateStr = att.date || 'unknown';
 
-                // Base Wage (One per day)
+                // Base Wage (One per day, using max)
                 if (!datesProcessed.has(dateStr)) {
-                    totalRoutineEarnings += (Number(att.dailyWage) || 0);
+                    totalRoutineEarnings += (maxWageByDay.get(dateStr) || 0);
                     datesProcessed.add(dateStr);
                 }
 
