@@ -29,6 +29,18 @@ const eventSchema = new mongoose.Schema({
         enum: ['Upcoming', 'Running', 'Closed'],
         default: 'Upcoming'
     },
+    // Tariff / Rate Cards defined for this specific event
+    rateCard: [{
+        serviceName: { type: String, required: true }, // e.g. Airport Drop, Udaipur Tour
+        vehicleType: { type: String }, // Optional: Sedan, SUV, Bus
+        vehicleModel: { type: String }, // Optional: Innova, Dzire
+        baseRate: { type: Number, required: true, default: 0 },
+        baseKms: { type: Number, default: 0 },
+        baseHours: { type: Number, default: 0 },
+        extraKmRate: { type: Number, default: 0 },
+        extraHourRate: { type: Number, default: 0 },
+        driverAllowance: { type: Number, default: 0 }
+    }],
     // Financial Tracking
     proformaAmount: {
         type: Number,

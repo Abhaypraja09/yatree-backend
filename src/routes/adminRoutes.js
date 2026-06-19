@@ -94,7 +94,10 @@ const {
     getEvents,
     getEventDetails,
     updateEvent,
-    deleteEvent
+    deleteEvent,
+    addRateCard,
+    updateRateCard,
+    deleteRateCard
 } = require('../controllers/eventController');
 const { protect, admin, adminOrExecutive, checkCompany } = require('../middleware/authMiddleware');
 const { storage } = require('../config/cloudinary');
@@ -251,5 +254,10 @@ router.get('/events/:companyId', adminOrExecutive, checkCompany, getEvents);
 router.get('/events/details/:eventId', adminOrExecutive, checkCompany, getEventDetails);
 router.put('/events/:id', adminOrExecutive, checkCompany, updateEvent);
 router.delete('/events/:id', adminOrExecutive, checkCompany, deleteEvent);
+
+// Rate Cards
+router.post('/events/:id/ratecard', adminOrExecutive, checkCompany, addRateCard);
+router.put('/events/:id/ratecard/:rateId', adminOrExecutive, checkCompany, updateRateCard);
+router.delete('/events/:id/ratecard/:rateId', adminOrExecutive, checkCompany, deleteRateCard);
 
 module.exports = router;

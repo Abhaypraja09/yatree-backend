@@ -115,7 +115,27 @@ const attendanceSchema = new mongoose.Schema({
         paymentSource: { type: String, enum: ['Office', 'Guest', 'Main Office'], default: 'Office' },
         status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
         createdAt: { type: Date, default: Date.now }
-    }]
+    }],
+    // Advanced Billing
+    billingDetails: {
+        serviceName: { type: String },
+        baseRate: { type: Number, default: 0 },
+        baseKms: { type: Number, default: 0 },
+        baseHours: { type: Number, default: 0 },
+        extraKmRate: { type: Number, default: 0 },
+        extraHourRate: { type: Number, default: 0 },
+        driverAllowanceRate: { type: Number, default: 0 },
+        
+        // Calculated post-duty
+        actualKms: { type: Number, default: 0 },
+        actualHours: { type: Number, default: 0 },
+        extraKms: { type: Number, default: 0 },
+        extraHours: { type: Number, default: 0 },
+        extraKmAmount: { type: Number, default: 0 },
+        extraHourAmount: { type: Number, default: 0 },
+        driverAllowanceAmount: { type: Number, default: 0 },
+        totalBilledAmount: { type: Number, default: 0 }
+    }
 }, { timestamps: true });
 
 // Index for faster querying

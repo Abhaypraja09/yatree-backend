@@ -2610,6 +2610,41 @@ const adminPunchIn = asyncHandler(async (req, res) => {
     res.json({ message: 'Driver punched in by admin', attendance });
 });
 
+const applyAdvancedBilling = (record) => {
+    if (!record.billingDetails || !record.billingDetails.serviceName) return;
+
+    const b = record.billingDetails;
+    
+    // Calculate Actual Kms
+    if (record.punchIn && record.punchOut && record.punchIn.km !== undefined && record.punchOut.km !== undefined) {
+        b.actualKms = Math.max(0, record.punchOut.km - record.punchIn.km);
+    } else {
+        b.actualKms = record.totalKM || 0;
+    }
+
+    // Calculate Actual Hours
+    if (record.punchIn?.time && record.punchOut?.time) {
+        const diffMs = new Date(record.punchOut.time) - new Date(record.punchIn.time);
+        b.actualHours = Math.max(0, diffMs / (1000 * 60 * 60)); // In hours
+    } else {
+        b.actualHours = 0;
+    }
+
+    // Calculate Extras
+    b.extraKms = Math.max(0, b.actualKms - (b.baseKms || 0));
+    b.extraHours = Math.max(0, b.actualHours - (b.baseHours || 0));
+
+    // Calculate Amounts
+    b.extraKmAmount = b.extraKms * (b.extraKmRate || 0);
+    b.extraHourAmount = b.extraHours * (b.extraHourRate || 0);
+    b.driverAllowanceAmount = b.driverAllowanceRate || 0;
+
+    b.totalBilledAmount = (b.baseRate || 0) + b.extraKmAmount + b.extraHourAmount + b.driverAllowanceAmount;
+    
+    // Override the base duty amount so the reports and calculations reflect the total billed amount
+    record.dailyWage = b.totalBilledAmount;
+};
+
 // @desc    Admin Punch Out (Manual by Admin)
 // @route   POST /api/admin/punch-out
 // @access  Private/Admin
@@ -2670,6 +2705,10 @@ const adminPunchOut = asyncHandler(async (req, res) => {
     attendance.dropLocation = dropLocation || 'Office';
     attendance.totalKM = Math.max(0, (Number(km) || 0) - (attendance.punchIn.km || 0));
     attendance.status = 'completed';
+    
+    // Apply Advanced Billing
+    applyAdvancedBilling(attendance);
+    
     await attendance.save();
 
     // Clear dashboard cache on mutation
@@ -2836,6 +2875,7 @@ const addManualDuty = asyncHandler(async (req, res) => {
     // For historical entries, we set createdAt to match the duty date
     attendance.createdAt = punchInTime ? new Date(punchInTime) : new Date(date + 'T08:00:00Z');
 
+    applyAdvancedBilling(attendance);
     await attendance.save();
 
     // Update vehicle odometer if recent
@@ -5732,6 +5772,9 @@ const updateAttendance = asyncHandler(async (req, res) => {
     attendance.markModified('dropLocation');
     attendance.markModified('date');
     attendance.markModified('status');
+
+    // Apply Advanced Billing before saving
+    applyAdvancedBilling(attendance);
 
     const updatedAttendance = await attendance.save();
 
