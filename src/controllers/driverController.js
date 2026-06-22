@@ -862,11 +862,22 @@ module.exports = {
 const recordAirCheck = async (req, res) => {
     try {
         const driver = await User.findById(req.user._id).populate("assignedVehicle");
-        if (!driver || !driver.assignedVehicle) {
-            return res.status(400).json({ message: "No vehicle assigned to you" });
+        
+        // Find which vehicle the driver is actually driving right now
+        const activePunch = await Attendance.findOne({ driver: req.user._id, status: 'incomplete' });
+        
+        let vehicleIdToUpdate = null;
+        if (activePunch && activePunch.vehicle) {
+            vehicleIdToUpdate = activePunch.vehicle;
+        } else if (driver && driver.assignedVehicle) {
+            vehicleIdToUpdate = driver.assignedVehicle._id;
         }
 
-        const vehicle = await Vehicle.findById(driver.assignedVehicle._id);
+        if (!vehicleIdToUpdate) {
+            return res.status(400).json({ message: "No active vehicle found. Please punch in first." });
+        }
+
+        const vehicle = await Vehicle.findById(vehicleIdToUpdate);
         if (!vehicle) {
             return res.status(404).json({ message: "Vehicle not found" });
         }
@@ -875,8 +886,12 @@ const recordAirCheck = async (req, res) => {
         vehicle.lastAirCheckedBy = req.user._id;
         await vehicle.save();
 
+        // Clear dashboard cache so the Admin sees the alert disappear instantly
+        DASHBOARD_CACHE.clear();
+
         res.status(200).json({ success: true, message: "Air check recorded successfully" });
     } catch (error) {
+        console.error('AirCheck error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };

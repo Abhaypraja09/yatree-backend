@@ -459,7 +459,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true),
                 Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver eventId dailyWage').lean(),
                 User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
-                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer').lean()
+                Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer status lastAirCheckDate').lean()
             ]),
             Promise.all([
                 Fuel.find({ company: companyObjectId, date: { $gte: baseDate.toJSDate(), $lte: baseDate.endOf('day').toJSDate() } }).populate('vehicle', 'carNumber').lean(),
@@ -606,12 +606,13 @@ const getDashboardStats = asyncHandler(async (req, res) => {
         lastMonday.setHours(0, 0, 0, 0);
         
         allV.forEach(v => {
-            if (v.status === 'active' && v.currentDriver) {
+            if (v.status === 'active') {
                 if (!v.lastAirCheckDate || new Date(v.lastAirCheckDate) < lastMonday) {
+                    const driverName = v.currentDriver ? v.currentDriver.name : 'Not Punched In'; console.log('AIRCHECK DEBUG:', v.carNumber, v.status, v.lastAirCheckDate);
                     alerts.push({
                         type: 'AirCheck',
                         identifier: v.carNumber,
-                        documentType: `Tire Air Check (Driver: ${v.currentDriver.name})`,
+                        documentType: `Tire Air Check (Driver: ${driverName})`,
                         status: 'Overdue',
                         daysLeft: 0,
                         expiryDate: lastMonday
