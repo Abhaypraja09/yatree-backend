@@ -163,7 +163,7 @@ const Maintenance = () => {
         amount: '',
         paymentMode: 'Cash',
         paymentStatus: 'Paid',
-        paymentSource: 'Paid',
+        paymentSource: 'Office',
         currentKm: '',
         nextServiceKm: '',
         status: 'Completed'
@@ -387,7 +387,7 @@ const Maintenance = () => {
             amount: '',
             paymentMode: 'Cash',
             paymentStatus: 'Paid',
-            paymentSource: 'Paid',
+            paymentSource: 'Office',
             currentKm: '',
             nextServiceKm: '',
             status: 'Completed'
@@ -417,7 +417,7 @@ const Maintenance = () => {
             amount: record.amount,
             paymentMode: record.paymentMode || 'Cash',
             paymentStatus: record.paymentStatus || 'Paid',
-            paymentSource: record.paymentSource || 'Paid',
+            paymentSource: record.paymentSource || 'Office',
             currentKm: record.currentKm || '',
             nextServiceKm: record.nextServiceKm || '',
             status: record.status || 'Completed'
