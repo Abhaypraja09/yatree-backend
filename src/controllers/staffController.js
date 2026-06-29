@@ -69,7 +69,7 @@ function getCycleByOffset(joiningDate, offset) {
 // @route   POST /api/staff/punch-in
 // @access  Private/Staff
 const staffPunchIn = asyncHandler(async (req, res) => {
-    const { latitude, longitude, address, photo } = req.body;
+    const { latitude, longitude, address, photo, accuracy } = req.body;
     const today = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
 
     let attendance = await StaffAttendance.findOne({ staff: req.user._id, date: today });
@@ -92,18 +92,19 @@ const staffPunchIn = asyncHandler(async (req, res) => {
         const officeLat = Number(user.officeLocation.latitude);
         const officeLon = Number(user.officeLocation.longitude);
         const radius = Number(user.officeLocation.radius) > 0 ? Number(user.officeLocation.radius) : 500;
+        const gpsAccuracy = Math.min(Number(accuracy) || 0, 500);
 
         if (staffLat && staffLon) {
             const distance = calculateDistance(staffLat, staffLon, officeLat, officeLon);
-            if (distance > radius) {
-                console.log(`[GEO_BLOCK] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Radius: ${radius}m | Status: REJECTED`);
+            if (distance - gpsAccuracy > radius) {
+                console.log(`[GEO_BLOCK] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Accuracy: ${Math.round(gpsAccuracy)}m | Radius: ${radius}m | Status: REJECTED`);
                 return res.status(403).json({
-                    message: `Geofence Blocked: You are ${Math.round(distance)} meters away from the office. (Allowed radius: ${radius}m). Please move closer.`,
+                    message: `Geofence Blocked: You are ${Math.round(distance)} meters away from the office (GPS accuracy buffer: ${Math.round(gpsAccuracy)}m). (Allowed radius: ${radius}m). Please move closer.`,
                     distance: Math.round(distance),
                     requiredRadius: radius
                 });
             }
-            console.log(`[GEO_ALLOW] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Radius: ${radius}m | Status: ALLOWED`);
+            console.log(`[GEO_ALLOW] Staff: ${user.name} | Dist: ${Math.round(distance)}m | Accuracy: ${Math.round(gpsAccuracy)}m | Radius: ${radius}m | Status: ALLOWED`);
         } else {
             return res.status(400).json({ message: 'GPS coordinates are required for geofenced punch-in.' });
         }
@@ -384,9 +385,42 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
     });
 
     const baseSalary = staffUser.salary || 0;
-    // Salary = (Present + Approved Leaves + Earned Sundays) / Total Days in Month * Monthly Base
-    const earnedDays = presentDays + approvedLeaveDays + paidSundays;
-    const finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
+    let earnedDays = presentDays + approvedLeaveDays + paidSundays;
+    let finalSalary = 0;
+    let perDaySalary = Math.round(baseSalary / totalDaysInCycle);
+    let finalPaidSundays = paidSundays;
+    let finalUnpaidSundays = unpaidSundays;
+    let finalApprovedLeaveDays = approvedLeaveDays;
+    let finalSundaysReport = sundays;
+
+    const todayStr = DateTime.now().setZone('Asia/Kolkata').toFormat('yyyy-MM-dd');
+    const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > DateTime.fromISO(cycleEnd).setZone('Asia/Kolkata').endOf('day');
+
+    if (staffUser.staffType === 'Daily') {
+        perDaySalary = baseSalary; // salary represents daily wage
+        earnedDays = presentDays;
+        finalSalary = presentDays * perDaySalary;
+        finalPaidSundays = 0;
+        finalUnpaidSundays = 0;
+        finalApprovedLeaveDays = 0;
+        finalSundaysReport = [];
+    } else if (staffUser.staffType === 'Fixed') {
+        const daysPassedInCycle = Math.min(totalDaysInCycle, fullCycleAttendance.filter(a => a.date <= todayStr).length);
+        if (isPastCycle) {
+            earnedDays = totalDaysInCycle;
+            finalSalary = baseSalary;
+        } else {
+            earnedDays = daysPassedInCycle;
+            finalSalary = daysPassedInCycle * perDaySalary;
+        }
+        finalPaidSundays = 0;
+        finalUnpaidSundays = 0;
+        finalApprovedLeaveDays = 0;
+        finalSundaysReport = [];
+    } else {
+        // Regular
+        finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
+    }
 
     return {
         cycleStart,
@@ -394,16 +428,16 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         totalDaysInCycle,
         presentDays,
         halfDays,
-        approvedLeaveDays,
+        approvedLeaveDays: finalApprovedLeaveDays,
         unapprovedAbsences,
-        paidSundays,
-        unpaidSundays,
+        paidSundays: finalPaidSundays,
+        unpaidSundays: finalUnpaidSundays,
         earnedDays,
         baseSalary,
         finalSalary: Math.round(finalSalary),
-        perDaySalary: Math.round(baseSalary / totalDaysInCycle),
+        perDaySalary: perDaySalary,
         attendanceData: fullCycleAttendance,
-        sundaysReport: sundays
+        sundaysReport: finalSundaysReport
     };
 }
 

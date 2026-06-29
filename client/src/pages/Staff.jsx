@@ -120,7 +120,7 @@ const Staff = () => {
     const [filterStaff, setFilterStaff] = useState('all');
 
     const [formData, setFormData] = useState({
-        name: '', mobile: '', username: '', password: '', confirmPassword: '', oldPassword: '', salary: 0, monthlyLeaveAllowance: 4,
+        name: '', mobile: '', username: '', password: '', confirmPassword: '', oldPassword: '', salary: 0, monthlyLeaveAllowance: 0,
         email: '', designation: '', shiftTiming: { start: '09:00', end: '18:00' },
         officeLocation: { latitude: '', longitude: '', address: '', radius: 200 },
         joiningDate: '',
@@ -399,7 +399,7 @@ const Staff = () => {
             setToDate(todayIST());
             setBackdateForm({ staffId: '', date: todayIST(), status: 'present', punchInTime: '', punchOutTime: '' });
             setFormData({
-                name: '', mobile: '', username: '', password: '', oldPassword: '', salary: 0, monthlyLeaveAllowance: 4,
+                name: '', mobile: '', username: '', password: '', oldPassword: '', salary: 0, monthlyLeaveAllowance: 0,
                 email: '', designation: '', shiftTiming: { start: '09:00', end: '18:00' },
                 officeLocation: { latitude: '', longitude: '', address: '', radius: 200 },
                 joiningDate: todayIST(),
@@ -813,11 +813,11 @@ const Staff = () => {
             fetchStaff();
             const defaultOffice = staffList.find(s => s.officeLocation?.latitude)?.officeLocation || { latitude: '', longitude: '', address: '', radius: 200 };
             setFormData({
-                name: '', mobile: '', username: '', password: '', salary: 0, monthlyLeaveAllowance: 4,
+                name: '', mobile: '', username: '', password: '', oldPassword: '', salary: 0, monthlyLeaveAllowance: 0,
                 email: '', designation: '', shiftTiming: { start: '09:00', end: '18:00' },
                 officeLocation: defaultOffice,
                 joiningDate: todayIST(),
-                staffType: 'Company'
+                staffType: 'Regular'
             });
         } catch (error) {
             alert(error.response?.data?.message || 'Error processing staff request');
@@ -831,12 +831,12 @@ const Staff = () => {
             username: staff.username || '',
             password: '',
             salary: staff.salary || 0,
-            monthlyLeaveAllowance: staff.monthlyLeaveAllowance || 4,
+            monthlyLeaveAllowance: (staff.monthlyLeaveAllowance !== undefined && staff.monthlyLeaveAllowance !== null && staff.monthlyLeaveAllowance !== '') ? staff.monthlyLeaveAllowance : 4,
             email: staff.email || '',
             designation: staff.designation || '',
             shiftTiming: staff.shiftTiming || { start: '09:00', end: '18:00' },
             officeLocation: staff.officeLocation || { latitude: '', longitude: '', address: '', radius: 200 },
-            staffType: staff.staffType || 'Company',
+            staffType: staff.staffType || 'Regular',
             joiningDate: staff.joiningDate ? toISTDateString(staff.joiningDate) : todayIST()
         });
         setEditingStaffId(staff._id);
@@ -1146,10 +1146,10 @@ const Staff = () => {
                                 setIsEditing(false);
                                 const defaultOffice = staffList.find(s => s.officeLocation?.latitude)?.officeLocation || { latitude: '', longitude: '', address: '', radius: 200 };
                                 setFormData({
-                                    name: '', mobile: '', username: '', password: '', salary: 0, monthlyLeaveAllowance: 4,
+                                    name: '', mobile: '', username: '', password: '', salary: 0, monthlyLeaveAllowance: 0,
                                     email: '', designation: '', shiftTiming: { start: '09:00', end: '18:00' },
                                     officeLocation: defaultOffice,
-                                    joiningDate: '',
+                                    joiningDate: todayIST(),
                                     staffType: 'Company'
                                 });
                                 setShowAddModal(true);
@@ -2087,7 +2087,7 @@ const Staff = () => {
                                                                     <div style={{ fontSize: '13px', fontWeight: '900', color: '#10b981' }}>{item.presentDays} <span style={{ opacity: 0.3, fontSize: '10px' }}>PRES</span></div>
                                                                     <div style={{ fontSize: '9px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Present</div>
                                                                 </div>
-                                                                {item.staffType !== 'Fixed' && (
+                                                                {item.staffType !== 'Fixed' && item.staffType !== 'Daily' && (
                                                                     <>
                                                                         <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }}></div>
                                                                         <div>
@@ -2121,8 +2121,8 @@ const Staff = () => {
                                                             )}
                                                         </td>
                                                         <td style={{ padding: '12px 25px', textAlign: 'right' }}>
-                                                            <div style={{ fontSize: '20px', fontWeight: '1000', color: 'white' }}>₹{(item.earnedSoFar !== undefined ? item.earnedSoFar : (item.finalSalary || 0)).toLocaleString()}</div>
-                                                            <div style={{ fontSize: '9px', color: 'var(--primary)', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Earned So Far</div>
+                                                            <div style={{ fontSize: '20px', fontWeight: '1000', color: 'white' }}>₹{(item.finalSalary !== undefined ? item.finalSalary : (item.earnedSoFar || 0)).toLocaleString()}</div>
+                                                            <div style={{ fontSize: '9px', color: 'var(--primary)', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Net Payable</div>
                                                         </td>
                                                         <td style={{ padding: '12px 25px' }}>
                                                             {(() => {
@@ -2229,50 +2229,67 @@ const Staff = () => {
                                 <form onSubmit={handleAddStaff} style={{ padding: '40px 50px', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '40px', overflowY: 'auto' }}>
                                     {/* Left Column: Profile & Access */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                                        <section style={{ background: 'rgba(255,255,255,0.02)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <section style={{ background: 'rgba(255,255,255,0.01)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.04)', borderLeft: '4px solid #6366f1', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '25px' }}>
-                                                <div style={{ width: '3px', height: '18px', background: 'var(--primary)', borderRadius: '2px' }}></div>
-                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px' }}>PERSONAL IDENTITY</span>
+                                                <User size={18} color="#6366f1" />
+                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px', textTransform: 'uppercase' }}>Personal Identity</span>
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Full Name</label>
-                                                    <input required type="text" className="premium-compact-input" placeholder="e.g. John Doe" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <User size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input required type="text" className="premium-compact-input" placeholder="e.g. John Doe" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '600', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} onFocus={(e) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 15px rgba(99,102,241,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Mobile Number</label>
-                                                    <input required type="number" className="premium-compact-input" placeholder="e.g. 9876543210" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.mobile} onChange={(e) => setFormData({ ...formData, mobile: e.target.value })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <Phone size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input required type="number" className="premium-compact-input" placeholder="e.g. 9876543210" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '600', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} onFocus={(e) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 15px rgba(99,102,241,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.mobile} onChange={(e) => setFormData({ ...formData, mobile: e.target.value })} />
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Designation</label>
-                                                    <input type="text" className="premium-compact-input" placeholder="e.g. Senior Manager" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <Users size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input type="text" className="premium-compact-input" placeholder="e.g. Senior Manager" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '600', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} onFocus={(e) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 15px rgba(99,102,241,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </section>
 
-                                        <section style={{ background: 'rgba(255,255,255,0.02)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <section style={{ background: 'rgba(255,255,255,0.01)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.04)', borderLeft: '4px solid #10b981', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '25px' }}>
-                                                <div style={{ width: '3px', height: '18px', background: 'var(--primary)', borderRadius: '2px' }}></div>
-                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px' }}>SYSTEM ACCESS</span>
+                                                <Unlock size={18} color="#10b981" />
+                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px', textTransform: 'uppercase' }}>System Access</span>
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Username</label>
-                                                    <input required type="text" className="premium-compact-input" placeholder="e.g. john_staff" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <User size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input required type="text" className="premium-compact-input" placeholder="e.g. john_staff" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '600', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} onFocus={(e) => { e.target.style.borderColor = '#10b981'; e.target.style.boxShadow = '0 0 15px rgba(16,185,129,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>{isEditing ? 'New Password (Optional)' : 'Password'}</label>
-                                                    <input 
-                                                        required={!isEditing} 
-                                                        type="password" 
-                                                        name="staff-password"
-                                                        autoComplete="new-password"
-                                                        className="premium-compact-input" 
-                                                        placeholder="••••••••" 
-                                                        style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} 
-                                                        value={formData.password} 
-                                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
-                                                    />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <Lock size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input 
+                                                            required={!isEditing} 
+                                                            type="password" 
+                                                            name="staff-password"
+                                                            autoComplete="new-password"
+                                                            className="premium-compact-input" 
+                                                            placeholder="••••••••" 
+                                                            style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '600', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} 
+                                                            onFocus={(e) => { e.target.style.borderColor = '#10b981'; e.target.style.boxShadow = '0 0 15px rgba(16,185,129,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} 
+                                                            onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} 
+                                                            value={formData.password} 
+                                                            onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </section>
@@ -2280,49 +2297,102 @@ const Staff = () => {
 
                                     {/* Right Column: Financials & Location */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                                        <section style={{ background: 'rgba(255,255,255,0.02)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)', position: 'relative', overflow: 'hidden' }}>
+                                        <section style={{ background: 'rgba(255,255,255,0.01)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.04)', borderLeft: '4px solid #fbbf24', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', position: 'relative', overflow: 'visible' }}>
                                             <div style={{ position: 'absolute', top: 0, right: 0, width: '150px', height: '150px', background: 'radial-gradient(circle, var(--primary-glow) 0%, transparent 70%)', opacity: 0.1 }}></div>
 
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '25px' }}>
-                                                <div style={{ width: '3px', height: '18px', background: 'var(--primary)', borderRadius: '2px' }}></div>
-                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px' }}>PAYROLL & LEAVE POLICY</span>
+                                                <IndianRupee size={18} color="#fbbf24" />
+                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px', textTransform: 'uppercase' }}>Payroll & Leave Policy</span>
+                                            </div>
+
+                                            {/* Employment Type Custom Selection Cards */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '25px' }}>
+                                                <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Employment Type</label>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+                                                    {[
+                                                        { value: 'Regular', label: 'Regular (With Leaves)', desc: 'Standard payroll with monthly leave quota tracking', icon: ShieldCheck },
+                                                        { value: 'Fixed', label: 'Fixed Wage', desc: 'Fixed monthly salary without leave allowance deduction', icon: Clock },
+                                                        { value: 'Daily', label: 'Daily Wage', desc: 'Day-based wage calculated strictly from presence logs', icon: IndianRupee }
+                                                    ].map(t => {
+                                                        const IconComponent = t.icon;
+                                                        const isSelected = formData.staffType === t.value;
+                                                        return (
+                                                            <div
+                                                                key={t.value}
+                                                                onClick={() => setFormData({ ...formData, staffType: t.value })}
+                                                                style={{
+                                                                    background: isSelected ? 'rgba(251, 191, 36, 0.06)' : 'rgba(255, 255, 255, 0.02)',
+                                                                    border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255, 255, 255, 0.08)',
+                                                                    borderRadius: '16px',
+                                                                    padding: '12px 18px',
+                                                                    cursor: 'pointer',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '15px',
+                                                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                    boxShadow: isSelected ? '0 0 20px rgba(251, 191, 36, 0.08)' : 'none'
+                                                                }}
+                                                            >
+                                                                <div style={{
+                                                                    width: '36px',
+                                                                    height: '36px',
+                                                                    borderRadius: '10px',
+                                                                    background: isSelected ? 'var(--primary)' : 'rgba(255, 255, 255, 0.05)',
+                                                                    display: 'flex',
+                                                                    justifyContent: 'center',
+                                                                    alignItems: 'center',
+                                                                    color: isSelected ? 'black' : 'white',
+                                                                    transition: 'all 0.3s',
+                                                                    flexShrink: 0
+                                                                }}>
+                                                                    <IconComponent size={18} />
+                                                                </div>
+                                                                <div style={{ flex: 1 }}>
+                                                                    <div style={{ fontSize: '13px', fontWeight: '800', color: 'white' }}>{t.label}</div>
+                                                                    <div style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)', fontWeight: '600', marginTop: '2px' }}>{t.desc}</div>
+                                                                </div>
+                                                                {isSelected && (
+                                                                    <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'black' }} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
 
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Monthly Salary</label>
-                                                    <div style={{ position: 'relative' }}>
-                                                        <span style={{ position: 'absolute', left: '18px', top: '50%', transform: 'translateY(-50%)', color: 'var(--primary)', fontWeight: '900', fontSize: '18px' }}>₹</span>
-                                                        <input required type="number" className="premium-compact-input" placeholder="0.00" style={{ width: '100%', height: '60px', padding: '0 20px 0 45px', fontSize: '20px', fontWeight: '1000', borderRadius: '18px', background: 'rgba(255,255,255,0.03)' }} value={formData.salary} onChange={(e) => setFormData({ ...formData, salary: e.target.value })} />
+                                                    <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
+                                                        {formData.staffType === 'Daily' ? 'Daily Wage (Per Day)' : 'Monthly Salary'}
+                                                    </label>
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <IndianRupee size={18} color="var(--primary)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input required type="number" className="premium-compact-input" placeholder={formData.staffType === 'Daily' ? 'e.g. 500' : '0.00'} style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '16px', fontWeight: '800', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none', transition: 'all 0.3s' }} onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; e.target.style.boxShadow = '0 0 15px rgba(251,191,36,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.salary} onChange={(e) => setFormData({ ...formData, salary: e.target.value })} />
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Joining Date</label>
-                                                    <div style={{ position: 'relative' }}>
-                                                        <PremiumDateInput
-                                                            value={formData.joiningDate}
-                                                            onChange={(v) => setFormData({ ...formData, joiningDate: v })}
-                                                            required
-                                                            disableCalendar={true}
-                                                            inputStyle={{ fontSize: '20px', fontWeight: '1000', color: 'var(--primary)' }}
-                                                        />
-                                                    </div>
+                                                    <PremiumDateInput
+                                                        value={formData.joiningDate}
+                                                        onChange={(v) => setFormData({ ...formData, joiningDate: v })}
+                                                        required
+                                                        align="right"
+                                                        inputStyle={{ fontSize: '16px', fontWeight: '800', color: 'var(--primary)', height: '56px', padding: '0 20px 0 50px', borderRadius: '16px' }}
+                                                    />
                                                 </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Employment Type</label>
-                                                    <select className="premium-compact-input" style={{ height: '56px', padding: '0 15px', fontSize: '14px', fontWeight: '700', borderRadius: '16px' }} value={formData.staffType} onChange={(e) => setFormData({ ...formData, staffType: e.target.value })}>
-                                                        <option value="Regular">REGULAR (WITH LEAVE ALLOWANCE)</option>
-                                                        <option value="Fixed">FIXED (30 DAYS / NO LEAVE TRACKING)</option>
-                                                    </select>
-                                                </div>
-                                                {formData.staffType !== 'Fixed' && (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {formData.staffType !== 'Fixed' && formData.staffType !== 'Daily' && (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: 'span 2' }}>
                                                         <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Monthly Leave Quota</label>
-                                                        <input required type="number" className="premium-compact-input" placeholder="e.g. 4" style={{ height: '56px', padding: '0 20px', fontSize: '16px', fontWeight: '900', borderRadius: '16px', color: 'var(--primary)' }} value={formData.monthlyLeaveAllowance} onChange={(e) => setFormData({ ...formData, monthlyLeaveAllowance: e.target.value })} />
+                                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                            <Calendar size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                            <input required type="number" className="premium-compact-input" placeholder="e.g. 4" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '700', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--primary)', outline: 'none' }} onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; e.target.style.boxShadow = '0 0 15px rgba(251,191,36,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.monthlyLeaveAllowance} onChange={(e) => setFormData({ ...formData, monthlyLeaveAllowance: e.target.value })} />
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
-                                            {formData.staffType !== 'Fixed' && (
+                                            {formData.staffType !== 'Fixed' && formData.staffType !== 'Daily' && (
                                                 <div style={{
                                                     marginTop: '25px',
                                                     background: 'rgba(251,191,36,0.03)',
@@ -2343,10 +2413,10 @@ const Staff = () => {
                                             )}
                                         </section>
 
-                                        <section style={{ background: 'rgba(255,255,255,0.02)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <section style={{ background: 'rgba(255,255,255,0.01)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.04)', borderLeft: '4px solid #3b82f6', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '25px' }}>
-                                                <MapPin size={18} color="var(--primary)" />
-                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px' }}>WORK GEOFENCING</span>
+                                                <MapPin size={18} color="#3b82f6" />
+                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px', textTransform: 'uppercase' }}>Work Geofencing</span>
                                             </div>
                                             <OfficeGeofencePicker
                                                 value={formData.officeLocation}
@@ -2354,33 +2424,41 @@ const Staff = () => {
                                             />
                                         </section>
 
-                                        <section style={{ background: 'rgba(255,255,255,0.02)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <section style={{ background: 'rgba(255,255,255,0.01)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255,255,255,0.04)', borderLeft: '4px solid #ec4899', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '25px' }}>
-                                                <Clock size={18} color="var(--primary)" />
-                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px' }}>SHIFT TIMINGS</span>
+                                                <Clock size={18} color="#ec4899" />
+                                                <span style={{ fontSize: '12px', fontWeight: '900', color: 'white', letterSpacing: '1px', textTransform: 'uppercase' }}>Shift Timings</span>
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Punch-In Time</label>
-                                                    <input type="time" className="premium-compact-input" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.shiftTiming.start} onChange={(e) => setFormData({ ...formData, shiftTiming: { ...formData.shiftTiming, start: e.target.value } })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <Clock size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input type="time" className="premium-compact-input" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '700', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none' }} onFocus={(e) => { e.target.style.borderColor = '#ec4899'; e.target.style.boxShadow = '0 0 15px rgba(236,72,153,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.shiftTiming.start} onChange={(e) => setFormData({ ...formData, shiftTiming: { ...formData.shiftTiming, start: e.target.value } })} />
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>Punch-Out Time</label>
-                                                    <input type="time" className="premium-compact-input" style={{ height: '56px', padding: '0 20px', fontSize: '15px', fontWeight: '700', borderRadius: '16px' }} value={formData.shiftTiming.end} onChange={(e) => setFormData({ ...formData, shiftTiming: { ...formData.shiftTiming, end: e.target.value } })} />
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                        <Clock size={18} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: '18px', pointerEvents: 'none' }} />
+                                                        <input type="time" className="premium-compact-input" style={{ width: '100%', height: '56px', padding: '0 20px 0 50px', fontSize: '14px', fontWeight: '700', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', outline: 'none' }} onFocus={(e) => { e.target.style.borderColor = '#ec4899'; e.target.style.boxShadow = '0 0 15px rgba(236,72,153,0.15)'; e.target.style.background = 'rgba(255,255,255,0.06)' }} onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)'; e.target.style.boxShadow = 'none'; e.target.style.background = 'rgba(255,255,255,0.03)' }} value={formData.shiftTiming.end} onChange={(e) => setFormData({ ...formData, shiftTiming: { ...formData.shiftTiming, end: e.target.value } })} />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </section>
 
                                         <div style={{ marginTop: '10px' }}>
                                             <motion.button
-                                                whileHover={{ scale: 1.02, y: -4 }}
+                                                whileHover={{ scale: 1.02, y: -4, boxShadow: '0 20px 40px rgba(251,191,36,0.3)' }}
                                                 whileTap={{ scale: 0.98 }}
                                                 type="submit"
                                                 style={{
-                                                    width: '100%', height: '70px', background: 'var(--primary)', color: 'black',
+                                                    width: '100%', height: '70px', background: 'linear-gradient(135deg, var(--primary), #d97706)', color: 'black',
                                                     border: 'none', borderRadius: '24px', fontSize: '18px', fontWeight: '1000',
-                                                    cursor: 'pointer', boxShadow: '0 20px 40px -10px var(--primary-glow)', letterSpacing: '1px',
-                                                    display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px'
+                                                    cursor: 'pointer', letterSpacing: '1px',
+                                                    display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px',
+                                                    boxShadow: '0 10px 30px rgba(251,191,36,0.15)',
+                                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
                                                 }}
                                             >
                                                 <CheckCircle size={24} />

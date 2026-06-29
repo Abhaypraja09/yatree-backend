@@ -4758,7 +4758,7 @@ const createStaff = asyncHandler(async (req, res) => {
         salary: Number(salary),
         username,
         role: 'Staff',
-        monthlyLeaveAllowance: Number(req.body.monthlyLeaveAllowance) || 4,
+        monthlyLeaveAllowance: (req.body.monthlyLeaveAllowance !== undefined && req.body.monthlyLeaveAllowance !== null && req.body.monthlyLeaveAllowance !== '') ? Number(req.body.monthlyLeaveAllowance) : 4,
         email: req.body.email,
         designation: req.body.designation,
         shiftTiming: req.body.shiftTiming || { start: '09:00', end: '18:00' },
@@ -4806,7 +4806,7 @@ const updateStaff = asyncHandler(async (req, res) => {
         staff.name = name || staff.name;
         staff.salary = salary ? Number(salary) : staff.salary;
         staff.status = status || staff.status;
-        staff.monthlyLeaveAllowance = monthlyLeaveAllowance || staff.monthlyLeaveAllowance;
+        staff.monthlyLeaveAllowance = (monthlyLeaveAllowance !== undefined && monthlyLeaveAllowance !== null && monthlyLeaveAllowance !== '') ? Number(monthlyLeaveAllowance) : staff.monthlyLeaveAllowance;
 
         if (password) {
             const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
@@ -4881,8 +4881,8 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
     const existing = await StaffAttendance.findOne({ staff: staffId, date });
     if (existing) {
         existing.status = status || existing.status;
-        if (punchInTime) existing.punchIn = { time: new Date(`${date}T${punchInTime}:00`), location: { address: 'Admin Updated' } };
-        if (punchOutTime) existing.punchOut = { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Updated' } };
+        if (punchInTime) existing.punchIn = { time: DateTime.fromISO(`${date}T${punchInTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { address: 'Admin Updated' } };
+        if (punchOutTime) existing.punchOut = { time: DateTime.fromISO(`${date}T${punchOutTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { address: 'Admin Updated' } };
         await existing.save();
         return res.json({ message: 'Attendance updated successfully', attendance: existing });
     }
@@ -4893,11 +4893,13 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
         date,
         status: status || 'present',
         punchIn: {
-            time: punchInTime ? new Date(`${date}T${punchInTime}:00`) : new Date(`${date}T09:00:00`),
+            time: punchInTime 
+                ? DateTime.fromISO(`${date}T${punchInTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate() 
+                : DateTime.fromISO(`${date}T09:00:00`, { zone: 'Asia/Kolkata' }).toJSDate(),
             location: { address: 'Admin Added' }
         },
         punchOut: punchOutTime
-            ? { time: new Date(`${date}T${punchOutTime}:00`), location: { address: 'Admin Added' } }
+            ? { time: DateTime.fromISO(`${date}T${punchOutTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { address: 'Admin Added' } }
             : undefined
     });
 
@@ -5151,7 +5153,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                       }
                     
                     // Calculate leaves accurately: 
-                    const leaveAllowance = s.monthlyLeaveAllowance || 4;
+                    const leaveAllowance = s.monthlyLeaveAllowance !== undefined && s.monthlyLeaveAllowance !== null ? s.monthlyLeaveAllowance : 4;
                     // 1. Months fully completed before this cycle starts
                     const monthsBefore = Math.floor(Math.max(0, cStart.diff(effectiveJoinDT, 'months').months));
                     // 2. Current month's allowance (always 1 for the active cycle)

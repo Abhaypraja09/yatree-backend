@@ -219,7 +219,7 @@ const StaffPortal = () => {
                 });
             });
 
-            const { latitude, longitude } = position.coords;
+            const { latitude, longitude, accuracy } = position.coords;
             let address = `Coordinates: ${latitude}, ${longitude}`;
 
             try {
@@ -232,6 +232,7 @@ const StaffPortal = () => {
             await axios.post(endpoint, {
                 latitude,
                 longitude,
+                accuracy,
                 address,
                 photo: photoUrl
             });
