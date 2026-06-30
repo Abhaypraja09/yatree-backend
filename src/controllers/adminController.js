@@ -4881,8 +4881,16 @@ const addBackdatedAttendance = asyncHandler(async (req, res) => {
     const existing = await StaffAttendance.findOne({ staff: staffId, date });
     if (existing) {
         existing.status = status || existing.status;
-        if (punchInTime) existing.punchIn = { time: DateTime.fromISO(`${date}T${punchInTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { address: 'Admin Updated' } };
-        if (punchOutTime) existing.punchOut = { time: DateTime.fromISO(`${date}T${punchOutTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate(), location: { address: 'Admin Updated' } };
+        if (punchInTime) {
+            if (!existing.punchIn) existing.punchIn = {};
+            existing.punchIn.time = DateTime.fromISO(`${date}T${punchInTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate();
+            if (!existing.punchIn.location) existing.punchIn.location = { address: 'Admin Updated' };
+        }
+        if (punchOutTime) {
+            if (!existing.punchOut) existing.punchOut = {};
+            existing.punchOut.time = DateTime.fromISO(`${date}T${punchOutTime}:00`, { zone: 'Asia/Kolkata' }).toJSDate();
+            if (!existing.punchOut.location) existing.punchOut.location = { address: 'Admin Updated' };
+        }
         await existing.save();
         return res.json({ message: 'Attendance updated successfully', attendance: existing });
     }
@@ -4984,13 +4992,34 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
 
             const staffIds = allStaff.map(s => s._id);
 
+            const sysStartDT = DateTime.fromISO('2026-03-01', { zone: 'Asia/Kolkata' }).startOf('day');
+            
+            const staffMatchConditions = allStaff.map(s => {
+                const effectiveJoinDT = DateTime.fromJSDate(s.joiningDate, { zone: 'Asia/Kolkata' }).startOf('day');
+                const realEffectiveJoinDT = effectiveJoinDT > sysStartDT ? effectiveJoinDT : sysStartDT;
+                return {
+                    staff: s._id,
+                    date: { 
+                        $gte: realEffectiveJoinDT.toFormat('yyyy-MM-dd'),
+                        $lt: startStrQuery 
+                    }
+                };
+            });
+
             // 2. Fetch Aggregated Historical Data (Before cycle start)
             // We count PRESENT days to subtract from total elapsed days since joining
             const [historicalAttStats, firstAttStats] = await Promise.all([
                 StaffAttendance.aggregate([
-                    { $match: { staff: { $in: staffIds }, date: { $lt: startStrQuery } } },
+                    { $match: { 
+                        $or: staffMatchConditions.length > 0 ? staffMatchConditions : [{ staff: null }], 
+                        status: { $in: ['present', 'half-day'] } 
+                    } },
                     { $group: {
-                        _id: "$staff",
+                        _id: { staff: "$staff", date: "$date" },
+                        status: { $first: "$status" }
+                    }},
+                    { $group: {
+                        _id: "$_id.staff",
                         presentCount: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
                         halfDayCount: { $sum: { $cond: [{ $eq: ["$status", "half-day"] }, 0.5, 0] } }
                     }}
@@ -5176,8 +5205,16 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         loopCount++;
                     }
                     
-                    const historicalWorkingDaysBefore = Math.max(0, totalDaysBefore - historicalSundays);
-                    const historicalLeavesTaken = Math.max(0, historicalWorkingDaysBefore - (histPresentMap[String(s._id)] || 0));
+                    let gapPresentDays = 0;
+                    for (const dateStr in staffAtt) {
+                        if (dateStr >= startStrQuery && dateStr < cStart.toFormat('yyyy-MM-dd')) {
+                            const st = staffAtt[dateStr].status;
+                            if (st === 'present') gapPresentDays += 1;
+                            if (st === 'half-day') gapPresentDays += 0.5;
+                        }
+                    }
+                    const totalHistoricalPresent = (histPresentMap[String(s._id)] || 0) + gapPresentDays;
+                    const historicalLeavesTaken = Math.max(0, totalDaysBefore - totalHistoricalPresent);
 
                     // Calculate historical balance (only carry forward positive balance)
                     // The maximum paid leaves they could have used historically is what they had accrued.
@@ -5187,7 +5224,24 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     const historicalBalance = totalAccruedBefore - historicalPaidLeavesUsed;
                     
                     // Final pool for THIS cycle = (Positive carry forward from past) + (Current month's allowance)
-                    let availableLeavesPool = historicalBalance + leaveAllowance;
+                    const initialAvailableLeavesPool = Math.max(0, historicalBalance) + leaveAllowance;
+                    let availableLeavesPool = initialAvailableLeavesPool;
+                    
+                    if (s.name.includes('Chandni') && month == 7) {
+                        console.log('--- CHANDNI JULY DEBUG ---');
+                        console.log('cStart:', cStart.toFormat('yyyy-MM-dd'));
+                        console.log('realEffectiveJoinDT:', realEffectiveJoinDT.toFormat('yyyy-MM-dd'));
+                        console.log('totalDaysBefore:', totalDaysBefore);
+                        console.log('monthsBefore:', monthsBefore);
+                        console.log('histPresentMap:', histPresentMap[String(s._id)]);
+                        console.log('gapPresentDays:', gapPresentDays);
+                        console.log('totalHistoricalPresent:', totalHistoricalPresent);
+                        console.log('historicalLeavesTaken:', historicalLeavesTaken);
+                        console.log('totalAccruedBefore:', totalAccruedBefore);
+                        console.log('historicalPaidLeavesUsed:', historicalPaidLeavesUsed);
+                        console.log('historicalBalance:', historicalBalance);
+                        console.log('--------------------------');
+                    }
                     
                     let currentCycleLeavesUsed = 0;
                     let presentDays = 0;
@@ -5210,10 +5264,10 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         let statusLabel = '';
 
                         if (isPastOrToday) {
-                            if (record) {
-                                status = record.status;
-                            } else if (onApprovedLeave) {
+                            if (onApprovedLeave) {
                                 status = 'leave';
+                            } else if (record) {
+                                status = record.status;
                             } else if (isSunday) {
                                 status = 'sunday-off'; // Properly label unworked Sundays
                                 statusLabel = 'SUNDAY';
@@ -5225,35 +5279,32 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                             if (isSunday) {
                                 if (status === 'present' || status === 'half-day') {
                                     sundaysWorked += (status === 'present' ? 1 : 0.5);
-                                    presentDays += (status === 'present' ? 1 : 0.5);
                                 } else {
                                     sundaysPassed += 1;
-                                    // By default, Sunday is a paid off-day. It does NOT consume the leave pool.
-                                    paidSundays += 1;
                                 }
                             } else {
                                 workingDaysPassed += 1;
-                                
-                                if (status === 'present') {
-                                    presentDays += 1;
-                                } else if (status === 'half-day') {
-                                    presentDays += 0.5;
-                                    if (availableLeavesPool >= 0.5) {
-                                        availableLeavesPool -= 0.5;
-                                        currentCycleLeavesUsed += 0.5;
-                                    } else {
-                                        extraLeaves += 0.5;
-                                    }
-                                    leavesTaken += 0.5;
-                                } else if (status === 'leave' || status === 'absent') {
-                                    if (availableLeavesPool >= 1) {
-                                        availableLeavesPool -= 1;
-                                        currentCycleLeavesUsed += 1;
-                                    } else {
-                                        extraLeaves += 1;
-                                    }
-                                    leavesTaken += 1;
+                            }
+                            
+                            if (status === 'present') {
+                                presentDays += 1;
+                            } else if (status === 'half-day') {
+                                presentDays += 0.5;
+                                if (availableLeavesPool >= 0.5) {
+                                    availableLeavesPool -= 0.5;
+                                    currentCycleLeavesUsed += 0.5;
+                                } else {
+                                    extraLeaves += 0.5;
                                 }
+                                leavesTaken += 0.5;
+                            } else if (status === 'leave' || status === 'absent' || status === 'sunday-off') {
+                                if (availableLeavesPool >= 1) {
+                                    availableLeavesPool -= 1;
+                                    currentCycleLeavesUsed += 1;
+                                } else {
+                                    extraLeaves += 1;
+                                }
+                                leavesTaken += 1;
                             }
                         }
 
@@ -5276,7 +5327,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         paidSundays = 0; // Don't pay for Sundays if they never showed up
                     }
 
-                    const perDaySalary = Math.round(s.salary / 30);
+                    const perDaySalary = s.salary / 30;
                     let deduction = Math.round(extraLeaves * perDaySalary);
                     
                     // Calculate Advances for this staff in this period
@@ -5372,7 +5423,11 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         cycleEnd: cycleEndStr,
                         monthLabel: cEnd.isValid ? cEnd.toLocaleString({ month: 'long', year: 'numeric' }) : '',
                         earnedDays: earnedDaysCalc,
-                        leavesTaken: leavesTaken
+                        leavesTaken: leavesTaken,
+                        previousMonthCarryForward: Math.max(0, historicalBalance),
+                        allowedMonthLeave: leaveAllowance,
+                        totalLeaveAvailable: Math.max(0, availableLeavesPool),
+                        leavesTakenThisMonth: leavesTaken
                     };
                 } catch (err) {
                     console.error(`[StaffReport] Error processing staff ${s._id}:`, err);
