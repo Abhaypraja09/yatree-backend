@@ -611,6 +611,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                     const driverName = v.currentDriver ? v.currentDriver.name : 'Not Punched In'; console.log('AIRCHECK DEBUG:', v.carNumber, v.status, v.lastAirCheckDate);
                     alerts.push({
                         type: 'AirCheck',
+                        id: v._id,
                         identifier: v.carNumber,
                         documentType: `Tire Air Check (Driver: ${driverName})`,
                         status: 'Overdue',
@@ -1253,6 +1254,26 @@ const updateVehicle = asyncHandler(async (req, res) => {
     DASHBOARD_CACHE.clear();
 
     res.json(updatedVehicle);
+});
+
+// @desc    Resolve Tire Air Check
+// @route   PATCH /api/admin/vehicles/:id/resolve-air-check
+// @access  Private/AdminOrExecutive
+const resolveAirCheck = asyncHandler(async (req, res) => {
+    const vehicleId = req.params.id;
+    const vehicle = await Vehicle.findById(vehicleId);
+
+    if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    vehicle.lastAirCheckDate = new Date();
+    await vehicle.save();
+
+    // Clear dashboard cache on mutation
+    DASHBOARD_CACHE.clear();
+
+    res.json({ message: 'Tire air check resolved successfully', vehicle });
 });
 
 // @desc    Delete driver
@@ -7057,6 +7078,7 @@ const getUniqueGarages = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+    resolveAirCheck,
     getUniqueGarages,
     markSalaryAsPaid,
     getSalaryPayments,
