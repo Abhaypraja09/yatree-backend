@@ -61,6 +61,11 @@ const eventSchema = new mongoose.Schema({
     totalExpense: { // What we pay to external cars / drivers
         type: Number,
         default: 0
+    },
+    customVehicles: {
+        type: Map,
+        of: [String],
+        default: {}
     }
 }, { timestamps: true });
 

@@ -419,7 +419,9 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         finalSundaysReport = [];
     } else {
         // Regular
-        finalSalary = (earnedDays / totalDaysInCycle) * baseSalary;
+        const customLeaveDeduction = staffUser.leaveDeductionRate || (baseSalary / 30);
+        const deduction = unapprovedAbsences * customLeaveDeduction;
+        finalSalary = Math.max(0, baseSalary - deduction);
     }
 
     return {

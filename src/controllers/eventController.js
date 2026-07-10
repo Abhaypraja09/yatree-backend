@@ -184,6 +184,11 @@ const updateEvent = asyncHandler(async (req, res) => {
         if (req.body.amountReceived !== undefined) event.amountReceived = Number(req.body.amountReceived);
         if (req.body.advanceAmount !== undefined) event.advanceAmount = Number(req.body.advanceAmount);
         if (req.body.proformaAmount !== undefined) event.proformaAmount = Number(req.body.proformaAmount);
+        
+        // Custom Vehicles
+        if (req.body.customVehicles !== undefined) {
+            event.customVehicles = req.body.customVehicles;
+        }
 
         const updatedEvent = await event.save();
         res.json(updatedEvent);

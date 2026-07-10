@@ -97,8 +97,11 @@ const createDriver = async (req, res, next) => {
             company: finalCompanyId,
             isFreelancer: isFreelancer === 'true' || isFreelancer === true,
             licenseNumber,
+            driverType: req.body.driverType || 'Taxi',
             dailyWage: Number(dailyWage) || 0,
             salary: Number(salary) || 0,
+            monthlyLeaveAllowance: (req.body.monthlyLeaveAllowance !== undefined && req.body.monthlyLeaveAllowance !== '') ? Number(req.body.monthlyLeaveAllowance) : 4,
+            leaveDeductionRate: (req.body.leaveDeductionRate !== undefined && req.body.leaveDeductionRate !== '') ? Number(req.body.leaveDeductionRate) : 0,
             nightStayBonus: (nightStayBonus !== undefined && nightStayBonus !== '') ? Number(nightStayBonus) : 0,
             sameDayReturnBonus: (sameDayReturnBonus !== undefined && sameDayReturnBonus !== '') ? Number(sameDayReturnBonus) : 0,
             sameDayReturnEnabled: sameDayReturnEnabled === 'true' || sameDayReturnEnabled === true,
@@ -455,8 +458,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
                 AccidentLog.aggregate([{ $match: { company: companyObjectId, date: { $gte: yStart, $lte: yEnd } } }, { $group: { _id: null, t: { $sum: '$amount' } } }])
             ]),
             Promise.all([
-                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false),
-                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true),
+                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, false, 'Taxi'),
+                getDriverSalarySummaryInternal(companyObjectId, baseMonth, baseYear, true, 'Taxi'),
                 Attendance.find({ company: companyObjectId, date: { $gte: monthStartStr, $lte: monthEndStr } }).select('punchIn.km punchOut.km pendingExpenses driver eventId dailyWage').lean(),
                 User.find({ company: companyObjectId, role: 'Driver' }).select('name mobile isFreelancer tripStatus assignedVehicle').lean(),
                 Vehicle.find({ company: companyObjectId, isOutsideCar: { $ne: true } }).select('carNumber model currentDriver lastOdometer status lastAirCheckDate').lean()
@@ -775,6 +778,15 @@ const getAllDrivers = asyncHandler(async (req, res) => {
             driverQuery.isFreelancer = isFreelancerQuery;
         }
 
+        if (req.query.driverType) {
+            if (req.query.driverType !== 'All') {
+                driverQuery.driverType = req.query.driverType;
+            }
+        } else {
+            // Default to Taxi to not break old routes
+            driverQuery.driverType = { $ne: 'Bus' }; 
+        }
+
         // 1. Calculate Global Stats for the company
         const allDrivers = await User.find(driverQuery).select('_id status isFreelancer');
         const allDriverIds = allDrivers.map(d => d._id);
@@ -869,7 +881,11 @@ const getAllDrivers = asyncHandler(async (req, res) => {
                     }).map(d => d._id.toString()));
                 }
 
-                drivers = drivers.filter(d => validDriverIds.has(d._id.toString()));
+                // Always keep Bus drivers visible regardless of attendance filters
+                const busDrivers = drivers.filter(d => d.driverType === 'Bus');
+                const busDriverIds = new Set(busDrivers.map(d => d._id.toString()));
+                
+                drivers = drivers.filter(d => validDriverIds.has(d._id.toString()) || busDriverIds.has(d._id.toString()));
             }
 
             return drivers.map(d => {
@@ -1015,6 +1031,9 @@ const updateDriver = asyncHandler(async (req, res) => {
     if (driver) {
         // Explicitly handle all fields
         if (req.body.name) driver.name = req.body.name;
+        if (req.body.driverType) driver.driverType = req.body.driverType;
+        if (req.body.monthlyLeaveAllowance !== undefined && req.body.monthlyLeaveAllowance !== '') driver.monthlyLeaveAllowance = Number(req.body.monthlyLeaveAllowance);
+        if (req.body.leaveDeductionRate !== undefined && req.body.leaveDeductionRate !== '') driver.leaveDeductionRate = Number(req.body.leaveDeductionRate);
 
         if (req.body.isFreelancer !== undefined) {
             driver.isFreelancer = req.body.isFreelancer === 'true' || req.body.isFreelancer === true;
@@ -1591,7 +1610,7 @@ const getDailyReports = asyncHandler(async (req, res) => {
 
     // 1. Fetch Attendance Reports ( Staff + Freelancers)
     const rawAttendanceRaw = await Attendance.find(query)
-        .populate('driver', 'name mobile isFreelancer salary dailyWage overtime')
+        .populate('driver', 'name mobile isFreelancer salary dailyWage overtime driverType')
         .populate('vehicle', 'carNumber model isOutsideCar carType dutyAmount fastagNumber fastagBalance')
         .lean();
 
@@ -4144,12 +4163,21 @@ const deleteAllowance = asyncHandler(async (req, res) => {
     res.json({ message: 'Allowance deleted' });
 });
 
-const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelancerOnly = false) => {
+const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelancerOnly = false, driverType = 'Taxi') => {
     // 1. Get all drivers in company
     const driverQuery = {
         company: companyId,
-        role: 'Driver'
+        role: 'Driver',
+        status: { $ne: 'deleted' }
     };
+
+    if (driverType) {
+        if (driverType === 'Taxi') {
+            driverQuery.driverType = { $ne: 'Bus' };
+        } else {
+            driverQuery.driverType = driverType;
+        }
+    }
 
     if (isFreelancerOnly) {
         driverQuery.isFreelancer = true;
@@ -4157,7 +4185,7 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
         driverQuery.isFreelancer = { $ne: true };
     }
 
-    const drivers = await User.find(driverQuery).select('name mobile role dailyWage salary status overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled isFreelancer').lean();
+    const drivers = await User.find(driverQuery).select('name mobile role driverType monthlyLeaveAllowance leaveDeductionRate dailyWage salary status overtime nightStayBonus sameDayReturnBonus sameDayReturnEnabled isFreelancer').lean();
     if (!drivers.length) return [];
 
     const driverIds = drivers.map(d => d._id);
@@ -4316,13 +4344,18 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
             const otThreshold = Number(d.overtime?.thresholdHours) || 9;
             const otRate = Number(d.overtime?.ratePerHour) || 0;
 
+            let otBonusTotal = 0;
+            let specialPayTotal = 0;
+            let bonusesTotal = 0;
+
             for (let i = 0; i < driverAtt.length; i++) {
                 const att = driverAtt[i];
                 const dateStr = att.date || 'unknown';
 
-                // Base Wage (One per day, using max)
                 if (!datesProcessed.has(dateStr)) {
-                    totalRoutineEarnings += (maxWageByDay.get(dateStr) || 0);
+                    if (d.driverType !== 'Bus') {
+                        totalRoutineEarnings += (maxWageByDay.get(dateStr) || 0);
+                    }
                     datesProcessed.add(dateStr);
                 }
 
@@ -4331,23 +4364,59 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 const nightStay = Number(att.punchOut?.nightStayAmount) || 0;
                 let specialPay = Number(att.punchOut?.specialPay) || 0;
                 
-                // Add approved mid-trip special pay
                 const midTripSpecialPay = (att.pendingExpenses || [])
                     .filter(e => e.type === 'special_pay' && e.status === 'approved')
                     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
                 specialPay += midTripSpecialPay;
+                specialPayTotal += specialPay;
 
                 const bonuses = Math.max(sameDayReturn + nightStay, Number(att.outsideTrip?.bonusAmount) || 0) + specialPay;
+                bonusesTotal += bonuses;
 
                 let otBonus = 0;
                 if (otEnabled && att.punchIn?.time && att.punchOut?.time) {
                     const durationMs = new Date(att.punchOut.time).getTime() - new Date(att.punchIn.time).getTime();
                     const otHours = Math.max(0, (durationMs / 3600000) - otThreshold);
                     otBonus = Math.round(otHours * otRate);
+                    otBonusTotal += otBonus;
                 }
 
-                totalRoutineEarnings += (bonuses + otBonus);
+                if (d.driverType !== 'Bus') {
+                    totalRoutineEarnings += (bonuses + otBonus);
+                }
+                
                 if (nightStay > 0) nightStayCount += 1;
+            }
+
+            let deduction = 0;
+            let extraLeaves = 0;
+            let leavesTaken = 0;
+
+            if (d.driverType === 'Bus') {
+                const totalDaysInMonth = currentPeriod.endOf('month').day;
+                const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > currentPeriod.endOf('month');
+                const daysPassedInCycle = Math.min(totalDaysInMonth, Math.round(DateTime.now().setZone('Asia/Kolkata').diff(currentPeriod, 'days').days) + 1);
+                const daysToConsider = isPastCycle ? totalDaysInMonth : Math.max(1, daysPassedInCycle);
+                
+                const presentDays = datesProcessed.size;
+                if (presentDays === 0) {
+                    totalRoutineEarnings = 0;
+                    leavesTaken = daysToConsider;
+                    extraLeaves = Math.max(0, leavesTaken - (d.monthlyLeaveAllowance !== undefined ? d.monthlyLeaveAllowance : 4));
+                    deduction = 0;
+                } else {
+                    leavesTaken = Math.max(0, daysToConsider - presentDays);
+                    const allowance = d.monthlyLeaveAllowance !== undefined ? d.monthlyLeaveAllowance : 4;
+                    extraLeaves = Math.max(0, leavesTaken - allowance);
+                    
+                    const customDeductionRate = d.leaveDeductionRate || (d.salary / 30) || 0;
+                    deduction = Math.round(extraLeaves * customDeductionRate);
+                    
+                    const baseSalary = d.salary || 0;
+                    totalRoutineEarnings = Math.max(0, baseSalary - deduction);
+                    totalRoutineEarnings += otBonusTotal; 
+                    totalRoutineEarnings += specialPayTotal; // Bus drivers get special pay but not regular bonuses (HDA)
+                }
             }
 
             // 🅿️ PARKING
@@ -4395,7 +4464,12 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
                 name: d.name,
                 mobile: d.mobile,
                 dailyWage: d.dailyWage || 0,
+                salary: d.salary || 0,
+                driverType: d.driverType || 'Taxi',
                 workingDays: datesProcessed.size,
+                leavesTaken,
+                extraLeaves,
+                deduction,
                 nightStayCount,
                 totalEarned,
                 totalAllowances,
@@ -4450,9 +4524,9 @@ const getDriverSalarySummaryInternal = async (companyId, month, year, isFreelanc
 // @access  Private/Admin
 const getDriverSalarySummary = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { month, year, isFreelancer } = req.query;
+    const { month, year, isFreelancer, driverType } = req.query;
 
-    const validSummaries = await getDriverSalarySummaryInternal(companyId, month, year, isFreelancer === 'true');
+    const validSummaries = await getDriverSalarySummaryInternal(companyId, month, year, isFreelancer === 'true', driverType);
     res.json(validSummaries);
 });
 
@@ -4747,7 +4821,8 @@ const getAllStaff = asyncHandler(async (req, res) => {
         status: s.status,
         profilePhoto: s.profilePhoto,
         salary: s.salary,
-        monthlyLeaveAllowance: s.monthlyLeaveAllowance
+        monthlyLeaveAllowance: s.monthlyLeaveAllowance,
+        leaveDeductionRate: s.leaveDeductionRate || 0
     }));
 
     res.json(enhancedStaff);
@@ -4780,6 +4855,8 @@ const createStaff = asyncHandler(async (req, res) => {
         username,
         role: 'Staff',
         monthlyLeaveAllowance: (req.body.monthlyLeaveAllowance !== undefined && req.body.monthlyLeaveAllowance !== null && req.body.monthlyLeaveAllowance !== '') ? Number(req.body.monthlyLeaveAllowance) : 4,
+        leaveDeductionRate: (req.body.leaveDeductionRate !== undefined && req.body.leaveDeductionRate !== null && req.body.leaveDeductionRate !== '') ? Number(req.body.leaveDeductionRate) : 0,
+
         email: req.body.email,
         designation: req.body.designation,
         shiftTiming: req.body.shiftTiming || { start: '09:00', end: '18:00' },
@@ -4801,7 +4878,7 @@ const createStaff = asyncHandler(async (req, res) => {
 // @route   PUT /api/admin/staff/:id
 // @access  Private/AdminOrExecutive
 const updateStaff = asyncHandler(async (req, res) => {
-    const { name, mobile, salary, status, monthlyLeaveAllowance, username, password } = req.body;
+    const { name, mobile, salary, status, monthlyLeaveAllowance, leaveDeductionRate, username, password } = req.body;
     const staff = await User.findById(req.params.id);
 
     if (staff && ['Staff', 'Executive', 'Admin'].includes(staff.role)) {
@@ -4828,6 +4905,7 @@ const updateStaff = asyncHandler(async (req, res) => {
         staff.salary = salary ? Number(salary) : staff.salary;
         staff.status = status || staff.status;
         staff.monthlyLeaveAllowance = (monthlyLeaveAllowance !== undefined && monthlyLeaveAllowance !== null && monthlyLeaveAllowance !== '') ? Number(monthlyLeaveAllowance) : staff.monthlyLeaveAllowance;
+        staff.leaveDeductionRate = (leaveDeductionRate !== undefined && leaveDeductionRate !== null && leaveDeductionRate !== '') ? Number(leaveDeductionRate) : staff.leaveDeductionRate;
 
         if (password) {
             const isAdmin = ['admin', 'superadmin', 'executive'].includes(req.user.role.toLowerCase());
@@ -5349,7 +5427,8 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     }
 
                     const perDaySalary = s.salary / 30;
-                    let deduction = Math.round(extraLeaves * perDaySalary);
+                    const customLeaveDeduction = s.leaveDeductionRate || perDaySalary;
+                    let deduction = Math.round(extraLeaves * customLeaveDeduction);
                     
                     // Calculate Advances for this staff in this period
                     const staffAdvances = allAdvances.filter(adv => {
@@ -5402,17 +5481,9 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         earnedDaysCalc = presentDays;
                         totalEarned = Math.round(presentDays * perDayWage);
                     } else {
-                        // For Regular staff, use standard Base Salary minus deductions for unpaid leaves
-                        if (isPastCycle) {
-                            earnedDaysCalc = Math.max(0, 30 - extraLeaves); // 30 is standardized
-                            totalEarned = Math.max(0, s.salary - deduction);
-                        } else {
-                            // For active cycle, prorate it but cap it at max possible earned
-                            let currentProratedEarned = Math.round((presentDays + paidSundays + effectiveCurrentCycleLeavesUsed) * perDaySalary);
-                            const maxPossibleEarned = Math.max(0, s.salary - deduction);
-                            totalEarned = Math.min(currentProratedEarned, maxPossibleEarned);
-                            earnedDaysCalc = presentDays + paidSundays + effectiveCurrentCycleLeavesUsed;
-                        }
+                        // For Regular staff, purely use Fixed Base Salary minus deductions for unpaid leaves
+                        earnedDaysCalc = presentDays + paidSundays + effectiveCurrentCycleLeavesUsed;
+                        totalEarned = Math.max(0, s.salary - deduction);
                     }
 
                     const finalSalary = Math.max(0, Math.round(totalEarned - totalAdvances - totalPayments));
@@ -6038,7 +6109,7 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         const dailyBreakdown = attendance.map(att => {
             // Apply MAX wage only ONCE per day (first duty of the day)
             let wage = 0;
-            if (!wageUsed.has(att.date)) {
+            if (driver.driverType !== 'Bus' && !wageUsed.has(att.date)) {
                 wage = maxWageByDay.get(att.date) || 0;
                 wageUsed.add(att.date);
             }
@@ -6106,7 +6177,10 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
         // Aggregated totals - Including bonuses
         const totalWages = dailyBreakdown.reduce((sum, d) => sum + d.wage, 0);
         const totalOT = dailyBreakdown.reduce((sum, d) => sum + (d.otAmount || 0), 0);
-        const totalBonuses = dailyBreakdown.reduce((sum, d) => sum + d.sameDayReturn + d.nightStay + d.otherBonuses, 0);
+        let totalBonuses = dailyBreakdown.reduce((sum, d) => sum + d.sameDayReturn + d.nightStay + d.otherBonuses, 0);
+        if (driver.driverType === 'Bus') {
+            totalBonuses = 0; // Bus drivers do not get HDA/Same day return bonuses from attendance
+        }
         const parkingTotal = dailyBreakdown.reduce((sum, d) => sum + d.parking, 0) +
             standaloneParkingEntries.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const totalAdvances = advances.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
@@ -6135,7 +6209,44 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
             });
         }
 
-        const grandTotal = totalWages + parkingTotal + totalBonuses + totalOT + totalAllowances + dailyBreakdown.reduce((s,d) => s + (d.specialPay || 0), 0);
+        let grandTotal = 0;
+        let busDriverDetails = null;
+
+        if (driver.driverType === 'Bus') {
+            const totalDaysInMonth = DateTime.fromJSDate(startOfMonth).setZone('Asia/Kolkata').endOf('month').day;
+            const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > DateTime.fromJSDate(startOfMonth).setZone('Asia/Kolkata').endOf('month');
+            const daysPassedInCycle = Math.min(totalDaysInMonth, Math.round(DateTime.now().setZone('Asia/Kolkata').diff(DateTime.fromJSDate(startOfMonth).setZone('Asia/Kolkata').startOf('month'), 'days').days) + 1);
+            const daysToConsider = isPastCycle ? totalDaysInMonth : Math.max(1, daysPassedInCycle);
+            
+            const presentDays = new Set(attendance.map(a => a.date)).size;
+            if (presentDays === 0) {
+                routineEarnings = 0;
+                leavesTaken = daysToConsider;
+                extraLeaves = Math.max(0, leavesTaken - (driver.monthlyLeaveAllowance !== undefined ? driver.monthlyLeaveAllowance : 4));
+                deduction = 0;
+                baseSalary = driver.salary || 0;
+            } else {
+                leavesTaken = Math.max(0, daysToConsider - presentDays);
+                const allowance = driver.monthlyLeaveAllowance !== undefined ? driver.monthlyLeaveAllowance : 4;
+                extraLeaves = Math.max(0, leavesTaken - allowance);
+                const customDeductionRate = driver.leaveDeductionRate || (driver.salary / 30) || 0;
+                deduction = Math.round(extraLeaves * customDeductionRate);
+                baseSalary = driver.salary || 0;
+                routineEarnings = Math.max(0, baseSalary - deduction);
+            }
+            grandTotal = routineEarnings + parkingTotal + totalOT + totalAllowances + dailyBreakdown.reduce((s,d) => s + (d.specialPay || 0), 0);
+
+            busDriverDetails = {
+                baseSalary,
+                leavesTaken,
+                extraLeaves,
+                deduction,
+                presentDays
+            };
+        } else {
+            grandTotal = totalWages + parkingTotal + totalBonuses + totalOT + totalAllowances + dailyBreakdown.reduce((s,d) => s + (d.specialPay || 0), 0);
+        }
+
         const pendingAdvance = Math.max(0, totalAdvances - totalRecovered);
         const netPayable = grandTotal - pendingAdvance - totalEMI;
 
@@ -6155,7 +6266,9 @@ const getDriverSalaryDetails = asyncHandler(async (req, res) => {
                 totalAdvances,
                 totalEMI,
                 grandTotal,
+                pendingAdvance,
                 netPayable,
+                busDriverDetails,
                 workingDays: attendanceDates.size
             }
         });
@@ -7077,7 +7190,7 @@ const getUniqueGarages = asyncHandler(async (req, res) => {
     res.json(unique);
 });
 
-module.exports = {
+module.exports = { getDriverSalarySummaryInternal,
     resolveAirCheck,
     getUniqueGarages,
     markSalaryAsPaid,

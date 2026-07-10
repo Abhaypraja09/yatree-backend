@@ -34,10 +34,18 @@ const addPerformanceRecord = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 const getCompanyPerformance = asyncHandler(async (req, res) => {
     const { companyId } = req.params;
-    const { month, year } = req.query;
+    const { month, year, driverType } = req.query;
 
     const User = require('../models/User');
-    const drivers = await User.find({ company: companyId }).select('_id');
+    
+    let userQuery = { company: companyId };
+    if (driverType) {
+        userQuery.driverType = driverType;
+    } else {
+        userQuery.driverType = { $ne: 'Bus' };
+    }
+    
+    const drivers = await User.find(userQuery).select('_id');
     const driverIds = drivers.map(d => d._id);
 
     let query = { driverId: { $in: driverIds } };

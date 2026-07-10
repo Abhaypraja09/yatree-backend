@@ -102,6 +102,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 4
     },
+    leaveDeductionRate: {
+        type: Number,
+        default: 0
+    },
     email: {
         type: String,
         required: false
@@ -131,6 +135,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['Company', 'Hotel', 'Freelancer', 'Regular', 'Fixed', 'Daily'],
         default: 'Company'
+    },
+    driverType: {
+        type: String,
+        enum: ['Taxi', 'Bus'],
+        default: 'Taxi'
     },
     permissions: {
         type: mongoose.Schema.Types.Mixed,
