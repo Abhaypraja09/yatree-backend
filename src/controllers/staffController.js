@@ -404,24 +404,17 @@ async function calculateSalaryForCycle(staffUser, cycleStart, cycleEnd) {
         finalUnpaidSundays = 0;
         finalApprovedLeaveDays = 0;
         finalSundaysReport = [];
-    } else if (staffUser.staffType === 'Fixed') {
-        const daysPassedInCycle = Math.min(totalDaysInCycle, fullCycleAttendance.filter(a => a.date <= todayStr).length);
-        if (isPastCycle) {
-            earnedDays = totalDaysInCycle;
-            finalSalary = baseSalary;
-        } else {
-            earnedDays = daysPassedInCycle;
-            finalSalary = daysPassedInCycle * perDaySalary;
-        }
-        finalPaidSundays = 0;
-        finalUnpaidSundays = 0;
-        finalApprovedLeaveDays = 0;
-        finalSundaysReport = [];
     } else {
-        // Regular
-        const customLeaveDeduction = staffUser.leaveDeductionRate || (baseSalary / 30);
-        const deduction = unapprovedAbsences * customLeaveDeduction;
-        finalSalary = Math.max(0, baseSalary - deduction);
+        // Fixed & Regular: Salary is based STRICTLY on earned days (Present + Paid Sundays + Approved Leaves)
+        let customDeductionRate = staffUser.leaveDeductionRate || perDaySalary;
+        
+        // If they have a custom deduction rate that is higher than their per-day salary (Penalty)
+        let extraPenalty = 0;
+        if (customDeductionRate > perDaySalary) {
+            extraPenalty = unapprovedAbsences * (customDeductionRate - perDaySalary);
+        }
+        
+        finalSalary = Math.max(0, (earnedDays * perDaySalary) - extraPenalty);
     }
 
     return {
