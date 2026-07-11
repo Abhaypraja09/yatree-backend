@@ -5459,21 +5459,7 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                     const isPastCycle = DateTime.now().setZone('Asia/Kolkata') > cEnd;
                     const totalDaysInCycle = Math.round(cEnd.diff(cStart, 'days').days) + 1;
 
-                    if (s.staffType === 'Fixed') {
-                        // For Fixed staff, they get paid for all days passed in the active cycle so far (punch in or not),
-                        // or full salary if the cycle is completed / query is for a past month.
-                        const daysPassedInCycle = Math.min(totalDaysInCycle, (workingDaysPassed + sundaysPassed + sundaysWorked));
-                        deduction = 0;
-                        extraLeaves = 0;
-                        
-                        if (isPastCycle) {
-                            earnedDaysCalc = totalDaysInCycle || 30;
-                            totalEarned = s.salary;
-                        } else {
-                            earnedDaysCalc = daysPassedInCycle;
-                            totalEarned = Math.round(daysPassedInCycle * perDaySalary);
-                        }
-                    } else if (s.staffType === 'Daily') {
+                    if (s.staffType === 'Daily') {
                         // For Daily staff, they get paid only for the days they are present.
                         const perDayWage = s.salary;
                         deduction = 0;
@@ -5481,9 +5467,15 @@ const getStaffAttendanceReports = asyncHandler(async (req, res) => {
                         earnedDaysCalc = presentDays;
                         totalEarned = Math.round(presentDays * perDayWage);
                     } else {
-                        // For Regular staff, purely use Fixed Base Salary minus deductions for unpaid leaves
+                        // Fixed & Regular: Salary is based STRICTLY on earned days
                         earnedDaysCalc = presentDays + paidSundays + effectiveCurrentCycleLeavesUsed;
-                        totalEarned = Math.max(0, s.salary - deduction);
+                        
+                        let extraPenalty = 0;
+                        if (customLeaveDeduction > perDaySalary) {
+                            extraPenalty = Math.round(extraLeaves * (customLeaveDeduction - perDaySalary));
+                        }
+                        
+                        totalEarned = Math.max(0, Math.round((earnedDaysCalc * perDaySalary) - extraPenalty));
                     }
 
                     const finalSalary = Math.max(0, Math.round(totalEarned - totalAdvances - totalPayments));
