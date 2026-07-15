@@ -6496,17 +6496,9 @@ const getVehicleMonthlyDetails = asyncHandler(async (req, res) => {
             }
         }
 
-        // To match Fuel page logic: exclude the most recent fill quantity from the average balance 
-        // since that fuel is still in the tank and hasn't powered a trip distance record yet.
-        const efficiencyQuantity = vFuel.reduce((sum, f, idx) => {
-            // vFuel is sorted latest first (new Date(b.date) - new Date(a.date)), 
-            // so idx === 0 is the most recent fill in the filtered result.
-            if (idx === 0 && vFuel.length > 1) return sum;
-            return sum + (Number(f.quantity) || 0);
-        }, 0);
-
-        const avgMileage = (efficiencyQuantity > 0 && totalFuelDistance > 0)
-            ? Number((totalFuelDistance / efficiencyQuantity).toFixed(2))
+        // Calculate Average Mileage based on Total Distance / Total Quantity (to match Fuel Logbook)
+        const avgMileage = (totalFuelQuantity > 0 && totalFuelDistance > 0)
+            ? Number((totalFuelDistance / totalFuelQuantity).toFixed(2))
             : 0;
 
         // Fastag (from vehicle history)
