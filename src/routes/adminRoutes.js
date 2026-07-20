@@ -82,6 +82,7 @@ const {
     addPendingExpenseFromAdmin,
     getPendingMaintenanceExpenses,
     getLiveFeed,
+    getLiveMap,
     getAllLoans,
     createLoan,
     updateLoan,
@@ -127,6 +128,7 @@ const vehicleUpload = upload.fields([
 // Shared Routes (Admin & Executive)
 router.get('/dashboard/:companyId', adminOrExecutive, checkCompany, getDashboardStats);
 router.get('/live-feed/:companyId', adminOrExecutive, checkCompany, getLiveFeed);
+router.get('/live-map/:companyId', adminOrExecutive, checkCompany, getLiveMap);
 router.get('/vehicle-monthly-details/:companyId', adminOrExecutive, checkCompany, getVehicleMonthlyDetails);
 router.get('/reports/:companyId', adminOrExecutive, checkCompany, getDailyReports);
 router.get('/vehicles/:companyId', adminOrExecutive, checkCompany, getAllVehicles);

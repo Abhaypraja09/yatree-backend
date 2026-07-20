@@ -7013,7 +7013,7 @@ const getLiveFeed = asyncHandler(async (req, res) => {
             freelancerSalary: freelancerSalaryTotal,
             freelancerDriversCount: freelancerDriversSeen.size,
             outsideCarSalary: outsideCarTotal,
-            grandTotal: regularSalaryTotal + freelancerSalaryTotal + outsideCarTotal
+            grandTotal: regularSalaryTotal + freelancerSalaryTotal
         },
         liveDriversFeed,
         absentDriversFeed,
@@ -7173,8 +7173,42 @@ const getUniqueGarages = asyncHandler(async (req, res) => {
     
     res.json(unique);
 });
+// @desc    Get live GPS locations of vehicles (Dummy Data for Map)
+// @route   GET /api/admin/live-map/:companyId
+// @access  Private/Admin
+const getLiveMap = asyncHandler(async (req, res) => {
+    const { companyId } = req.params;
+    const finalCompanyId = req.tenantFilter?.company || req.user?.company?._id || req.user?.company || companyId;
+    
+    // Fetch vehicles for this company
+    const vehicles = await Vehicle.find({ company: finalCompanyId, status: 'Active' });
+    
+    // Dummy coordinates around Udaipur
+    const baseLat = 24.5854;
+    const baseLng = 73.7125;
+    
+    const liveVehicles = vehicles.map((v, index) => {
+        // Create slight variation for each vehicle to spread them on the map
+        const latOffset = (Math.random() - 0.5) * 0.1; // roughly +- 5km
+        const lngOffset = (Math.random() - 0.5) * 0.1;
+        
+        return {
+            id: v._id,
+            carNumber: v.carNumber,
+            model: v.model,
+            lat: baseLat + latOffset,
+            lng: baseLng + lngOffset,
+            speed: Math.floor(Math.random() * 80), // 0 to 80 km/h
+            lastUpdated: new Date(),
+            status: Math.random() > 0.2 ? 'Moving' : 'Stopped'
+        };
+    });
+    
+    res.json({ success: true, liveVehicles });
+});
 
 module.exports = { getDriverSalarySummaryInternal,
+    getLiveMap,
     resolveAirCheck,
     getUniqueGarages,
     markSalaryAsPaid,
